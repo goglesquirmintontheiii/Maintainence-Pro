@@ -118,7 +118,10 @@ Each release includes one-file test builds that start the MPro server with no se
 
 ### G-30 Licence, CLA and edition boundaries (MUST)
 
-The repo is source-available under [LICENSE](../LICENSE): never add notices or files that suggest it is open source, and keep the name, logos and licence notices intact. Only merge outside contributions whose author agreed to the CLA in CONTRIBUTING.md. Gate anything that is or may become Cloud-only through `entitlements_for(org)` and keep it in its own module, so it can move to the separate MPro Cloud repository without untangling the self-hosted code. New dependencies must have licences compatible with closed, paid distribution (no AGPL/GPL in shipped code).
+- The repo is **source-available** under the Maintenance Pro Source-Available License. Never call it open source; keep the name, logos and licence notices intact.
+- Only merge outside contributions whose author agreed to the CLA in CONTRIBUTING.md.
+- Gate anything that is or may become Cloud-only through `entitlements_for(org)` and keep it in its own module (`mpro/cloud/…`), so it can move to the separate MPro Cloud repo cleanly.
+- New dependencies must have licences compatible with closed, paid distribution (no AGPL/GPL in shipped code; LGPL libraries used unmodified are fine).
 
 ## AI coding agents
 
