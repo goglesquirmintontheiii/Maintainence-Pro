@@ -41,12 +41,18 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.auth.api import CSRF_EXEMPT
     from mpro.auth.api import bp as auth_bp
     from mpro.auth.models import User
+    from mpro.core import files as _files  # noqa: F401
     from mpro.core import jobs as _jobs  # noqa: F401
     from mpro.core import mail as _mail  # noqa: F401
+    from mpro.core import settings as _settings  # noqa: F401
     from mpro.core.admin_api import bp as admin_bp
     from mpro.core.admin_api import health_bp
+    from mpro.core.files_api import bp as files_bp
     from mpro.orgs import models as _org_models  # noqa: F401
     from mpro.orgs.api import bp as orgs_bp
+    from mpro.workorders import exports as _wo_exports  # noqa: F401
+    from mpro.workorders import models as _wo_models  # noqa: F401
+    from mpro.workorders.api import bp as wo_bp
 
     @login_manager.user_loader
     def load_user(uid: str) -> User | None:
@@ -98,7 +104,7 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
             )
         return resp
 
-    for bp in (auth_bp, orgs_bp, admin_bp, health_bp):
+    for bp in (auth_bp, orgs_bp, wo_bp, files_bp, admin_bp, health_bp):
         app.register_blueprint(bp)
 
     @app.get("/", defaults={"path": ""})

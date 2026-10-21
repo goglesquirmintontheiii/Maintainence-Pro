@@ -50,6 +50,19 @@ ACTIONS: dict[str, set[str]] = {
     "jobs.manage": {"admin"},
     "mail.view": {"admin"},
     "search.use": {"admin", "limited_admin", "technician", "requester", "viewer"},
+    # work orders (0.2.0). Requesters get their own requests in 0.6.0, not the work-order list.
+    "wo.view": {"admin", "limited_admin", "technician", "viewer"},
+    "wo.create": {"admin", "limited_admin", "technician"},
+    "wo.edit": {"admin", "limited_admin", "technician"},
+    "wo.comment": {"admin", "limited_admin", "technician"},
+    "wo.delete": {"admin", "limited_admin"},
+    "wo.approve": {"admin", "limited_admin"},
+    "wo.settings": {"admin"},
+    "wo.rates.view": {"admin", "limited_admin"},
+    "categories.manage": {"admin", "limited_admin"},
+    "templates.manage": {"admin", "limited_admin"},
+    "views.share": {"admin"},
+    "exports.use": {"admin", "limited_admin", "technician", "viewer"},
 }
 
 

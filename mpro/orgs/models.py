@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mpro.core.models import IdMixin, OrgScopedMixin, SoftDeleteMixin, TimestampMixin
@@ -37,6 +37,10 @@ class Membership(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mo
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), index=True)
     role: Mapped[str] = mapped_column(String(32), default="technician")
     job_title: Mapped[str] = mapped_column(String(120), default="")
+    hourly_rate_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = org default rate
+    # "all" or "limited": limited users see only work orders they created or that are assigned to them or
+    # their teams (MaintainX "Limited work order visibility").
+    wo_visibility: Mapped[str] = mapped_column(String(16), default="all")
 
     org: Mapped[Organization] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships", lazy="joined")
