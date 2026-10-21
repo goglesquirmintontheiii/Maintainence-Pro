@@ -13,6 +13,8 @@ onedir = os.environ.get("MPRO_ONEDIR") == "1"
 datas = [
     (str(root / "mpro" / "static" / "app"), "mpro/static/app"),
     (str(root / "mpro" / "migrations"), "mpro/migrations"),
+    (str(root / "LICENSE"), "."),
+    (str(root / "TRADEMARKS.md"), "."),
 ]
 hidden = (collect_submodules("mpro") + collect_submodules("alembic") + collect_submodules("flask_migrate")
           + collect_submodules("apiflask") + ["argon2", "_cffi_backend", "waitress", "sqlalchemy.dialects.sqlite",

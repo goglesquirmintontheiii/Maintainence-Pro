@@ -38,7 +38,7 @@ one-file Windows and Linux test builds.
 - [x] Testing and CI: pytest (47 tests, SQLite + PostgreSQL), Playwright browser tests (5), ruff, mypy, dependency audit, Docker build
 - [x] Release process: tag `vX.Y.Z` → GitHub release with `.exe` and `.AppImage` test builds
 - [x] MPro brand: hex-nut logo, favicon, app icons, README banner
-- [ ] **Licence choice — needs your decision** (AGPL-3.0, BSL or proprietary). Until then the README says all rights reserved.
+- [x] Licence: [Maintenance Pro Source-Available License](LICENSE) (no redistribution, rebranding or commercial use; self-hosting for your own organization allowed), [TRADEMARKS.md](TRADEMARKS.md), [CONTRIBUTING.md](CONTRIBUTING.md) with a CLA, PR template with the CLA checkbox
 
 ### Quality gates
 

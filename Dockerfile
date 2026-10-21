@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     MPRO_DATA_DIR=/data
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE TRADEMARKS.md ./
 RUN uv sync --frozen --no-dev --no-install-project --extra server
 COPY mpro/ ./mpro/
 COPY --from=web /src/mpro/static/app ./mpro/static/app

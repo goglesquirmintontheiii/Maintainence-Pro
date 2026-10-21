@@ -27,6 +27,7 @@ BANNER = r"""
  |_|  |_|_|      Sign in: {email} / {password}
 
  Keep this window open while you use MPro. Press Ctrl+C (or close the window) to stop.
+ Source-available software: no redistribution or commercial use. See LICENSE.
 """
 
 

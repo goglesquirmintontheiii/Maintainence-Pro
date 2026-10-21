@@ -54,6 +54,7 @@ The REST API is documented at `/api/docs` on any running server.
 
 - **Self-hosted** (this repository): one machine, PostgreSQL (or SQLite for testing), every core feature.
 - **MPro Cloud** (planned, 1.1.0+): hosted, multi-region and scalable, with Free / Pro / Expert plans.
+  It shares this codebase for now and moves to its own private repository later.
 
 ## Development
 
@@ -63,4 +64,13 @@ audit and a Docker build on every push.
 
 ## License
 
-Not chosen yet. Until a license is added, all rights are reserved by the author.
+Maintenance Pro is **source-available** under the [Maintenance Pro Source-Available License](LICENSE).
+It is not open source in the OSI sense. In short:
+
+- **You can** read the code, run it to manage your own organization's maintenance (businesses included),
+  modify it for your own use, and contribute through GitHub forks and pull requests.
+- **You can't** redistribute it, rebrand it or pass it off as your own, sell it or access to it, host it for
+  others, or build a competing product from it.
+
+The names and logos are covered by [TRADEMARKS.md](TRADEMARKS.md). Contributions are accepted under the
+CLA in [CONTRIBUTING.md](CONTRIBUTING.md). Some features may become MPro Cloud–only in future versions.

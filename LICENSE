@@ -1,0 +1,150 @@
+Maintenance Pro Source-Available License
+Version 1.0
+
+Copyright (c) 2026 the Maintenance Pro author (GitHub: goglesquirmintontheiii). All rights reserved
+except as expressly granted below.
+
+This is a source-available license. It is NOT an open-source license as defined by the Open Source
+Initiative: it does not allow redistribution, rebranding, or commercial use.
+
+1. Definitions
+
+   "Licensor" means the copyright holder of Maintenance Pro named above.
+
+   "Software" means Maintenance Pro ("MPro"), including its source code, object code, builds,
+   documentation, images, logos and other files published by the Licensor in the official
+   repository at https://github.com/goglesquirmintontheiii/Maintainence-Pro or in official
+   releases from it.
+
+   "You" means the individual or legal entity exercising rights under this license. If you act
+   for an organization, "You" includes that organization.
+
+   "Your Organization" means You and any entity that controls, is controlled by, or is under
+   common control with You.
+
+   "Commercial Use" means any use that is intended for, or directed toward, commercial advantage or
+   monetary compensation, including: charging for access to, or use of, the Software or an
+   instance of it; offering it as a hosted, managed or software-as-a-service product; bundling it
+   with, or making it a required part of, a paid product or service; charging for installation,
+   hosting, support or customization of the Software for third parties; and showing advertising in
+   it. Using the Software internally to manage Your Organization's own maintenance work is not
+   Commercial Use merely because Your Organization is a business (see section 2.2).
+
+   "Distribute" means to make the Software, or any part or modified version of it, available to
+   anyone outside Your Organization, by any means, including copying, uploading, publishing,
+   mirroring, packaging, selling, or giving it away, but not including the actions allowed by
+   section 2.4.
+
+2. What You May Do
+
+   Subject to the conditions in this license, the Licensor grants You a personal, non-exclusive,
+   non-transferable, non-sublicensable, revocable, royalty-free copyright license to:
+
+   2.1 View and study. Read, review and study the Software's source code.
+
+   2.2 Self-host for Your Organization. Install and run the Software, including official release
+       builds, on computers You or Your Organization control, solely to manage the maintenance,
+       assets and operations of Your Organization, for users who are members, employees or
+       contractors of Your Organization (and requesters You invite to submit requests to Your
+       Organization). This is allowed even if Your Organization is a business, as long as You do
+       not make any Commercial Use of the Software itself.
+
+   2.3 Modify for Your own use. Make changes to the Software for use under section 2.2 or for
+       contributing under section 2.4. Modified versions stay subject to this license.
+
+   2.4 Contribute. Fork the official repository on GitHub and keep that fork on GitHub only to
+       prepare, discuss and submit contributions (pull requests, patches or issues) to the official
+       repository. A fork may not be used to Distribute the Software in any other way, may not be
+       promoted as an alternative or replacement to the Software, and must keep this LICENSE,
+       TRADEMARKS.md and all copyright notices unchanged. Contributions are accepted under the terms
+       in CONTRIBUTING.md.
+
+   2.5 Test and evaluate. Run the Software for personal, educational, testing and evaluation
+       purposes.
+
+3. What You May Not Do
+
+   Except as section 2 expressly allows, You may not, and may not help or allow anyone else to:
+
+   3.1 Distribute the Software or any modified version, part or derivative of it, whether for free
+       or for payment, in source or object form;
+
+   3.2 Rebrand the Software, remove or alter its name, logos, copyright or license notices, or
+       present the Software or a derivative of it as Your own work or as anyone's product other than
+       the Licensor's;
+
+   3.3 Make any Commercial Use of the Software, or of any instance of it, including running it for
+       paying customers, reselling access, or offering it as a hosted service;
+
+   3.4 Use the Software, or substantial parts of its source code, design or structure, to build,
+       train, or provide a competing product or service;
+
+   3.5 Sublicense, sell, rent, lease or transfer the Software or Your rights under this license;
+
+   3.6 Remove, disable or circumvent any license key, entitlement, plan limit, or other technical
+       measure the Licensor places in the Software to separate editions or features.
+
+4. Editions and Feature Changes
+
+   The Licensor may offer some features only in a hosted or paid edition ("MPro Cloud") and may move
+   features between editions or remove them from the self-hosted edition in future versions. This
+   license covers only the self-hosted Software as published. Each version is licensed under the
+   license file included with that version; the Licensor may publish later versions under different
+   terms. Nothing in this license grants You rights to MPro Cloud, which is governed by its own terms
+   of service.
+
+5. Trademarks
+
+   This license does not grant any right to use the names "Maintenance Pro", "MaintPro", "MPro",
+   "MPro Cloud", or the Maintenance Pro logos, except to truthfully state that You use the
+   unmodified Software. See TRADEMARKS.md.
+
+6. Third-Party Components
+
+   The Software includes and depends on third-party components that are licensed under their own
+   licenses. Those licenses govern those components. This license does not restrict rights You have
+   under them for the third-party components themselves.
+
+7. Notices
+
+   You must keep this license and all copyright, trademark and license notices in every copy of the
+   Software You make, including modified copies.
+
+8. Termination
+
+   Your rights under this license end automatically if You breach any of its terms. If You stop the
+   breach within 30 days of receiving written notice of it from the Licensor, and it is Your first
+   breach, Your rights are reinstated. After termination You must stop using the Software and delete
+   all copies of it in Your possession or control. Sections 3, 5, 8, 9, 10 and 11 survive
+   termination.
+
+9. No Patent License Beyond Use
+
+   To the extent the Licensor holds patent claims necessarily infringed by the Software, the
+   Licensor grants You a license under them only to do what section 2 allows. If You start a legal
+   claim alleging that the Software infringes a patent, Your licenses under this license end
+   immediately.
+
+10. No Warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+   WITHOUT LIMITATION THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND
+   NON-INFRINGEMENT. YOU USE IT AT YOUR OWN RISK.
+
+11. Limitation of Liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT WILL THE LICENSOR OR ANY CONTRIBUTOR BE
+   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR EXEMPLARY DAMAGES, OR FOR
+   ANY LOSS OF DATA, PROFITS OR BUSINESS, ARISING OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THIS
+   LICENSE, HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+   DAMAGES.
+
+12. General
+
+   If any provision of this license is held unenforceable, the rest of it stays in effect and the
+   provision is enforced to the greatest extent permitted. The Licensor's failure to enforce a term
+   is not a waiver of it. Any right not expressly granted in this license is reserved by the
+   Licensor.
+
+   For permission to do anything this license does not allow (for example a commercial or
+   redistribution license), open an issue in the official repository to contact the Licensor.

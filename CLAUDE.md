@@ -49,3 +49,6 @@ cd frontend && npm run build             # typecheck + production build
 - Tenant data: always `scoped(Model)` / `get_scoped(Model, id)`; endpoints use `@require("action")`.
 - Plan/feature checks: `entitlements_for(org)`; never compare plan names.
 - UI: design tokens in `frontend/src/styles/tokens.css`; MaintainX names and layout for parity features.
+- Licensing: the repo is source-available ([LICENSE](LICENSE)); keep the name, logos and licence notices
+  intact. Contributions come in under the CLA in CONTRIBUTING.md. Cloud-only features are gated through
+  `entitlements_for(org)` so they can later move to the separate MPro Cloud repository cleanly.

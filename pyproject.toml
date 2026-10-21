@@ -3,6 +3,7 @@ name = "maintenance-pro"
 description = "Maintenance Pro (MPro): a self-hosted CMMS built as a drop-in replacement for MaintainX."
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
     "apiflask>=2.3",
