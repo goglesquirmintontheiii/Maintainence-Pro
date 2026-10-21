@@ -6,11 +6,12 @@
 servers, in a layout your team already knows from MaintainX, plus an importer to bring your MaintainX data
 across. Every core feature, no plan limits.
 
-> **Status: early development (0.1.0).** This release is the foundation: sign-in, organizations, roles,
-> Teams & Users, global search, the audit log and the MaintainX-style app shell. Work orders arrive in 0.2.0.
+> **Status: early development (0.2.0).** Work orders are in: MaintainX's fields, statuses and To Do list,
+> plus Table, Calendar, Workload and Board views, comments with @mentions, photos, time and costs, signatures
+> and approvals, templates, custom fields, bulk edit and PDF export. Assets and locations arrive in 0.3.0.
 > See [progress.md](progress.md) for what's in this version.
 
-![Teams & Users](docs/screenshots/0.1.0/03-teams-users.png)
+![Work orders](docs/screenshots/0.2.0/02-todo-detail.png)
 
 ## Try it
 
@@ -47,6 +48,7 @@ docker compose exec app mpro create-admin --email you@example.com --name "Your N
 | `MPRO_BASE_URL` | `http://localhost:8080` | Used in email links |
 | `MPRO_SECRET_KEY` | generated on first run | Session signing key |
 | `MPRO_SMTP_HOST`, `MPRO_SMTP_PORT`, `MPRO_SMTP_USER`, `MPRO_SMTP_PASSWORD`, `MPRO_MAIL_FROM` | not set | Send real email. Without them, emails wait in Settings → Email outbox |
+| `MPRO_MAX_UPLOAD_MB` | `50` | Largest photo or file people can attach |
 
 The REST API is documented at `/api/docs` on any running server.
 

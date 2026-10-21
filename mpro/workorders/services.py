@@ -27,8 +27,6 @@ from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team, TeamMember
 from mpro.orgs.services import RuleError, members_query
 from mpro.workorders.models import (
-    ACTIVE_STATUSES,
-    CLOSED_STATUSES,
     FIELD_TYPES,
     LINK_KINDS,
     PRIORITIES,
@@ -195,12 +193,16 @@ def _counter(org_id: uuid.UUID, key: str, lock: bool = True) -> Counter:
         q = q.with_for_update()
     c = db.session.scalars(q).first()
     if c is None:
+        from sqlalchemy.exc import IntegrityError
+
         current_max = db.session.scalar(select(func.max(WorkOrder.number)).where(WorkOrder.org_id == org_id)) or 0
-        c = Counter(org_id=org_id, key=key, value=int(current_max))
-        db.session.add(c)
-        db.session.flush()
-        if lock and db.engine.dialect.name == "postgresql":
-            db.session.scalars(q).first()
+        try:
+            with db.session.begin_nested():  # two first work orders at once: one creates the row, the other reuses it
+                db.session.add(Counter(org_id=org_id, key=key, value=int(current_max)))
+        except IntegrityError:
+            pass
+        c = db.session.scalars(q).first()
+        assert c is not None
     return c
 
 
@@ -424,11 +426,14 @@ def custom_fields(org_id: uuid.UUID, entity_type: str = "work_order") -> list[Cu
 
 def _clean_custom(org_id: uuid.UUID, values: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
     fields = {str(f.id): f for f in custom_fields(org_id)}
-    out = dict(existing or {})
+    out = {k: v for k, v in (existing or {}).items() if k in fields}
     for fid, v in (values or {}).items():
         f = fields.get(str(fid))
-        if f is None:
-            raise RuleError("One of the custom fields doesn't exist any more. Reload and try again.", 422)
+        if f is None:  # the field was deleted: forget its value instead of blocking the save
+            out.pop(str(fid), None)
+            continue
+        if existing is not None and existing.get(str(fid)) == v:
+            continue  # unchanged (it may predate a removed select option); keep as is
         if v in (None, "", []):
             out.pop(str(fid), None)
             continue
@@ -553,7 +558,7 @@ def _apply_fields(wo: WorkOrder, data: dict[str, Any]) -> None:
         wo.sub_status = sub
 
 
-def _set_parent(wo: WorkOrder, parent_id: Any) -> None:
+def _set_parent(wo: WorkOrder, parent_id: Any, m: Membership | None = None) -> None:
     if parent_id in (None, ""):
         wo.parent_id = None
         return
@@ -563,7 +568,7 @@ def _set_parent(wo: WorkOrder, parent_id: Any) -> None:
     parent = db.session.scalars(
         select(WorkOrder).where(WorkOrder.org_id == wo.org_id, WorkOrder.id == pid, WorkOrder.deleted_at.is_(None))
     ).first()
-    if parent is None:
+    if parent is None or (m is not None and not can_see(m, parent)):
         raise RuleError("The parent work order doesn't exist.", 422)
     if parent.parent_id is not None:
         raise RuleError("Sub-work orders can't have their own sub-work orders.", 422)
@@ -598,7 +603,7 @@ def create_work_order(
     wo = new_work_order(org.id, created_by_id=m.user_id)
     _apply_fields(wo, {"title": data.get("title", ""), **{k: data[k] for k in EDITABLE if k in data and k != "title"}})
     if data.get("parent_id"):
-        _set_parent(wo, data["parent_id"])
+        _set_parent(wo, data["parent_id"], m)
     wo.custom = _clean_custom(org.id, data.get("custom") or {})
     if data.get("template_id"):
         wo.template_id = _uuid(data["template_id"], "template")
@@ -673,7 +678,7 @@ def update_work_order(
     fields = {k: data[k] for k in EDITABLE if k in data}
     _apply_fields(wo, fields)
     if "parent_id" in data:
-        _set_parent(wo, data["parent_id"])
+        _set_parent(wo, data["parent_id"], m)
     added: list[str] = []
     removed: list[str] = []
     if "assignees" in data:
@@ -767,7 +772,9 @@ def set_status(
     file_ids: list[Any] | None = None,
     expected_version: int | None = None,
     commit: bool = True,
+    undo: bool = False,
 ) -> WorkOrder:
+    """`undo=True` (Undo right after a change) skips the "comment required" rule; completion rules still apply."""
     if status not in STATUSES:
         raise RuleError("Unknown status.", 422)
     if wo.deleted_at is not None:
@@ -779,7 +786,7 @@ def set_status(
     if status == wo.status and (sub_status or "") == wo.sub_status:
         return wo
     rule = _comment_rule(s, status)
-    if rule == "mandatory" and not comment and status != wo.status:
+    if rule == "mandatory" and not comment and status != wo.status and not undo:
         what = {"on_hold": "putting it on hold", "canceled": "canceling"}[status]
         raise RuleError(f"Add a comment explaining why you're {what}.", 422)
     if sub_status and sub_status not in s["sub_statuses"].get(status, []):
@@ -789,9 +796,12 @@ def set_status(
         _complete(org, m, wo, s, summary, signature, signed_by)
     if status == "canceled":
         wo.cancel_reason = comment
-    if from_status in CLOSED_STATUSES and status in ACTIVE_STATUSES:  # reopen
+    if from_status == "done" and status != "done":  # leaving Done: completion, sign-off and approval start over
         wo.completed_at = wo.completed_by_id = None
         wo.approval_status, wo.approved_by_id, wo.approved_at = "none", None, None
+        wo.signature_file_id, wo.signed_by_name, wo.signed_at = None, "", None
+        wo.completion_summary = ""
+    if from_status == "canceled" and status != "canceled":
         wo.cancel_reason = ""
     wo.status, wo.sub_status = status, sub_status
     if from_status != status:
@@ -1377,17 +1387,30 @@ def bulk(
     updated: list[str] = []
     errors: list[dict[str, Any]] = []
     undo: list[dict[str, Any]] = []
-    revert_map = {str(x.get("id")): x for x in (value or [])} if action == "revert" else {}
+    if action in (
+        "add_assignees",
+        "remove_assignees",
+        "add_categories",
+        "remove_categories",
+        "revert",
+    ) and not isinstance(value or [], list):
+        raise RuleError("Send a list.", 422)
+    revert_map: dict[str, dict[str, Any]] = {}
+    if action == "revert":
+        for x in value or []:
+            if not isinstance(x, dict) or "id" not in x:
+                raise RuleError("Undo data is malformed.", 422)
+            revert_map[str(x["id"])] = x
     for wo in wos:
         snap = _snapshot(wo)
         try:
             with db.session.begin_nested():
                 prev: dict[str, Any] = {"id": str(wo.id)}
                 if action == "set_status":
-                    prev["status"] = wo.status
+                    prev["status"], prev["sub_status"] = wo.status, wo.sub_status
                     set_status(org, m, wo, str(value), comment=comment, commit=False)
                 elif action == "cancel":
-                    prev["status"] = wo.status
+                    prev["status"], prev["sub_status"] = wo.status, wo.sub_status
                     set_status(org, m, wo, "canceled", comment=comment, commit=False)
                 elif action == "delete":
                     delete_work_order(org, m, wo, commit=False)
@@ -1411,7 +1434,14 @@ def bulk(
                         patch["start_at"] = None
                     elif action in ("add_assignees", "remove_assignees"):
                         cur = snap["assignees"]
-                        items = [str(x) if isinstance(x, str) else f"{x['type']}:{x['id']}" for x in (value or [])]
+                        items = []
+                        for x in value or []:
+                            if isinstance(x, str):
+                                items.append(x)
+                            elif isinstance(x, dict) and "type" in x and "id" in x:
+                                items.append(f"{x['type']}:{x['id']}")
+                            else:
+                                raise RuleError("Assignees must be people or teams.", 422)
                         patch["assignees"] = (
                             cur + [x for x in items if x not in cur]
                             if action == "add_assignees"
@@ -1429,8 +1459,16 @@ def bulk(
                         r = revert_map.get(str(wo.id))
                         if not r:
                             continue
-                        if "status" in r and r["status"] != wo.status:
-                            set_status(org, m, wo, r["status"], commit=False)
+                        if "status" in r and (r["status"] != wo.status or r.get("sub_status", "") != wo.sub_status):
+                            set_status(
+                                org,
+                                m,
+                                wo,
+                                str(r["status"]),
+                                sub_status=str(r.get("sub_status") or ""),
+                                commit=False,
+                                undo=True,
+                            )
                         patch = {
                             k: r[k] for k in ("priority", "due_at", "start_at", "assignees", "categories") if k in r
                         }

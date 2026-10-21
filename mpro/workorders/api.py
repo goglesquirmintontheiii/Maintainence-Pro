@@ -202,6 +202,8 @@ def export() -> tuple[dict[str, Any], int]:
     ids = b.get("ids") or None
     if ids is not None and (not isinstance(ids, list) or len(ids) > 5000):
         abort(422, message="ids must be a list.")
+    if ids:
+        ids = [str(_uuid(str(i))) for i in ids]
     query = b.get("query") or {}
     if not isinstance(query, dict):
         abort(422, message="query must be an object.")
@@ -281,7 +283,8 @@ def change_status(wo_id: str) -> dict[str, Any]:
         signature=b.get("signature"),
         signed_by=str(b.get("signed_by") or ""),
         file_ids=b.get("file_ids") or [],
-        expected_version=_version(),
+        expected_version=_version(b),
+        undo=bool(b.get("undo")),
     )
     return _detail(wo)
 
@@ -333,7 +336,7 @@ def pdf(wo_id: str) -> Response:
     resp = Response(data, mimetype="application/pdf")
     disp = "attachment" if request.args.get("download") == "1" else "inline"
     resp.headers["Content-Disposition"] = f'{disp}; filename="work-order-{wo.number}.pdf"'
-    resp.headers["Content-Security-Policy"] = "sandbox"
+    # No "sandbox" CSP here: Chrome's PDF viewer won't render sandboxed documents. The app CSP still applies.
     return resp
 
 
@@ -722,7 +725,9 @@ def _wo_changed(wo_id: uuid.UUID) -> None:
 
 def _comment_wo(cid: uuid.UUID) -> WorkOrder | None:
     c = db.session.get(Comment, cid)
-    return _wo_visible(c.entity_id) if c is not None and c.org_id == g.org.id else None
+    if c is None or c.org_id != g.org.id or c.deleted_at is not None:
+        return None
+    return _wo_visible(c.entity_id)
 
 
 def _cost_wo(cid: uuid.UUID) -> WorkOrder | None:

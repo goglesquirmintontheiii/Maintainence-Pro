@@ -227,7 +227,7 @@ export function ExportDialog({ query, onClose, ids }: { query: ListQuery; onClos
   });
   return (
     <Modal title="Export work orders" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => m.mutate()} disabled={m.isPending}><Download size={15} />Export</Button></>}>
-      <p className="muted">{ids ? `${ids.length} selected work orders.` : "Everything that matches your current search and filters."} Exports go to the Download Center and are kept for 14 days.</p>
+      <p className="muted">{ids ? `${ids.length} selected work orders.` : "Everything that matches your current search and filters, in any status (To Do and Done)."} Exports go to the Download Center and are kept for 14 days.</p>
       <div className="seg" role="radiogroup" aria-label="Format">
         <button type="button" role="radio" aria-checked={format === "csv"} className={"seg-btn" + (format === "csv" ? " on" : "")} onClick={() => setFormat("csv")}>CSV spreadsheet</button>
         <button type="button" role="radio" aria-checked={format === "pdf"} className={"seg-btn" + (format === "pdf" ? " on" : "")} onClick={() => setFormat("pdf")}>PDF (one per page)</button>

@@ -23,11 +23,14 @@ phase goal and the checklist item's spec.** Those rules win over anything below 
 ```
 mpro/                  Flask (APIFlask) backend — modular monolith
   core/                ids (UUIDv7), models, events (outbox + audit), jobs (DB queue), mail,
-                       permissions (role matrix), entitlements (plans), tenancy (org scoping), search
+                       permissions (role matrix), entitlements (plans), tenancy (org scoping), search,
+                       settings (per-org JSON settings), files (storage, attachments, Download Center)
   auth/ orgs/          one package per module: models.py, services.py (business rules), api.py
+  workorders/          services.py (rules), activity.py (comments, time, costs), queries.py (filters,
+                       serialization, workload), exports.py (PDF/CSV), demo.py (sample work)
   migrations/          Alembic (Flask-Migrate); `flask --app mpro:create_app db migrate -d mpro/migrations`
   desktop.py           launcher used by the .exe / .AppImage test builds
-frontend/              React + TypeScript + Vite; builds into mpro/static/app
+frontend/              React + TypeScript + Vite; builds into mpro/static/app (pages/workorders/ = WO screens)
 tests/                 pytest (SQLite by default; TEST_DATABASE_URL for PostgreSQL); tests/e2e = Playwright
 packaging/             PyInstaller spec, AppImage script, icons
 ```
@@ -47,6 +50,10 @@ cd frontend && npm run build             # typecheck + production build
 - Business logic lives in `services.py`; API views stay thin.
 - Every write calls `emit(...)` in the same transaction (audit log + outbox).
 - Tenant data: always `scoped(Model)` / `get_scoped(Model, id)`; endpoints use `@require("action")`.
+  IDs that arrive in request bodies (assignees, categories, files, parents, links) must be checked against
+  the current org in the service. Work orders also respect limited visibility (`can_see`, `visibility_clause`).
+- Files attach to any record through `FileLink`; a module says who may view/edit its records with
+  `register_entity(...)`. Exports go through `request_export(...)` and land in the Download Center.
 - Plan/feature checks: `entitlements_for(org)`; never compare plan names.
 - UI: design tokens in `frontend/src/styles/tokens.css`; MaintainX names and layout for parity features.
 - Licensing: the repo is source-available ([LICENSE](LICENSE)); keep the name, logos and licence notices

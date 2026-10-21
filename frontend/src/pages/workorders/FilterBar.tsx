@@ -7,13 +7,15 @@ import { useSession } from "../../lib/session";
 import { useToast } from "../../components/Toast";
 import { Avatar, Button, Checkbox, Dropdown, Field, Input, Modal, Select } from "../../components/ui";
 
-type FieldDef = { id: string; label: string; kind: "list" | "date" | "text" | "bool" | "parent"; options?: (o: WOOptions) => { id: string; label: string; color?: string; initials?: string }[] };
+type FieldDef = { id: string; label: string; kind: "list" | "date" | "cdate" | "num" | "text" | "bool" | "parent"; options?: (o: WOOptions) => { id: string; label: string; color?: string; initials?: string }[] };
 
 const OPS: Record<string, { id: string; label: string }[]> = {
   list: [{ id: "in", label: "One of" }, { id: "not_in", label: "None of" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   date: [{ id: "between", label: "Between" }, { id: "before", label: "Before" }, { id: "after", label: "After" }, { id: "overdue", label: "Overdue" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   text: [{ id: "contains", label: "Contains" }, { id: "not_contains", label: "Does not contain" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   bool: [{ id: "is", label: "Is" }],
+  cdate: [{ id: "between", label: "Between" }, { id: "before", label: "Before" }, { id: "after", label: "After" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
+  num: [{ id: "between", label: "Between" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   parent: [{ id: "empty", label: "Top-level only" }, { id: "not_empty", label: "Sub-work orders only" }],
 };
 const NO_EMPTY = new Set(["status", "priority", "work_type", "created_by", "completed_by"]);
@@ -40,7 +42,7 @@ export function fieldDefs(o: WOOptions | undefined): FieldDef[] {
   ];
   const custom: FieldDef[] = (o?.custom_fields ?? []).map((f) => ({
     id: `custom.${f.id}`, label: f.name,
-    kind: f.type === "select" ? "list" : f.type === "date" || f.type === "datetime" ? "date" : f.type === "checkbox" ? "list" : "text",
+    kind: f.type === "select" || f.type === "checkbox" ? "list" : f.type === "date" || f.type === "datetime" ? "cdate" : f.type === "number" ? "num" : "text",
     options: f.type === "select" ? () => f.options.map((x) => ({ id: x, label: x })) : f.type === "checkbox" ? () => [{ id: "true", label: "Checked" }, { id: "false", label: "Not checked" }] : undefined,
   }));
   return [...base, ...custom];
@@ -56,7 +58,8 @@ function describe(f: Filter, def: FieldDef | undefined, o: WOOptions | undefined
     const names = ((f.value as string[]) ?? []).map((v) => opts.find((x) => x.id === v)?.label ?? v);
     return `${def.label}: ${f.op === "not_in" ? "not " : ""}${names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(", ") || "—"}`;
   }
-  if (def.kind === "date") {
+  if (def.kind === "num" && Array.isArray(f.value)) return `${def.label}: ${(f.value as string[])[0] || "…"} – ${(f.value as string[])[1] || "…"}`;
+  if (def.kind === "date" || def.kind === "cdate") {
     const v = f.value as string | string[] | undefined;
     if (f.op === "between" && Array.isArray(v)) return `${def.label}: ${v[0] || "…"} – ${v[1] || "…"}`;
     return `${def.label}: ${op.toLowerCase()} ${v ?? ""}`;
@@ -82,7 +85,9 @@ function FilterEditor({ filter, def, options, onChange, onRemove, close }: { fil
           <Checkbox key={x.id} checked={vals.includes(x.id)} onChange={(c) => setF({ ...f, value: c ? [...vals, x.id] : vals.filter((v) => v !== x.id) })}
             label={<span className="row" style={{ gap: 6 }}>{x.color && <span className="sw lg" style={{ background: x.color }} />}{x.initials && <Avatar name={x.label} initials={x.initials} size="sm" />}{x.label}</span>} />))}</div>
       </>)}
-      {!noValue && def.kind === "date" && (f.op === "between"
+      {!noValue && def.kind === "num" && <div className="row"><Input type="number" aria-label="From" value={((f.value as string[]) ?? [])[0] ?? ""} onChange={(e) => setF({ ...f, value: [e.target.value, ((f.value as string[]) ?? [])[1] ?? ""] })} />
+        <Input type="number" aria-label="To" value={((f.value as string[]) ?? [])[1] ?? ""} onChange={(e) => setF({ ...f, value: [((f.value as string[]) ?? [])[0] ?? "", e.target.value] })} /></div>}
+      {!noValue && (def.kind === "date" || def.kind === "cdate") && (f.op === "between"
         ? <div className="row"><Input type="date" aria-label="From" value={((f.value as string[]) ?? [])[0] ?? ""} onChange={(e) => setF({ ...f, value: [e.target.value, ((f.value as string[]) ?? [])[1] ?? ""] })} />
             <Input type="date" aria-label="To" value={((f.value as string[]) ?? [])[1] ?? ""} onChange={(e) => setF({ ...f, value: [((f.value as string[]) ?? [])[0] ?? "", e.target.value] })} /></div>
         : <Input type="date" aria-label="Date" value={(f.value as string) ?? ""} onChange={(e) => setF({ ...f, value: e.target.value })} />)}

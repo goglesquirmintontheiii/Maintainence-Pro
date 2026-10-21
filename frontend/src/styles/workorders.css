@@ -218,3 +218,8 @@ th:hover .grip { opacity: 1; }
   .wo-head .wo-title { font-size: var(--fs-lg); }
   .board { grid-template-columns: repeat(4, 82vw); }
 }
+@media (max-width: 640px) {
+  .wo-toolbar > .row:first-child { flex-wrap: wrap; }
+  .wo-toolbar .btn.primary > span { display: none; }
+  .wo-toolbar .seg-btn { padding: 0 6px; }
+}

@@ -51,16 +51,18 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (/^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName) || t?.isContentEditable || document.querySelector(".overlay, .drawer-wrap")) return;
+      const panels = document.querySelectorAll(".drawer-wrap").length;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName) || t?.isContentEditable || document.querySelector(".overlay") || panels > (inDrawer ? 1 : 0)) return;
       if (e.key === "e" && can("wo.edit") && q.data && !q.data.deleted) { e.preventDefault(); setEditing(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [can, q.data]);
+  }, [can, q.data, inDrawer]);
 
   const refresh = (wo?: WODetail) => {
     if (wo) qc.setQueryData(["work-order", id], wo); else qc.invalidateQueries({ queryKey: ["work-order", id] });
     qc.invalidateQueries({ queryKey: ["work-orders"] }); qc.invalidateQueries({ queryKey: ["wo-activity", id] }); qc.invalidateQueries({ queryKey: ["wo-stats"] });
+    qc.invalidateQueries({ queryKey: ["wo-workload"] });
   };
   const err = (e: unknown) => {
     const ae = e as ApiError;
@@ -77,7 +79,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
     onSuccess: (wo, b, ctx) => {
       refresh(wo); setStatusAsk(null);
       const from = ctx?.prev?.status;
-      if (from && from !== wo.status) toast(`Marked ${STATUS_LABEL[wo.status]}`, { action: { label: "Undo", run: () => statusM.mutate({ status: from, version: wo.version }) } });
+      const fromSub = ctx?.prev?.sub_status ?? "";
+      if (from && from !== wo.status && !b.undo) toast(`Marked ${STATUS_LABEL[wo.status]}`, { action: { label: "Undo", run: () => statusM.mutate({ status: from, sub_status: fromSub, version: wo.version, undo: true }) } });
       void b;
     },
     onError: (e, _b, ctx) => { if (ctx?.prev) qc.setQueryData(["work-order", id], ctx.prev); err(e); },

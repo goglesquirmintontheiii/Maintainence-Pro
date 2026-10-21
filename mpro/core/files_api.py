@@ -102,9 +102,10 @@ def _send(f: FileObject, key: str, ctype: str, download: bool) -> Response:
     resp.headers["Content-Disposition"] = (
         f"{disp}; filename=\"{safe.encode('ascii', 'ignore').decode() or 'file'}\"; filename*=UTF-8''{quote(safe)}"
     )
-    resp.headers["Content-Security-Policy"] = (
-        "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
-    )
+    if ctype != "application/pdf":  # browsers' PDF viewers refuse sandboxed documents; PDFs keep the app CSP
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+        )
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Cache-Control"] = "private, max-age=3600"
     return resp
@@ -135,7 +136,7 @@ def detach(link_id: str) -> tuple[str, int]:
     if link is None or link.org_id != g.org.id:
         abort(404)
     acc = entity_access(link.entity_type)
-    if not acc.can_edit(link.entity_id) and link.file.uploaded_by_id != g.user.id:
+    if not acc.can_view(link.entity_id) or (not acc.can_edit(link.entity_id) and link.file.uploaded_by_id != g.user.id):
         abort(403, message="You can't remove files from that record.")
     if link.role == "signature":
         abort(409, message="Signatures can't be removed.")

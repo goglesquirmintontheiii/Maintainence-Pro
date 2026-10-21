@@ -32,7 +32,7 @@ from mpro.workorders.models import (
     WorkOrderCategory,
     WorkOrderLink,
 )
-from mpro.workorders.services import custom_fields, team_ids_of, visibility_clause, wo_settings
+from mpro.workorders.services import can_see, custom_fields, team_ids_of, visibility_clause, wo_settings
 
 FILTER_FIELDS = {
     "status": ("in", "not_in"),
@@ -53,7 +53,7 @@ FILTER_FIELDS = {
     "parent": ("empty", "not_empty", "in"),
     "unread": ("is",),
 }
-CUSTOM_OPS = ("in", "not_in", "empty", "not_empty", "contains", "not_contains", "between")
+CUSTOM_OPS = ("in", "not_in", "empty", "not_empty", "contains", "not_contains", "between", "before", "after")
 SORTS = {
     "number": WorkOrder.number,
     "title": func.lower(WorkOrder.title),
@@ -190,28 +190,61 @@ def _apply_filter(q: Select[Any], f: dict[str, Any], m: Membership) -> Select[An
         )
         cond = WorkOrder.id.not_in(read) if value else WorkOrder.id.in_(read)
     elif field.startswith("custom."):
-        cond = _custom_clause(field[7:], op, value, vals)
+        from mpro.workorders.models import CustomField
+
+        cf = db.session.scalars(
+            select(CustomField).where(CustomField.org_id == m.org_id, CustomField.id == _ids([field[7:]])[0])
+        ).first() if _ids([field[7:]]) else None  # fmt: skip
+        cond = _custom_clause(field[7:], op, value, vals, cf.type if cf else "text") if cf else None
     return q.where(cond) if cond is not None else q
 
 
-def _custom_clause(fid: str, op: str, value: Any, vals: list[Any]) -> Any:
-    """Custom-field filters. Evaluated in Python-friendly SQL via JSON text matching for portability."""
-    # JSON path access works on both PostgreSQL (->>) and SQLite (json_extract) through SQLAlchemy.
-    col = WorkOrder.custom[fid].as_string()
+def _custom_clause(fid: str, op: str, value: Any, vals: list[Any], ftype: str) -> Any:
+    """Custom-field filters, typed by the field so numbers, checkboxes and dates compare correctly on
+    PostgreSQL and SQLite alike (JSON path access via SQLAlchemy)."""
+    node = WorkOrder.custom[fid]
+    col = node.as_string()
     if op == "empty":
         return or_(col.is_(None), col == "")
     if op == "not_empty":
         return and_(col.is_not(None), col != "")
+    if ftype == "checkbox":
+        want = [str(v).lower() in ("true", "1", "yes") for v in vals]
+        b = node.as_boolean()
+        conds = [b.is_(True) if w else or_(b.is_(None), b.is_(False)) for w in set(want)]
+        cond = or_(*conds) if conds else None
+        return cond if op == "in" or cond is None else not_(cond)
+    if ftype == "number":
+        num = node.as_float()
+
+        def f(x: Any) -> float | None:
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return None
+
+        if op in ("between", "before", "after"):
+            lo, hi = (value or [None, None]) if isinstance(value, list) else (value, value)
+            conds = []
+            if op in ("between", "after") and f(lo) is not None:
+                conds.append(num >= f(lo))
+            if op in ("between", "before") and f(hi) is not None:
+                conds.append(num <= f(hi))
+            return and_(*conds) if conds else None
+        nums = [x for x in (f(v) for v in vals) if x is not None]
+        return num.in_(nums) if op == "in" else or_(num.is_(None), num.not_in(nums))
     if op in ("contains", "not_contains"):
         c = func.lower(col).like(like(str(value or "")), escape="\\")
         return c if op == "contains" else or_(col.is_(None), not_(c))
-    if op == "between":
-        lo, hi = (value or [None, None]) if isinstance(value, list) else (None, None)
+    if op in ("between", "before", "after"):  # dates (ISO strings sort correctly) and text
+        lo, hi = (value or [None, None]) if isinstance(value, list) else (value, value)
         conds = []
-        if lo not in (None, ""):
+        if op in ("between", "after") and lo not in (None, ""):
             conds.append(col >= str(lo))
-        if hi not in (None, ""):
-            conds.append(col <= str(hi))
+        if op == "between" and hi not in (None, ""):
+            conds.append(col <= str(hi) + "\uffff")
+        if op == "before" and hi not in (None, ""):
+            conds.append(col < str(hi))
         return and_(*conds) if conds else None
     strs = [str(v) for v in vals]
     return col.in_(strs) if op == "in" else or_(col.is_(None), col.not_in(strs))
@@ -428,7 +461,10 @@ def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
     children = db.session.scalars(
         select(WorkOrder).where(WorkOrder.parent_id == wo.id, WorkOrder.deleted_at.is_(None)).order_by(WorkOrder.number)
     ).all()
+    children = [c for c in children if can_see(m, c)]  # limited-visibility users only see what they may open
     parent = db.session.get(WorkOrder, wo.parent_id) if wo.parent_id else None
+    if parent is not None and not can_see(m, parent):
+        parent = None
     links = db.session.scalars(
         select(WorkOrderLink).where(or_(WorkOrderLink.from_id == wo.id, WorkOrderLink.to_id == wo.id))
     ).all()
@@ -438,11 +474,11 @@ def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
     for lk in links:
         oid = lk.to_id if lk.from_id == wo.id else lk.from_id
         o = others.get(oid)
-        if o is None or o.deleted_at is not None:
+        if o is None or o.deleted_at is not None or not can_see(m, o):
             continue
         rel = "related" if lk.kind == "related" else ("blocks" if lk.from_id == wo.id else "blocked_by")
         link_items.append({"id": str(lk.id), "relation": rel, "work_order": _mini(o)})
-    sig = links_for("work_order", wo.id, {"signature"})
+    sig = [x for x in links_for("work_order", wo.id, {"signature"}) if x.file_id == wo.signature_file_id]
     d.update(
         {
             "description": wo.description,

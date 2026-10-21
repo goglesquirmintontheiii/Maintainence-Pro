@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 root = Path(SPECPATH).parent  # noqa: F821 (provided by PyInstaller)
 onedir = os.environ.get("MPRO_ONEDIR") == "1"
@@ -15,9 +15,11 @@ datas = [
     (str(root / "mpro" / "migrations"), "mpro/migrations"),
     (str(root / "LICENSE"), "."),
     (str(root / "TRADEMARKS.md"), "."),
-]
+] + collect_data_files("reportlab")
 hidden = (collect_submodules("mpro") + collect_submodules("alembic") + collect_submodules("flask_migrate")
-          + collect_submodules("apiflask") + ["argon2", "_cffi_backend", "waitress", "sqlalchemy.dialects.sqlite",
+          + collect_submodules("apiflask") + collect_submodules("reportlab.pdfbase") + collect_submodules("segno")
+          + ["PIL.Image", "PIL.ImageOps", "PIL.JpegImagePlugin", "PIL.PngImagePlugin", "PIL.GifImagePlugin", "PIL.WebPImagePlugin"]
+          + ["argon2", "_cffi_backend", "waitress", "sqlalchemy.dialects.sqlite",
                                                "logging.config"])
 
 a = Analysis(  # noqa: F821

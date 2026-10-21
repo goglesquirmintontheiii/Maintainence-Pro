@@ -68,7 +68,7 @@ def test_entitlements_cloud_plans() -> None:
 def test_health_and_meta(api) -> None:  # type: ignore[no-untyped-def]
     assert api.get("/healthz").json["status"] == "ok"
     m = api.get("/api/v1/meta").json
-    assert m["version"] == "0.1.0" and m["edition"] == "selfhosted"
+    assert m["version"] == __import__("mpro").__version__ and m["edition"] == "selfhosted"
 
 
 def test_openapi_docs(api) -> None:  # type: ignore[no-untyped-def]

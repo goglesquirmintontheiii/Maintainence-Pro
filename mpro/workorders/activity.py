@@ -364,6 +364,10 @@ def add_cost(org: Organization, m: Membership, wo: WorkOrder, data: dict[str, An
     if ctype not in types:
         raise RuleError("Pick one of the cost types: " + ", ".join(types) + ".", 422)
     user_id = _uuid(data["user_id"]) if data.get("user_id") else m.user_id
+    if not db.session.scalar(
+        members_query(org.id).with_only_columns(Membership.id).where(Membership.user_id == user_id)
+    ):
+        raise RuleError("That person isn't in this organization.", 422)
     c = CostEntry(
         org_id=org.id,
         work_order_id=wo.id,
@@ -439,11 +443,19 @@ def activity(wo: WorkOrder) -> list[dict[str, Any]]:
         .order_by(DomainEvent.created_at)
     ).all()
     items: list[dict[str, Any]] = [
-        {"kind": "event", "at": iso(e.created_at), **e.to_dict()} for e in events if e.type != "wo.commented"
+        {"kind": "event", "at": iso(e.created_at), **_public_event(e.to_dict())}
+        for e in events
+        if e.type != "wo.commented"
     ]
     items += [{"kind": "comment", "at": c["created_at"], **c} for c in comments_for(wo)]
     items.sort(key=lambda x: x["at"] or "")
     return items
+
+
+def _public_event(d: dict[str, Any]) -> dict[str, Any]:
+    """Feed items are visible to everyone who can see the work order; IP addresses stay in the admin audit log."""
+    d.pop("ip", None)
+    return d
 
 
 def attachments_for(wo: WorkOrder) -> list[dict[str, Any]]:

@@ -185,8 +185,9 @@ def test_completion_requirements_signature_and_approval(app: Any, admin: Api) ->
     assert admin.post(url + "/approval", {"approve": False}).status_code == 422  # needs a reason
     r = admin.post(url + "/approval", {"approve": False, "comment": "Belt guard missing"})
     assert r.json["status"] == "in_progress" and r.json["approval_status"] == "rejected"
-    r = tech.post(url + "/status", {"status": "done", "summary": "Guard back on"})
-    assert r.json["approval_status"] == "pending"  # signature kept from before
+    assert tech.post(url + "/status", {"status": "done", "summary": "Guard back on"}).status_code == 422  # sign again
+    r = tech.post(url + "/status", {"status": "done", "summary": "Guard back on", "signature": sig})
+    assert r.json["approval_status"] == "pending"
     r = admin.post(url + "/approval", {"approve": True})
     assert r.json["approval_status"] == "approved" and r.json["approved_by"]["name"] == "Alex Morgan"
     bad = create(admin)
@@ -641,3 +642,131 @@ def test_demo_work_orders_seed_once(app: Any) -> None:
         assert n and n >= 25
         seed_demo()
         assert db.session.scalar(select(func.count()).select_from(WorkOrder)) == n
+
+
+# ---- regressions from the 0.2.0 review ---------------------------------------------------------
+def test_activity_hides_ip_addresses(app: Any, admin: Api) -> None:
+    wo = create(admin)
+    viewer = login(app, "quinn.foster@example.com")
+    items = viewer.get(f"/api/v1/work-orders/{wo['id']}/activity").json["items"]
+    assert items and all("ip" not in i for i in items)
+
+
+def test_limited_user_cannot_see_hidden_related_work(app: Any, admin: Api) -> None:
+    avery = uid(admin, "avery.kim@example.com")
+    mine = create(admin, title="Mine", assignees=[{"type": "user", "id": avery}])
+    secret = create(admin, title="SECRET parent")
+    create(admin, title="SECRET child", parent_id=mine["id"])
+    other = create(admin, title="SECRET linked")
+    admin.post(f"/api/v1/work-orders/{mine['id']}/links", {"work_order_id": other["id"]})
+    admin.patch(f"/api/v1/users/{avery}/work-settings", {"wo_visibility": "limited"})
+    tech = login(app, "avery.kim@example.com")
+    d = tech.get(f"/api/v1/work-orders/{mine['id']}").json
+    assert d["sub_work_orders"] == [] and d["links"] == []
+    r = tech.post("/api/v1/work-orders", {"title": "x", "parent_id": secret["id"]})
+    assert r.status_code == 422 and "SECRET" not in str(r.json)
+
+
+def test_cost_user_must_be_in_org(app: Any, admin: Api) -> None:
+    with app.app_context():
+        from mpro.auth.models import User
+        from mpro.extensions import db
+
+        u = User(email="outsider@example.com", name="Secret Outsider")
+        db.session.add(u)
+        db.session.commit()
+        outsider = str(u.id)
+    wo = create(admin)
+    r = admin.post(f"/api/v1/work-orders/{wo['id']}/costs", {"amount_cents": 100, "user_id": outsider})
+    assert r.status_code == 422
+
+
+def test_deleted_custom_field_does_not_block_edits(admin: Api) -> None:
+    f = admin.post("/api/v1/custom-fields", {"name": "Old field", "type": "select", "options": ["A", "B"]}).json
+    wo = create(admin, custom={f["id"]: "A"})
+    admin.patch(f"/api/v1/custom-fields/{f['id']}", {"options": ["B", "C"]})
+    r = admin.patch(f"/api/v1/work-orders/{wo['id']}", {"title": "Renamed", "custom": wo["custom"]})
+    assert r.status_code == 200  # unchanged value for a removed option is kept
+    admin.delete(f"/api/v1/custom-fields/{f['id']}")
+    r = admin.patch(f"/api/v1/work-orders/{wo['id']}", {"title": "Again", "custom": wo["custom"]})
+    assert r.status_code == 200 and f["id"] not in r.json["custom"]
+    assert admin.post(f"/api/v1/work-orders/{wo['id']}/duplicate").status_code == 201
+
+
+def test_typed_custom_field_filters(admin: Api) -> None:
+    cb = admin.post("/api/v1/custom-fields", {"name": "Lockout", "type": "checkbox"}).json
+    num = admin.post("/api/v1/custom-fields", {"name": "Hours down", "type": "number"}).json
+    day = admin.post("/api/v1/custom-fields", {"name": "Found on", "type": "date"}).json
+    a = create(admin, title="A", custom={cb["id"]: True, num["id"]: 9, day["id"]: "2026-10-01"})
+    b = create(admin, title="B", custom={num["id"]: 12, day["id"]: "2026-10-20"})
+
+    def ids(f: list[dict[str, Any]]) -> list[str]:
+        return [w["id"] for w in admin.get("/api/v1/work-orders?filters=" + json.dumps(f)).json["items"]]
+
+    assert ids([{"field": f"custom.{cb['id']}", "op": "in", "value": ["true"]}]) == [a["id"]]
+    assert ids([{"field": f"custom.{cb['id']}", "op": "in", "value": ["false"]}]) == [b["id"]]
+    assert ids([{"field": f"custom.{num['id']}", "op": "between", "value": ["8", "10"]}]) == [a["id"]]
+    assert ids([{"field": f"custom.{day['id']}", "op": "before", "value": "2026-10-10"}]) == [a["id"]]
+    assert ids([{"field": f"custom.{day['id']}", "op": "after", "value": "2026-10-10"}]) == [b["id"]]
+
+
+def test_leaving_done_resets_signature_and_approval(admin: Api) -> None:
+    sig = "data:image/png;base64," + base64.b64encode(PNG_1PX).decode()
+    admin.patch("/api/v1/work-orders/settings", {"require_signature": True})
+    wo = create(admin)
+    url = f"/api/v1/work-orders/{wo['id']}/status"
+    assert admin.post(url, {"status": "done", "signature": sig}).status_code == 200
+    r = admin.post(url, {"status": "open"})
+    assert r.json["signature"] is None and r.json["completed_at"] is None
+    assert admin.post(url, {"status": "done"}).status_code == 422  # must sign again
+    admin.patch("/api/v1/work-orders/settings", {"require_signature": False, "require_approval": True})
+    wo2 = create(admin)
+    tech_done = admin.post(f"/api/v1/work-orders/{wo2['id']}/status", {"status": "done"}).json
+    assert tech_done["approval_status"] == "approved"  # admin completes = approves
+    r = admin.post(f"/api/v1/work-orders/{wo2['id']}/status", {"status": "canceled"})
+    assert r.json["approval_status"] == "none" and r.json["completed_at"] is None
+
+
+def test_undo_skips_comment_rule_and_restores_sub_status(admin: Api) -> None:
+    admin.patch("/api/v1/work-orders/settings", {"comment_on_hold": "mandatory"})
+    wo = create(admin)
+    url = f"/api/v1/work-orders/{wo['id']}/status"
+    admin.post(url, {"status": "on_hold", "comment": "parts", "sub_status": "Waiting on parts"})
+    r = admin.post("/api/v1/work-orders/bulk", {"ids": [wo["id"]], "action": "set_status", "value": "in_progress"})
+    undo = r.json["undo"]
+    r = admin.post("/api/v1/work-orders/bulk", {"ids": [wo["id"]], "action": "revert", "value": undo})
+    assert r.json["errors"] == []
+    d = admin.get(f"/api/v1/work-orders/{wo['id']}").json
+    assert d["status"] == "on_hold" and d["sub_status"] == "Waiting on parts"
+    assert admin.post(url, {"status": "in_progress"}).status_code == 200
+    assert admin.post(url, {"status": "on_hold", "undo": True}).status_code == 200
+
+
+def test_bulk_rejects_malformed_values(admin: Api) -> None:
+    wo = create(admin)
+    for action, value in (("add_assignees", [{"id": "x"}]), ("revert", ["nope"]), ("add_categories", "x")):
+        r = admin.post("/api/v1/work-orders/bulk", {"ids": [wo["id"]], "action": action, "value": value})
+        assert r.status_code in (200, 422), (action, r.status_code)
+        if r.status_code == 200:
+            assert r.json["errors"], action
+
+
+def test_files_on_deleted_comments_are_hidden(app: Any, admin: Api) -> None:
+    wo = create(admin)
+    up = admin.c.post(
+        "/api/v1/files",
+        data={"file": (io.BytesIO(_png()), "private.png")},
+        headers={"X-CSRF-Token": admin.csrf},
+        content_type="multipart/form-data",
+    ).json
+    c = admin.post(f"/api/v1/work-orders/{wo['id']}/comments", {"body": "see photo", "file_ids": [up["id"]]}).json
+    viewer = login(app, "quinn.foster@example.com")
+    assert viewer.get(up["url"]).status_code == 200
+    admin.delete(f"/api/v1/work-orders/{wo['id']}/comments/{c['id']}")
+    assert viewer.get(up["url"]).status_code == 404
+
+
+def test_pdf_can_open_in_browser_viewer(admin: Api) -> None:
+    wo = create(admin)
+    r = admin.get(f"/api/v1/work-orders/{wo['id']}/pdf")
+    assert "sandbox" not in r.headers.get("Content-Security-Policy", "")

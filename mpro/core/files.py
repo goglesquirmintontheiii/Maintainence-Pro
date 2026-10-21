@@ -388,7 +388,8 @@ def _register_jobs() -> None:
         except Exception as e:
             db.session.rollback()
             ex = db.session.get(Export, uuid.UUID(payload["export_id"])) or ex
-            ex.status, ex.error = "failed", f"{type(e).__name__}: {e}"[:2000]
+            friendly = str(e) if isinstance(e, (ValueError, PermissionError, FileError)) else ""
+            ex.status, ex.error = "failed", (friendly or "Something went wrong preparing this export. Try again.")[:500]
             log.exception("Export %s failed", ex.id)
         ex.finished_at = utcnow()
         db.session.commit()
