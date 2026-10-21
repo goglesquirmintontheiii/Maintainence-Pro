@@ -36,7 +36,9 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mpro_test
       - name: Migrations match the models
-        run: uv run flask --app mpro:create_app db check -d mpro/migrations
+        run: |
+          uv run mpro migrate
+          uv run flask --app mpro:create_app db check -d mpro/migrations
         env:
           MPRO_DATA_DIR: ${{ runner.temp }}/mig
 
