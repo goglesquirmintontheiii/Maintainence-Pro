@@ -160,6 +160,7 @@ function UserDetail({ id }: { id: string }) {
               : <Button variant="danger" onClick={() => setConfirm(true)}><Trash2 size={15} />Remove from organization</Button>}
           </div>
         </section>)}
+      {can("wo.view") && ["admin", "limited_admin", "technician"].includes(m.role) && <WorkSettings userId={m.id} manage={can("users.manage") && m.role !== "admin"} self={m.id === session.user?.id} />}
       {can("audit.view") && <Link to={`/settings/audit-log?entity_id=${m.id}`} className="small">See this person's history in the audit log</Link>}
     </div>
   );
@@ -272,5 +273,35 @@ function TeamDetail({ id }: { id: string }) {
         : <div><Button variant="danger" onClick={() => setConfirm(true)}><Trash2 size={15} />Delete team</Button></div>)}
       {edit && <TeamModal team={team} onClose={() => setEdit(false)} />}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- work settings (rates, visibility)
+type WorkSettingsT = { hourly_rate_cents: number | null; default_hourly_rate_cents: number | null; rates_visible: boolean; wo_visibility: "all" | "limited" };
+
+function WorkSettings({ userId, manage, self }: { userId: string; manage: boolean; self: boolean }) {
+  const { session } = useSession();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const ws = useQuery({ queryKey: ["work-settings", userId], queryFn: () => api<WorkSettingsT>(`/users/${userId}/work-settings`) });
+  const save = useMutation({
+    mutationFn: (b: Partial<WorkSettingsT>) => api<WorkSettingsT>(`/users/${userId}/work-settings`, { method: "PATCH", body: b }),
+    onSuccess: (x) => { qc.setQueryData(["work-settings", userId], x); toast("Saved"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }),
+  });
+  if (!ws.data || (!manage && !ws.data.rates_visible && !self)) return null;
+  const w = ws.data;
+  const cur = session.org?.currency ?? "USD";
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Work orders</h2></div>
+      <div className="card-body form-grid">
+        {w.rates_visible && <Field label={`Hourly rate (${cur})`} hint={`Leave empty to use the default (${((w.default_hourly_rate_cents ?? 0) / 100).toFixed(2)}).`}>{(id) => (
+          <Input id={id} type="number" min={0} step="0.01" disabled={!manage} key={String(w.hourly_rate_cents)} defaultValue={w.hourly_rate_cents === null ? "" : w.hourly_rate_cents / 100}
+            onBlur={(e) => { const v = e.target.value === "" ? null : Math.round(Number(e.target.value) * 100); if (v !== w.hourly_rate_cents) save.mutate({ hourly_rate_cents: v }); }} />)}</Field>}
+        <Field label="Work order visibility" hint="Limited: sees only work they created or that's assigned to them or their teams.">{(id) => (
+          <Select id={id} value={w.wo_visibility} disabled={!manage} onChange={(e) => save.mutate({ wo_visibility: e.target.value as "all" | "limited" })}>
+            <option value="all">All work orders</option><option value="limited">Limited</option></Select>)}</Field>
+      </div>
+    </section>
   );
 }

@@ -11,6 +11,10 @@ import { ForgotPassword, Login, NoOrganization, ResetPassword } from "./pages/Au
 import { Overview } from "./pages/Overview";
 import { ComingSoon, NotFound } from "./pages/ComingSoon";
 import { People } from "./pages/People";
+import { WorkOrdersPage } from "./pages/workorders/WorkOrders";
+import { Categories } from "./pages/Categories";
+import { Downloads } from "./pages/Downloads";
+import { WorkOrderSettings } from "./pages/WorkOrderSettings";
 import { AuditLog, DesignSystem, EmailOutbox, Jobs, OrganizationSettings, Profile, SettingsIndex, SettingsLayout } from "./pages/Settings";
 import { LogoMark } from "./components/Logo";
 
@@ -45,9 +49,14 @@ function Gate() {
         <Route path="people" element={<Navigate to="/people/users" replace />} />
         <Route path="people/:tab" element={<People />} />
         <Route path="people/:tab/:id" element={<People />} />
+        <Route path="work-orders" element={<WorkOrdersPage />} />
+        <Route path="work-orders/:id" element={<WorkOrdersPage />} />
+        <Route path="categories" element={<Categories />} />
+        <Route path="downloads" element={<Downloads />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<SettingsIndex />} />
           <Route path="organization" element={<OrganizationSettings />} />
+          <Route path="work-orders" element={<WorkOrderSettings />} />
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="email" element={<EmailOutbox />} />

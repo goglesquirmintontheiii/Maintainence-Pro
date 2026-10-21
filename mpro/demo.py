@@ -34,10 +34,12 @@ TEAMS = [
 ]
 
 
-def seed_demo(password: str = DEMO_PASSWORD) -> Organization:
-    """Create the demo org if it doesn't exist. Idempotent."""
+def seed_demo(password: str = DEMO_PASSWORD, work_orders: bool = True) -> Organization:
+    """Create the demo org if it doesn't exist. Idempotent. `work_orders=False` skips sample work (tests)."""
     existing = db.session.scalars(select(Organization).where(Organization.slug == "acme-demo")).first()
     if existing:
+        if work_orders:
+            _seed_work(existing)
         return existing
     admin = db.session.scalars(select(User).where(User.email == DEMO_EMAIL)).first()
     if admin is None:
@@ -82,4 +84,14 @@ def seed_demo(password: str = DEMO_PASSWORD) -> Organization:
         )
     db.session.query(Membership).filter_by(org_id=org.id, user_id=admin.id).update({"job_title": "Plant Engineer"})
     db.session.commit()
+    if work_orders:
+        _seed_work(org)
     return org
+
+
+def _seed_work(org: Organization) -> None:
+    from mpro.workorders.demo import seed_work_orders
+
+    admin = db.session.scalars(select(User).where(User.email == DEMO_EMAIL)).first()
+    if admin is not None:
+        seed_work_orders(org, admin)

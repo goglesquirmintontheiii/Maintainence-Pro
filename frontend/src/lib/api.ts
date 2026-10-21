@@ -58,3 +58,77 @@ export type Job = { id: string; kind: string; status: string; attempts: number; 
   finished_at: string | null; last_error: string; locked_by: string };
 export type Email = { id: string; to: string; subject: string; body: string; status: string; error: string; created_at: string; sent_at: string | null };
 export type SearchGroup = { type: string; label: string; results: { id: string; title: string; subtitle: string; url: string; initials?: string; color?: string }[] };
+
+// ---- uploads ---------------------------------------------------------------------------------
+export async function upload(file: File, attachTo?: { entity_type: string; entity_id: string; role?: string }): Promise<FileItem> {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (attachTo) { fd.append("entity_type", attachTo.entity_type); fd.append("entity_id", attachTo.entity_id); fd.append("role", attachTo.role ?? "file"); }
+  let res: Response;
+  try {
+    res = await fetch("/api/v1/files", { method: "POST", body: fd, credentials: "same-origin", headers: { "X-CSRF-Token": csrf, Accept: "application/json" } });
+  } catch {
+    throw new ApiError(0, "Can't reach the MPro server. Check that it's running and your connection is up.");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.message || (res.status === 413 ? "That file is too large." : "Upload failed."));
+  return data as FileItem;
+}
+
+// ---- work orders -----------------------------------------------------------------------------
+export type WOStatus = "open" | "on_hold" | "in_progress" | "done" | "canceled";
+export type WOPriority = "none" | "low" | "medium" | "high";
+export type Person = { id: string; name: string; initials: string };
+export type Assignee = { type: "user" | "team"; id: string; name: string; initials?: string; color?: string };
+export type CategoryRef = { id: string; name: string; color: string };
+export type FileItem = { id: string; link_id: string | null; name: string; content_type: string; size: number; is_image: boolean; role: string | null;
+  url: string; thumb_url: string | null; width: number | null; height: number | null; created_at: string };
+export type WorkOrder = {
+  id: string; number: number; title: string; status: WOStatus; status_label: string; sub_status: string; priority: WOPriority; priority_label: string;
+  work_type: "reactive" | "preventive" | "other"; start_at: string | null; due_at: string | null; overdue: boolean; estimated_minutes: number | null;
+  assignees: Assignee[]; categories: CategoryRef[]; parent_id: string | null; created_by: Person | null; created_at: string; updated_at: string;
+  completed_at: string | null; approval_status: "none" | "pending" | "approved" | "rejected"; custom: Record<string, unknown>; unread: boolean; deleted: boolean;
+  version: number; comment_count?: number; sub_work_orders?: { total: number; closed: number } | null;
+};
+export type MiniWO = { id: string; number: number; title: string; status: WOStatus; priority: WOPriority; due_at: string | null; assignees: Assignee[] };
+export type TimeEntry = { id: string; user: Person; minutes: number; time_type: string; rate_cents: number | null; effective_rate_cents: number | null;
+  cost_cents: number | null; note: string; started_at: string | null; created_at: string };
+export type CostItem = { id: string; user: Person | null; amount_cents: number; cost_type: string; description: string; receipts: FileItem[]; created_at: string };
+export type Costs = { time: TimeEntry[]; costs: CostItem[]; timers: { user: Person; started_at: string; time_type: string }[]; total_minutes: number;
+  labor_cents: number | null; other_cents: number; total_cents: number | null; rates_visible: boolean };
+export type WODetail = WorkOrder & {
+  description: string; completed_by: Person | null; completion_summary: string; cancel_reason: string;
+  signature: { file: FileItem; name: string; signed_at: string } | null; approved_by: Person | null; approved_at: string | null; status_changed_at: string;
+  parent: MiniWO | null; sub_work_orders: MiniWO[]; links: { id: string; relation: "blocks" | "blocked_by" | "related"; work_order: MiniWO }[];
+  attachments: FileItem[]; time_in_status: Record<string, number>; costs: Costs; sub_statuses: Record<string, string[]>;
+};
+export type WOList = { items: WorkOrder[]; total: number; page: number; per_page: number };
+export type CustomFieldDef = { id: string; name: string; type: "text" | "textarea" | "number" | "select" | "date" | "datetime" | "link" | "checkbox";
+  options: string[]; required: boolean; copy_on_repeat?: boolean; on_request_form?: boolean; sort?: number };
+export type WOSettings = {
+  required_fields: string[]; require_time_to_complete: boolean; require_cost_to_complete: boolean; require_signature: boolean; require_approval: boolean;
+  completion_summary: "none" | "optional" | "mandatory"; comment_on_hold: "none" | "optional" | "mandatory"; comment_on_cancel: "none" | "optional" | "mandatory";
+  mention_assigns: boolean; todo_by_start_date_only: boolean; time_types: string[]; cost_types: string[]; default_hourly_rate_cents: number | null;
+  rates_visible_to_all: boolean; sub_statuses: Record<string, string[]>; default_start_time: string; default_due_time: string; workday_minutes: number; next_number: number;
+};
+export type WOOptions = {
+  statuses: { id: WOStatus; label: string }[]; priorities: { id: WOPriority; label: string }[]; work_types: { id: string; label: string }[];
+  categories: CategoryRef[]; teams: { id: string; name: string; color: string }[];
+  people: { id: string; name: string; initials: string; role: string; assignable: boolean }[]; custom_fields: CustomFieldDef[];
+  settings: Pick<WOSettings, "required_fields" | "completion_summary" | "comment_on_hold" | "comment_on_cancel" | "require_signature" | "require_approval" | "time_types" | "cost_types" | "sub_statuses" | "default_start_time" | "default_due_time" | "workday_minutes" | "mention_assigns">;
+  next_number: number;
+};
+export type Filter = { field: string; op: string; value?: unknown };
+export type SavedView = { id: string; name: string; shared: boolean; filters: Filter[]; sort: string; columns: string[]; pinned: boolean };
+export type Template = { id: string; name: string; description: string; data: Record<string, unknown>; updated_at: string };
+export type Category = CategoryRef & { description: string; work_order_count?: number };
+export type ActivityItem = ({ kind: "comment" } & CommentItem & { at: string }) | ({ kind: "event"; at: string } & AuditEvent);
+export type CommentItem = { id: string; body: string; deleted: boolean; author: Person | null; mentions: { users: string[]; teams: string[] };
+  reactions: Record<string, string[]>; files: FileItem[]; created_at: string; edited_at: string | null };
+export type ExportItem = { id: string; kind: string; title: string; status: "queued" | "ready" | "failed"; error: string; file: FileItem | null;
+  created_at: string; finished_at: string | null; expires_at: string };
+export type Workload = { start: string; days: string[]; capacity_minutes: number; people: (Person & { job_title: string })[];
+  cells: Record<string, Record<string, { minutes: number; items: WLItem[] }>>;
+  unassigned: { id: string; name: string; color: string; days: Record<string, { minutes: number; items: WLItem[] }> }[] };
+export type WLItem = { id: string; number: number; title: string; priority: WOPriority; minutes: number };
+export type WOStats = { open: number; overdue: number; high_priority: number; due_today: number; completed_7d: number; assigned_to_me: number; awaiting_approval: number };

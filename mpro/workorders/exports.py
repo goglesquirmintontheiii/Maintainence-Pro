@@ -277,11 +277,21 @@ def render_pdf(m: Membership, org: Organization, wos: list[WorkOrder], options: 
             except Exception:
                 pass
         elif "signature_line" in sec:
-            story.append(
-                KeepTogether(
-                    [Spacer(1, 26), p("_" * 46 + "        " + "_" * 22), p("Signature" + " " * 80 + "Date", small)]
+            sig = Table(
+                [["", "", ""], [p("Signature", small), "", p("Date", small)]],
+                colWidths=[3.6 * inch, 0.4 * inch, 2.0 * inch],
+                rowHeights=[0.45 * inch, None],
+            )
+            sig.setStyle(
+                TableStyle(
+                    [
+                        ("LINEBELOW", (0, 0), (0, 0), 0.8, colors.HexColor("#172033")),
+                        ("LINEBELOW", (2, 0), (2, 0), 0.8, colors.HexColor("#172033")),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ]
                 )
             )
+            story.append(KeepTogether([Spacer(1, 18), sig]))
         if "export_info" in sec:
             story += [
                 Spacer(1, 12),

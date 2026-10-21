@@ -626,3 +626,18 @@ def test_audit_events_for_work_orders(admin: Api) -> None:
 )
 def test_bad_input_is_422(admin: Api, payload: dict[str, Any]) -> None:
     assert admin.post("/api/v1/work-orders", {"title": "x", **payload}).status_code == 422
+
+
+def test_demo_work_orders_seed_once(app: Any) -> None:
+    with app.app_context():
+        from sqlalchemy import func, select
+
+        from mpro.demo import seed_demo
+        from mpro.extensions import db
+        from mpro.workorders.models import WorkOrder
+
+        seed_demo()
+        n = db.session.scalar(select(func.count()).select_from(WorkOrder))
+        assert n and n >= 25
+        seed_demo()
+        assert db.session.scalar(select(func.count()).select_from(WorkOrder)) == n

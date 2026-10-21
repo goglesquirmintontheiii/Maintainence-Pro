@@ -59,7 +59,7 @@ def page(server: str) -> Iterator[Any]:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        b = p.chromium.launch()
+        b = p.chromium.launch(executable_path=os.environ.get("MPRO_CHROMIUM") or None)
         pg = b.new_page()
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -112,5 +112,46 @@ def test_create_team_and_see_it_in_audit_log(page: Any, server: str) -> None:
 
 def test_unbuilt_module_explains_itself(page: Any, server: str) -> None:
     _login(page, server)
-    page.goto(server + "/work-orders")
-    page.get_by_text("Arrives in MPro 0.2.0").wait_for()
+    page.goto(server + "/assets")
+    page.get_by_text("Arrives in MPro 0.3.0").wait_for()
+
+
+def test_create_comment_and_complete_work_order(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/work-orders?view=todo")
+    page.get_by_role("listitem").first.wait_for()
+    page.keyboard.press("c")
+    page.get_by_label("What needs to be done? *").fill("E2E: replace door closer")
+    page.get_by_role("radio", name="High").click()
+    page.get_by_label("Assign to").click()
+    page.get_by_role("option", name="Avery Kim").click()
+    page.keyboard.press("Escape")  # closes the picker, not the panel
+    page.get_by_role("dialog", name="New work order").get_by_role("button", name="Create").click()
+    page.get_by_role("heading", name="E2E: replace door closer").wait_for()
+    box = page.get_by_placeholder("Write a comment… use @ to mention someone")
+    box.fill("Hinge is bent, ordering a new one")
+    page.get_by_role("button", name="Send").click()
+    page.get_by_text("Hinge is bent, ordering a new one").wait_for()
+    page.get_by_role("button", name="Done", exact=True).first.click()
+    page.get_by_text("Marked Done").wait_for()
+    page.get_by_role("tab", name="Done").click()
+    page.get_by_role("listitem").filter(has_text="E2E: replace door closer").wait_for()
+
+
+def test_views_filters_and_bulk(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/work-orders?view=table")
+    page.get_by_role("button", name="Add filter").click()
+    page.get_by_role("menu").get_by_role("button", name="Priority").click()
+    page.get_by_role("menu").get_by_label("High").check()
+    page.get_by_role("button", name="Apply").click()
+    page.get_by_text("Priority: High").wait_for()
+    rows = page.locator("tbody tr")
+    rows.first.wait_for()
+    page.locator("tbody input[type=checkbox]").first.check()
+    page.get_by_role("toolbar", name="Bulk actions").get_by_text("1 selected").wait_for()
+    for view in ("Calendar", "Workload", "Board"):
+        page.get_by_role("tab", name=view).click()
+        page.wait_for_timeout(300)
+    page.get_by_role("tab", name="Board").wait_for()
+    page.locator(".board-card").first.wait_for()

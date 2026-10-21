@@ -1,5 +1,5 @@
 import {
-  Activity, BarChart3, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
+  Activity, BarChart3, Download, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
   MapPin, MessageSquare, Package, Settings, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
 } from "lucide-react";
 
@@ -8,8 +8,8 @@ export type NavItem = { id: string; label: string; path: string; icon: LucideIco
 // Grouped like MaintainX's left navigation (Work / Optimize / Manage). `phase` marks modules that arrive later.
 export const NAV: NavItem[] = [
   { id: "overview", label: "Overview", path: "/", icon: Home, group: "" },
-  { id: "work-orders", label: "Work Orders", path: "/work-orders", icon: ClipboardList, group: "Work", phase: "0.2.0",
-    blurb: "Create, assign and complete work orders with statuses, priorities, time and costs, comments and photos." },
+  { id: "work-orders", label: "Work Orders", path: "/work-orders", icon: ClipboardList, group: "Work", perm: "wo.view",
+    blurb: "Create, assign and complete work orders with statuses, priorities, time and costs, comments and photos.", keywords: "wo tasks jobs todo calendar workload board" },
   { id: "requests", label: "Requests", path: "/requests", icon: Inbox, group: "Work", phase: "0.6.0",
     blurb: "Anyone can report a problem, including from a QR code; approve requests to turn them into work orders." },
   { id: "pm", label: "Preventive Maintenance", path: "/preventive-maintenance", icon: CalendarClock, group: "Work", phase: "0.4.0",
@@ -36,14 +36,16 @@ export const NAV: NavItem[] = [
     blurb: "Approvals, receiving, vendor emails, tax exemptions, receipts and invoices." },
   { id: "vendors", label: "Vendors", path: "/vendors", icon: Truck, group: "Manage", phase: "0.5.0",
     blurb: "Vendors, contacts and customers, linked to assets, parts and purchase orders." },
-  { id: "categories", label: "Categories", path: "/categories", icon: Tags, group: "Manage", phase: "0.2.0",
-    blurb: "Organize work orders by type: Electrical, Safety, Inspection and more." },
+  { id: "categories", label: "Categories", path: "/categories", icon: Tags, group: "Manage", perm: "wo.view",
+    blurb: "Organize work orders by type: Electrical, Safety, Inspection and more.", keywords: "labels tags" },
   { id: "people", label: "Teams & Users", path: "/people", icon: Users, group: "Manage", perm: "teams.view", keywords: "people users members roles invite" },
-  { id: "settings", label: "Settings", path: "/settings", icon: Settings, group: "Manage", keywords: "organization audit jobs email outbox" },
+  { id: "settings", label: "Settings", path: "/settings", icon: Settings, group: "Manage", keywords: "organization audit jobs email outbox work order settings custom fields templates" },
+  { id: "downloads", label: "Download Center", path: "/downloads", icon: Download, group: "hidden", perm: "exports.use", keywords: "exports csv pdf" },
 ];
 
 export const SETTINGS_NAV = [
   { path: "/settings/organization", label: "Organization", icon: Building2, perm: "org.view" },
+  { path: "/settings/work-orders", label: "Work orders", icon: ClipboardList, perm: "wo.view" },
   { path: "/settings/audit-log", label: "Audit log", icon: Activity, perm: "audit.view" },
   { path: "/settings/jobs", label: "Background jobs", icon: Workflow, perm: "jobs.view" },
   { path: "/settings/email", label: "Email outbox", icon: Inbox, perm: "mail.view" },

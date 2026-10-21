@@ -30,7 +30,7 @@ def app(tmp_path: Any) -> Iterator[Any]:
     with app.app_context():
         from mpro.demo import seed_demo
 
-        seed_demo()
+        seed_demo(work_orders=os.environ.get("MPRO_TEST_DEMO_WORK") == "1")
     yield app
     with app.app_context():
         db.session.remove()

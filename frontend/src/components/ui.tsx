@@ -23,9 +23,9 @@ export function Field({ label, hint, error, children, className = "" }: { label:
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={"input " + (p.className ?? "")} />;
 export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={"select " + (p.className ?? "")} />;
 
-export const STATUS = { open: "Open", on_hold: "On Hold", in_progress: "In Progress", done: "Done" } as const;
-export function StatusPill({ status }: { status: keyof typeof STATUS }) {
-  return <span className={"pill " + status}><span className="dot" />{STATUS[status]}</span>;
+export const STATUS = { open: "Open", on_hold: "On Hold", in_progress: "In Progress", done: "Done", canceled: "Canceled" } as const;
+export function StatusPill({ status, sub }: { status: keyof typeof STATUS; sub?: string }) {
+  return <span className={"pill " + status} title={sub || undefined}><span className="dot" />{STATUS[status]}{sub ? <span className="sub">· {sub}</span> : null}</span>;
 }
 export const PRIORITY = { none: "None", low: "Low", medium: "Medium", high: "High" } as const;
 export function PriorityBadge({ priority }: { priority: keyof typeof PRIORITY }) {
@@ -52,7 +52,7 @@ export function AvatarStack({ people, max = 4 }: { people: { name: string; initi
 export function Modal({ title, onClose, children, footer, width }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); onClose(); } };
     window.addEventListener("keydown", k);
     const first = ref.current?.querySelector<HTMLElement>("input, select, textarea, button:not(.modal-x)");
     first?.focus();
@@ -74,7 +74,7 @@ export function useClickAway<T extends HTMLElement>(open: boolean, close: () => 
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) close(); };
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); close(); } };
     document.addEventListener("mousedown", h);
     document.addEventListener("keydown", k);
     return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
@@ -82,14 +82,53 @@ export function useClickAway<T extends HTMLElement>(open: boolean, close: () => 
   return ref;
 }
 
-export function Dropdown({ trigger, children, align = "right" }: { trigger: (open: boolean, toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right" }) {
+export function Dropdown({ trigger, children, align = "right", up = false, className = "", width }: { trigger: (open: boolean, toggle: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right"; up?: boolean; className?: string; width?: number }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const ref = useClickAway<HTMLDivElement>(open, close);
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }} className={className}>
       {trigger(open, () => setOpen((o) => !o))}
-      {open && <div className="menu" role="menu" style={{ [align]: 0, top: "calc(100% + 6px)" }}>{children(close)}</div>}
+      {open && <div className="menu" role="menu" style={{ [align]: 0, ...(up ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }), width }}>{children(close)}</div>}
+    </div>
+  );
+}
+
+export function Checkbox({ checked, onChange, label, disabled, indeterminate }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean; indeterminate?: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = !!indeterminate; }, [indeterminate]);
+  return (
+    <label className="check">
+      <input ref={ref} type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {label && <span>{label}</span>}
+    </label>
+  );
+}
+
+export function Toggle({ checked, onChange, label, hint, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode; hint?: ReactNode; disabled?: boolean }) {
+  return (
+    <label className="toggle-row">
+      <span className="grow"><span className="toggle-label">{label}</span>{hint && <span className="hint">{hint}</span>}</span>
+      <input type="checkbox" role="switch" className="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
+export function Drawer({ title, onClose, children, footer, width = 560 }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && !document.querySelector(".overlay")) { e.preventDefault(); onClose(); } };
+    window.addEventListener("keydown", k);
+    ref.current?.querySelector<HTMLElement>("input, textarea, select")?.focus();
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+  return (
+    <div className="drawer-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : "Panel"} ref={ref} style={{ width: `min(${width}px, 100%)` }}>
+        <div className="drawer-head"><h2>{title}</h2><Button variant="ghost" icon aria-label="Close" onClick={onClose}><X size={18} /></Button></div>
+        <div className="drawer-body">{children}</div>
+        {footer && <div className="drawer-foot">{footer}</div>}
+      </aside>
     </div>
   );
 }

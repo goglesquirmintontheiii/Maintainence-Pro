@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CornerDownLeft, Search, User, Users } from "lucide-react";
+import { ClipboardList, CornerDownLeft, Plus, Search, User, Users } from "lucide-react";
 import { api, type SearchGroup } from "../lib/api";
 import { useSession } from "../lib/session";
 import { NAV, SETTINGS_NAV } from "./nav";
@@ -33,16 +33,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const items = useMemo<Item[]>(() => {
     const term = q.trim().toLowerCase();
-    const pages = [...NAV.map((n) => ({ ...n, sub: n.phase ? `Coming in ${n.phase}` : n.group || "Home" })),
+    const pages = [...NAV.filter((n) => !n.perm || can(n.perm)).map((n) => ({ ...n, sub: n.phase ? `Coming in ${n.phase}` : n.group === "hidden" ? "" : n.group || "Home" })),
       ...SETTINGS_NAV.filter((s) => !s.perm || can(s.perm)).map((s) => ({ id: s.path, label: s.label, path: s.path, icon: s.icon, sub: "Settings", keywords: "" }))]
       .filter((n) => !term || (n.label + " " + (n.keywords ?? "")).toLowerCase().includes(term))
       .slice(0, term ? 6 : 8)
       .map<Item>((n) => { const Icon = n.icon; return { key: "nav:" + n.path, group: "Go to", title: n.label, subtitle: n.sub, url: n.path, icon: <Icon size={16} /> }; });
     const found = remote.flatMap((g) => g.results.map<Item>((r) => ({
       key: g.type + ":" + r.id, group: g.label, title: r.title, subtitle: r.subtitle, url: r.url,
-      icon: g.type === "people" ? <Avatar name={r.title} initials={r.initials} size="sm" /> : g.type === "teams"
+      icon: g.type === "people" ? <Avatar name={r.title} initials={r.initials} size="sm" /> : g.type === "work_orders" ? <ClipboardList size={16} /> : g.type === "teams"
         ? <span className="chip" style={{ padding: 0, width: 28, justifyContent: "center", border: 0 }}><Users size={15} color={r.color} /></span> : <User size={16} /> })));
-    return [...found, ...pages];
+    const actions: Item[] = can("wo.create") && (!term || "create new work order".includes(term) || term.startsWith("new"))
+      ? [{ key: "act:new-wo", group: "Actions", title: "Create a work order", subtitle: "Shortcut: C", url: "/work-orders?new=1", icon: <Plus size={16} /> }] : [];
+    return [...found, ...actions, ...pages];
   }, [q, remote, can]);
 
   useEffect(() => { setSel(0); }, [items.length, q]);
@@ -63,11 +65,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         <div className="palette-input">
           <Search size={18} className="faint" />
           <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-            placeholder="Search people, teams and pages…" aria-label="Search" role="combobox" aria-expanded="true" aria-controls="palette-list" />
+            placeholder="Search work orders (#1042), people, teams and pages…" aria-label="Search" role="combobox" aria-expanded="true" aria-controls="palette-list" />
           {loading && <span className="small faint">Searching…</span>}
         </div>
         <div className="palette-list" id="palette-list" role="listbox" ref={list}>
-          {items.length === 0 && <div className="empty" style={{ padding: 28 }}><p>Nothing matches “{q}”. Work orders, assets and parts become searchable as their modules arrive.</p></div>}
+          {items.length === 0 && <div className="empty" style={{ padding: 28 }}><p>Nothing matches “{q}”. Assets and parts become searchable when their modules arrive.</p></div>}
           {items.map((it, i) => {
             const head = it.group !== lastGroup ? <div className="palette-group">{(lastGroup = it.group)}</div> : null;
             return (
