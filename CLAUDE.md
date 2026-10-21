@@ -13,9 +13,10 @@ phase goal and the checklist item's spec.** Those rules win over anything below 
    `docs/screenshots/<version>/` (capture them with `scripts/screenshots.py`).
 3. When a new version starts, move `progress.md` to `progress_history/progress_<version>.md` and start a new one.
 4. Bug sweep and zero known vulnerabilities before release: `uvx pip-audit`, `npm audit`, review the screenshots.
-5. Bump `mpro/__init__.py` and `frontend/package.json`, tag `vX.Y.Z` (hotfixes too). The Release workflow
-   builds the Windows `.exe` and Linux `.AppImage` test builds and publishes the GitHub release with notes
-   from `progress.md`.
+5. Release by bumping `__version__` in `mpro/__init__.py` (and `frontend/package.json`) on `main`, hotfixes
+   too. On the next push the Release workflow sees a version with no release yet, builds the Windows `.exe`
+   and Linux `.AppImage` test builds, creates the `vX.Y.Z` tag and publishes the release with notes from
+   `progress.md`. (Pushing a `vX.Y.Z` tag yourself also works.)
 
 ## Layout
 
