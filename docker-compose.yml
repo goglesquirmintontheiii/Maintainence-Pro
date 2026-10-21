@@ -1,0 +1,41 @@
+# Self-hosted Maintenance Pro: one app container (web + background jobs) and PostgreSQL.
+#   docker compose up -d        then open http://localhost:8080
+#   docker compose exec app mpro create-admin --email you@example.com --name "Your Name" --org "Your Company"
+# Self-hosted stays simple on purpose (no Redis, no cluster). The scalable stack is MPro Cloud.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mpro
+      POSTGRES_USER: mpro
+      POSTGRES_PASSWORD: ${MPRO_DB_PASSWORD:-change-me}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mpro -d mpro"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    image: ghcr.io/goglesquirmintontheiii/maintenance-pro:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://mpro:${MPRO_DB_PASSWORD:-change-me}@db:5432/mpro
+      MPRO_BASE_URL: ${MPRO_BASE_URL:-http://localhost:8080}
+      MPRO_SMTP_HOST: ${MPRO_SMTP_HOST:-}
+      MPRO_SMTP_USER: ${MPRO_SMTP_USER:-}
+      MPRO_SMTP_PASSWORD: ${MPRO_SMTP_PASSWORD:-}
+      MPRO_MAIL_FROM: ${MPRO_MAIL_FROM:-Maintenance Pro <no-reply@localhost>}
+    ports:
+      - "${MPRO_PORT:-8080}:8080"
+    volumes:
+      - app-data:/data
+
+volumes:
+  db-data:
+  app-data:

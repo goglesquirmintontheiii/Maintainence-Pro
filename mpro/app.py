@@ -1,0 +1,129 @@
+"""Application factory."""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from pathlib import Path
+from typing import Any
+
+from apiflask import APIFlask, abort
+from flask import Response, g, request, send_from_directory, session
+from flask_login import current_user
+
+from mpro.config import load_config
+from mpro.extensions import db, login_manager, migrate
+
+PKG = Path(__file__).resolve().parent
+STATIC_APP = PKG / "static" / "app"
+MIGRATIONS = PKG / "migrations"
+
+
+def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
+    app = APIFlask(
+        "mpro",
+        title="Maintenance Pro API",
+        static_folder=None,  # type: ignore[arg-type]
+        docs_ui="redoc",
+        spec_path="/api/openapi.json",
+        docs_path="/api/docs",
+    )
+    app.config.update(load_config(overrides))
+    app.json.sort_keys = False  # type: ignore[attr-defined]
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    db.init_app(app)
+    migrate.init_app(app, db, directory=str(MIGRATIONS), render_as_batch=True)
+    login_manager.init_app(app)
+
+    # Import models so metadata is complete, and modules so job/search/event registries fill.
+    from mpro.auth import models as _auth_models  # noqa: F401
+    from mpro.auth.api import CSRF_EXEMPT
+    from mpro.auth.api import bp as auth_bp
+    from mpro.auth.models import User
+    from mpro.core import jobs as _jobs  # noqa: F401
+    from mpro.core import mail as _mail  # noqa: F401
+    from mpro.core.admin_api import bp as admin_bp
+    from mpro.core.admin_api import health_bp
+    from mpro.orgs import models as _org_models  # noqa: F401
+    from mpro.orgs.api import bp as orgs_bp
+
+    @login_manager.user_loader
+    def load_user(uid: str) -> User | None:
+        try:
+            u = db.session.get(User, uuid.UUID(uid))
+        except ValueError:
+            return None
+        return u if u and u.is_active else None
+
+    @login_manager.unauthorized_handler
+    def unauthorized() -> Any:
+        abort(401, message="Please sign in.")
+
+    @app.before_request
+    def load_context() -> None:
+        g.user = current_user if current_user.is_authenticated else None
+        g.org = g.membership = None
+        if g.user is not None:
+            ms = [m for m in g.user.memberships if m.deleted_at is None and m.org.deleted_at is None]
+            want = session.get("org_id")
+            m = next((x for x in ms if str(x.org_id) == want), None) or (ms[0] if ms else None)
+            if m is not None:
+                g.membership, g.org = m, m.org
+                session["org_id"] = str(m.org_id)
+        # CSRF: double-submit token on every state-changing API call
+        if (
+            request.path.startswith("/api/")
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and request.endpoint not in CSRF_EXEMPT
+        ):
+            sent = request.headers.get("X-CSRF-Token", "")
+            if not sent or sent != session.get("csrf"):
+                abort(403, message="Your session expired. Reload the page and try again.")
+
+    @app.after_request
+    def after(resp: Response) -> Response:
+        if app.config.get("MPRO_INLINE_JOBS") and request.method not in {"GET", "HEAD"}:
+            from mpro.core.jobs import run_pending
+
+            run_pending()
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        resp.headers.setdefault("Referrer-Policy", "same-origin")
+        if not request.path.startswith("/api/docs"):
+            resp.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self'; connect-src 'self'; frame-ancestors 'self'",
+            )
+        return resp
+
+    for bp in (auth_bp, orgs_bp, admin_bp, health_bp):
+        app.register_blueprint(bp)
+
+    @app.get("/", defaults={"path": ""})
+    @app.get("/<path:path>")
+    @app.doc(hide=True)
+    def spa(path: str) -> Any:
+        if path.startswith("api/"):
+            abort(404)
+        if path and (STATIC_APP / path).is_file():
+            resp = send_from_directory(STATIC_APP, path)
+            if path.startswith("assets/"):
+                resp.cache_control.max_age = 31536000
+                resp.cache_control.immutable = True
+            return resp
+        if (STATIC_APP / "index.html").is_file():
+            resp = send_from_directory(STATIC_APP, "index.html")
+            resp.cache_control.no_cache = True
+            return resp
+        return Response(
+            "<h1>Maintenance Pro</h1><p>The web app isn't built yet. Run <code>./start.sh --dev</code> "
+            "or <code>npm run build</code> in <code>frontend/</code>.</p>",
+            mimetype="text/html",
+        )
+
+    from mpro.cli import register_flask_cli
+
+    register_flask_cli(app)
+    return app

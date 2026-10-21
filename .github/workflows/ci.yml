@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests on SQLite + PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mpro_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen --all-groups --python 3.12
+      - run: uv run ruff check mpro tests scripts
+      - run: uv run ruff format --check mpro tests scripts
+      - run: uv run mypy
+      - name: Tests (SQLite)
+        run: uv run pytest
+      - name: Tests (PostgreSQL 16)
+        run: uv run pytest
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mpro_test
+      - name: Migrations match the models
+        run: uv run flask --app mpro:create_app db check -d mpro/migrations
+        env:
+          MPRO_DATA_DIR: ${{ runner.temp }}/mig
+
+  frontend:
+    name: Web app (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: mpro/static/app
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: mpro/static/app
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen --all-groups --python 3.12
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest tests/e2e
+        env:
+          MPRO_E2E: "1"
+
+  security:
+    name: Dependency audit (zero known vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv export --frozen --no-dev --extra server --no-hashes --no-emit-project > requirements-audit.txt
+      - run: uvx pip-audit -r requirements-audit.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci && npm audit --audit-level=low
+        working-directory: frontend
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: maintenance-pro:ci

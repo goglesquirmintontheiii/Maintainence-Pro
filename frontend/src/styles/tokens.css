@@ -1,0 +1,92 @@
+/* MPro design tokens (guideline G-17: no hard-coded colours, spacing or sizes in components).
+   Modelled on MaintainX's visual language: blue primary, cool greys, white panels on a light
+   grey canvas, compact 14px text. Light and dark themes come from the same token names. */
+:root {
+  color-scheme: light;
+  /* colour */
+  --c-bg: #f3f5f8;
+  --c-panel: #ffffff;
+  --c-sunken: #eef1f5;
+  --c-hover: #f4f6fa;
+  --c-border: #dde2ea;
+  --c-border-soft: #e9ecf1;
+  --c-text: #172033;
+  --c-text-2: #56627a;
+  --c-text-3: #8a94a8;
+  --c-primary: #1b5bd4;
+  --c-primary-hover: #154ab0;
+  --c-primary-soft: #e6eefc;
+  --c-on-primary: #ffffff;
+  --c-focus: #4d8bff;
+  --c-sidebar: #0f1b33;
+  --c-sidebar-text: #c6d0e2;
+  --c-sidebar-muted: #7e8ba5;
+  --c-sidebar-active: #1f3460;
+  --c-sidebar-hover: #182746;
+  /* semantic: work-order statuses (as MaintainX) */
+  --c-open: #2f6fe4;      --c-open-soft: #e5eefd;
+  --c-hold: #b8670a;      --c-hold-soft: #fcefdc;
+  --c-progress: #13805a;  --c-progress-soft: #dcf2e8;
+  --c-done: #5d6880;      --c-done-soft: #eceff4;
+  /* semantic: priority */
+  --c-high: #c4302b; --c-medium: #c37a06; --c-low: #3d6fb6; --c-none: #8a94a8;
+  /* feedback */
+  --c-success: #13805a; --c-success-soft: #dcf2e8;
+  --c-warning: #b8670a; --c-warning-soft: #fcefdc;
+  --c-danger: #c4302b;  --c-danger-soft: #fbe5e4;
+  --c-info: #1b5bd4;    --c-info-soft: #e6eefc;
+  /* logo */
+  --logo-1: #3a80f6; --logo-2: #1340a6; --logo-ink: #ffffff;
+  /* type */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --fs-xs: 11px; --fs-sm: 12.5px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+  --lh: 1.45;
+  /* space (4px grid) */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+  /* shape */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, .06);
+  --shadow-2: 0 4px 12px rgba(16, 24, 40, .08), 0 1px 3px rgba(16, 24, 40, .06);
+  --shadow-3: 0 18px 48px rgba(16, 24, 40, .22);
+  /* layout */
+  --sidebar-w: 240px; --sidebar-w-collapsed: 64px; --topbar-h: 56px; --bottomnav-h: 60px;
+  --tap: 44px;
+  --dur: .15s;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0c111b;
+  --c-panel: #141b28;
+  --c-sunken: #101622;
+  --c-hover: #1a2232;
+  --c-border: #273246;
+  --c-border-soft: #1e2738;
+  --c-text: #e3e8f1;
+  --c-text-2: #9aa6bb;
+  --c-text-3: #687489;
+  --c-primary: #5b93f6;
+  --c-primary-hover: #77a7fa;
+  --c-primary-soft: #18294a;
+  --c-on-primary: #0b1220;
+  --c-sidebar: #0a0f19;
+  --c-sidebar-text: #c2cbdb;
+  --c-sidebar-muted: #6c7890;
+  --c-sidebar-active: #18294a;
+  --c-sidebar-hover: #121a2a;
+  --c-open: #6a9cf7;      --c-open-soft: #172a4a;
+  --c-hold: #e6a24b;      --c-hold-soft: #35260f;
+  --c-progress: #3fc28e;  --c-progress-soft: #12301f;
+  --c-done: #98a3b8;      --c-done-soft: #1e2636;
+  --c-high: #f07a73; --c-medium: #e6a24b; --c-low: #86a8dc;
+  --c-success: #3fc28e; --c-success-soft: #12301f;
+  --c-warning: #e6a24b; --c-warning-soft: #35260f;
+  --c-danger: #f07a73;  --c-danger-soft: #3a1817;
+  --c-info: #5b93f6;    --c-info-soft: #18294a;
+  --logo-1: #72a8ff; --logo-2: #2758cc;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, .45);
+  --shadow-3: 0 18px 48px rgba(0, 0, 0, .6);
+}
