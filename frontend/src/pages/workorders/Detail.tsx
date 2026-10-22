@@ -20,6 +20,7 @@ import { fromDetail, WorkOrderForm } from "./Form";
 import { ASSET_STATUS_LABEL } from "../../lib/assets";
 import { FileViewer } from "../../components/FileViewer";
 import { ProcedureRuns } from "../procedures/Runner";
+import { offerCloseSubs, RecurrenceChip, SubRollup } from "../pm/WOParts";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -81,6 +82,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
     },
     onSuccess: (wo, b, ctx) => {
       refresh(wo); setStatusAsk(null);
+      if (!b.undo && ctx?.prev?.status !== "done") offerCloseSubs(wo, toast, qc); // MaintainX offers to close open sub-work orders (0.4.0)
       const from = ctx?.prev?.status;
       const fromSub = ctx?.prev?.sub_status ?? "";
       if (from && from !== wo.status && !b.undo) toast(`Marked ${STATUS_LABEL[wo.status]}`, { action: { label: "Undo", run: () => statusM.mutate({ status: from, sub_status: fromSub, version: wo.version, undo: true }) } });
@@ -133,6 +135,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
           <div className="row wrap" style={{ marginTop: 6 }}>
             <StatusPill status={wo.status} sub={wo.sub_status} /><PriorityBadge priority={wo.priority} />
             {due && <span className={"due " + due.tone}><Clock size={13} />{due.text}</span>}
+            <RecurrenceChip wo={wo} editable={editable} onChange={() => refresh()} />
             {wo.approval_status === "pending" && <Pill tone="warning">Awaiting approval</Pill>}
             {wo.approval_status === "approved" && <Pill tone="success">Approved</Pill>}
             {wo.approval_status === "rejected" && wo.status !== "done" && <Pill tone="danger">Sent back</Pill>}
@@ -211,6 +214,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
 
       <TimeAndCosts wo={wo} editable={editable} onChange={(w) => refresh(w)} />
       <SubsAndLinks wo={wo} editable={editable} onAddSub={() => setNewSub(true)} onChange={(w) => refresh(w)} />
+      <SubRollup wo={wo} />
       <ActivityFeed wo={wo} options={opts.data} />
 
       {editing && <WorkOrderForm edit={wo} onClose={() => setEditing(false)} onSaved={(w) => refresh(w)} />}
