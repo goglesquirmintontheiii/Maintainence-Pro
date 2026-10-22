@@ -455,9 +455,12 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
             summary_dict(
                 w,
                 reads.get(w.id),
-                {"comment_count": comments.get(w.id, 0), "sub_work_orders": sub_counts.get(w.id),
-                 "cover_url": covers.get(w.id),
-                 "parent": parents.get(w.parent_id) if w.parent_id else None},  # fmt: skip
+                {
+                    "comment_count": comments.get(w.id, 0),
+                    "sub_work_orders": sub_counts.get(w.id),
+                    "cover_url": covers.get(w.id),
+                    "parent": parents.get(w.parent_id) if w.parent_id else None,
+                },  # fmt: skip
             )
             for w in rows
         ],

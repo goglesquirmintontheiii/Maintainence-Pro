@@ -225,3 +225,31 @@ def test_scan_resolves_a_typed_code(page: Any, server: str) -> None:
     page.goto(server + "/q/" + code["value"])
     page.wait_for_url("**/assets/*")
     page.get_by_role("heading", name=code["target"]["label"]).wait_for()
+
+
+def test_040_modules_load(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/preventive-maintenance")
+    page.get_by_text("Chiller 1").first.wait_for()
+    page.goto(server + "/procedures")
+    page.get_by_text("Forklift").first.wait_for()
+    page.goto(server + "/automations")
+    page.get_by_text("Bearing temperature").first.wait_for()
+    page.goto(server + "/settings/roles")
+    page.get_by_text("Operator").first.wait_for()
+
+
+def test_procedure_runner_on_work_order(page: Any, server: str) -> None:
+    _login(page, server)
+    wos = page.evaluate(
+        """async () => (await (await fetch('/api/v1/work-orders?tab=all&per_page=200')).json()).items"""
+    )
+    target = None
+    for w in wos:
+        d = page.evaluate(f"""async () => (await fetch('/api/v1/work-orders/{w["id"]}')).json()""")
+        if d.get("procedures") and d["status"] not in ("done", "canceled"):
+            target = d
+            break
+    assert target, "demo data should have an open work order with a procedure"
+    page.goto(server + f"/work-orders/{target['id']}")
+    page.get_by_text(target["procedures"][0]["procedure"]["name"]).first.wait_for()

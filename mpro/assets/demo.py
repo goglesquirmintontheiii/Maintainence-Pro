@@ -412,8 +412,7 @@ def seed_assets(org: Organization, admin: User) -> None:
         # Leaving water temp is overdue: last reading 3 days ago
         lw = rd["Leaving water temp"]
         lw.last_reading_at = now - timedelta(days=3)
-        msvc.save_trigger(org, m, rd["Run hours"], {"kind": "every", "every_units": 2000, "start_at": 4000,
-                                                     "work_order": {"title": "Air Compressor 1 - 2,000 hour service", "priority": "medium", "assignees": [f"team:{teams['Mechanical']}"], "due_in_days": 7}})  # fmt: skip
+        # the 2,000-hour service on Air Compressor 1 is a usage-based maintenance plan (mpro/pm/demo.py) from 0.4.0
         msvc.save_trigger(org, m, rd["Bearing temperature"], {"kind": "threshold", "comparator": "gt", "threshold": 180,
                                                                "work_order": {"title": "Conveyor 3 motor bearing overheating", "priority": "high"}})  # fmt: skip
         # QR codes on most assets, plus a sheet of blank codes

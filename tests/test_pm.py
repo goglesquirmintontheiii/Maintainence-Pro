@@ -238,7 +238,7 @@ def test_time_or_usage_whichever_first(admin: Api) -> None:
 
 def test_skip_postpone_and_compliance(app: Any, admin: Api) -> None:
     p = plan(
-        admin, name="Skippy", horizon_days=8, tasks=[{"name": "", "spec": {"freq": "weekly"}, "anchor": local_at(1)}]
+        admin, name="Skippy", horizon_days=10, tasks=[{"name": "", "spec": {"freq": "weekly"}, "anchor": local_at(1)}]
     )
     prev = admin.get(f"{API}/pm/plans/{p['id']}/preview?count=4").json["items"]
     first, later = prev[0], prev[2]

@@ -8,6 +8,10 @@ import { Button, EmptyState, ListSkeleton } from "../components/ui";
 import { WORow } from "./workorders/WorkOrders";
 
 const SHIPPED = [
+  "Maintenance plans with nested PMs, repeating work orders, a PM calendar and compliance",
+  "Procedures with every field type, conditional logic, scoring, versions and reporting",
+  "Automations: meter, asset and work-order triggers that create work, change status or email",
+  "Owner and custom roles with permissions, a file viewer, a floor plan editor and profile photos",
   "Assets and locations in trees, with status, downtime, warranty, lifecycle and photo timelines",
   "Meters with charts, warning and alarm limits, and triggers that create work orders",
   "QR codes and barcodes: scan to open, tag first and assign later, Avery and thermal labels",

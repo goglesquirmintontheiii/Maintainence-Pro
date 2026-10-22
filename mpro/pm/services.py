@@ -403,11 +403,10 @@ def update_plan(
         _save_tasks(org, plan, data["tasks"])
         # drop future occurrences that were only planned (not generated, not edited by a person) so they re-plan
         for occ in db.session.scalars(
-            select(PMOccurrence).where(
-                PMOccurrence.plan_id == plan.id, PMOccurrence.status == "planned", PMOccurrence.overrides == {}
-            )
+            select(PMOccurrence).where(PMOccurrence.plan_id == plan.id, PMOccurrence.status == "planned")
         ).all():
-            db.session.delete(occ)
+            if not occ.overrides:  # JSON can't be compared in SQL on PostgreSQL; check in Python
+                db.session.delete(occ)
     plan.version += 1
     after = {k: getattr(plan, k) for k in before}
     emit(
@@ -676,10 +675,10 @@ def _reset_other_schedule(plan: MaintenancePlan, tasks: list[PMTask], occ: PMOcc
                         PMOccurrence.plan_id == plan.id,
                         PMOccurrence.status == "planned",
                         PMOccurrence.key.startswith("t:"),
-                        PMOccurrence.overrides == {},
                     )
                 ).all():
-                    db.session.delete(o)
+                    if not o.overrides:
+                        db.session.delete(o)
 
 
 # ---- usage-based (meter readings) -----------------------------------------------------------------

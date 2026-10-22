@@ -124,11 +124,166 @@ def capture_030(ctx: Any, shot: Any, url: str) -> None:
     c.close()
 
 
+def _try(label: str, fn: Any) -> None:
+    """Run one screenshot step; a missing button shouldn't stop the whole run."""
+    try:
+        fn()
+    except Exception as e:  # noqa: BLE001
+        print(f"skipped {label}: {e}".splitlines()[0])
+
+
+def _upload_png(pg: Page, name: str, data: bytes, attach: dict[str, str] | None = None) -> Any:
+    import base64
+
+    return pg.evaluate(
+        """async ([name, b64, attach]) => {
+            const s = await (await fetch('/api/v1/auth/session')).json();
+            const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            const fd = new FormData();
+            fd.append('file', new Blob([bin], { type: 'image/png' }), name);
+            if (attach) { for (const [k, v] of Object.entries(attach)) fd.append(k, v); }
+            const r = await fetch('/api/v1/files', { method: 'POST', body: fd, headers: { 'X-CSRF-Token': s.csrf } });
+            return await r.json();
+        }""",
+        [name, base64.b64encode(data).decode(), attach],
+    )
+
+
+def _floor_plan_png() -> bytes:
+    import io
+
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (1600, 1000), "#f7f8fa")
+    d = ImageDraw.Draw(im)
+    d.rectangle((60, 60, 1540, 940), outline="#444", width=8)
+    for x0, y0, x1, y1, label in ((60, 60, 640, 500, "Compressor Room"), (640, 60, 1100, 500, "Line 2"),
+                                  (1100, 60, 1540, 500, "Line 3"), (60, 500, 900, 940, "Paint Line"),
+                                  (900, 500, 1540, 940, "Shipping Docks")):  # fmt: skip
+        d.rectangle((x0, y0, x1, y1), outline="#666", width=4)
+        d.text((x0 + 24, y0 + 20), label, fill="#333")
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def capture_040(ctx: Any, shot: Any, url: str) -> None:
+    """0.4.0: preventive maintenance, procedures, automations, roles and the 0.3.0 review requests."""
+    c, pg = ctx()
+    login(pg, url)
+    shot(pg, "01-overview", 1200)
+    pg.goto(url + "/preventive-maintenance")
+    shot(pg, "02-pm-plans", 1500)
+    plans = api(pg, "GET", "/pm/plans?per_page=50") or {}
+    chiller = next((p for p in plans.get("items", []) if "Chiller" in p.get("name", "")), None)
+    if chiller:
+        pg.goto(url + f"/preventive-maintenance/{chiller['id']}")
+        shot(pg, "03-pm-plan-detail", 1500)
+    pg.goto(url + "/preventive-maintenance?tab=calendar")
+    shot(pg, "04-pm-calendar", 1500)
+    pg.goto(url + "/preventive-maintenance?tab=compliance")
+    shot(pg, "05-pm-compliance", 1500)
+    pg.goto(url + "/preventive-maintenance?new=1")
+    shot(pg, "06-pm-plan-editor", 1200)
+    pg.goto(url + "/procedures")
+    shot(pg, "07-procedures-library", 1500)
+    procs = api(pg, "GET", "/procedures?per_page=50") or {}
+    chp = next((p for p in procs.get("items", []) if "Chiller" in p.get("name", "")), None)
+    if chp:
+        pg.goto(url + f"/procedures/{chp['id']}/edit")
+        shot(pg, "08-procedure-builder", 1500)
+        pg.goto(url + f"/procedures/{chp['id']}")
+        _try("analytics", lambda: pg.get_by_role("tab", name="Analytics").click())
+        shot(pg, "09-procedure-analytics", 1500)
+    wos = (api(pg, "GET", "/work-orders?tab=all&per_page=200") or {}).get("items", [])
+    run_wo = None
+    for w in wos:
+        d = api(pg, "GET", f"/work-orders/{w['id']}")
+        if d and d.get("procedures") and d.get("status") not in ("done", "canceled"):
+            run_wo = d
+            break
+    if run_wo:
+        pg.goto(url + f"/work-orders/{run_wo['id']}")
+        pg.wait_for_timeout(1200)
+        _try("runner", lambda: pg.locator(".pr-form").first.scroll_into_view_if_needed())
+        shot(pg, "10-procedure-runner", 800)
+    pg.goto(url + "/automations")
+    shot(pg, "11-automations", 1500)
+    pg.goto(url + "/automations?new=1")
+    shot(pg, "12-automation-builder", 1500)
+    pg.goto(url + "/settings/roles")
+    shot(pg, "13-roles", 1500)
+    pg.goto(url + "/work-orders?view=todo")
+    shot(pg, "14-todo-wider-covers", 1500)
+    pg.goto(url + "/work-orders?view=calendar")
+    shot(pg, "15-calendar-header", 1500)
+    pg.goto(url + "/work-orders?view=workload")
+    shot(pg, "16-workload-header", 1500)
+    # file viewer on a work order picture
+    if wos:
+        _upload_png(
+            pg,
+            "belt-wear.png",
+            _floor_plan_png(),
+            {"entity_type": "work_order", "entity_id": wos[0]["id"], "role": "file"},
+        )
+        pg.goto(url + f"/work-orders/{wos[0]['id']}")
+        pg.wait_for_timeout(1200)
+        _try("viewer", lambda: pg.locator(".attachments img, .att img, img[alt]").first.click())
+        shot(pg, "17-file-viewer", 900)
+        pg.keyboard.press("Escape")
+    # floor plan with the editor
+    locs = (api(pg, "GET", "/locations?q=Building%20A") or {}).get("items", [])
+    if locs:
+        fp = _upload_png(pg, "building-a.png", _floor_plan_png())
+        api(pg, "POST", f"/locations/{locs[0]['id']}/floor-plans", {"name": "Ground floor", "file_id": fp.get("id")})
+        pg.goto(url + f"/locations/{locs[0]['id']}/floor-plans")
+        pg.wait_for_timeout(1500)
+        _try("plan edit", lambda: pg.get_by_role("button", name="Edit plan").first.click())
+        pg.wait_for_timeout(800)
+
+        def draw() -> None:
+            box = pg.locator("svg").last.bounding_box()
+            assert box
+            _try("rect tool", lambda: pg.get_by_role("button", name="Rectangle").first.click())
+            pg.mouse.move(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.15)
+            pg.mouse.down()
+            pg.mouse.move(box["x"] + box["width"] * 0.35, box["y"] + box["height"] * 0.45, steps=8)
+            pg.mouse.up()
+
+        _try("draw", draw)
+        shot(pg, "18-floor-plan-editor", 800)
+        pg.keyboard.press("Escape")
+    pg.goto(url + "/profile")
+    shot(pg, "19-profile-photo", 1200)
+    pg.goto(url + "/settings/assets")
+    shot(pg, "20-asset-type-fields", 1500)
+    pg.goto(url + "/work-orders?view=todo")
+    pg.wait_for_timeout(800)
+    pg.keyboard.press("c")
+    _try("repeat", lambda: pg.get_by_text("Repeat", exact=False).first.scroll_into_view_if_needed())
+    shot(pg, "21-wo-form-repeat", 800)
+    pg.keyboard.press("Escape")
+    c.close()
+    c, pg = ctx(mobile=True)
+    login(pg, url)
+    if run_wo:
+        pg.goto(url + f"/work-orders/{run_wo['id']}")
+        pg.wait_for_timeout(1200)
+        _try("runner phone", lambda: pg.locator(".pr-form").first.scroll_into_view_if_needed())
+        shot(pg, "22-phone-procedure-runner", 800)
+    pg.goto(url + "/preventive-maintenance?tab=calendar")
+    shot(pg, "23-phone-pm-calendar", 1500)
+    pg.goto(url + "/automations")
+    shot(pg, "24-phone-automations", 1500)
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
-    ap.add_argument("--out", default="docs/screenshots/0.3.0")
-    ap.add_argument("--release", default="0.3.0", choices=("0.2.0", "0.3.0"))
+    ap.add_argument("--out", default="docs/screenshots/0.4.0")
+    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0"))
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -149,8 +304,8 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
-        if a.release == "0.3.0":
-            capture_030(ctx, shot, url)
+        if a.release in ("0.3.0", "0.4.0"):
+            (capture_030 if a.release == "0.3.0" else capture_040)(ctx, shot, url)
             b.close()
             if errors:
                 print("Console errors:\n" + "\n".join(errors))
