@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -22,6 +23,8 @@ from mpro.orgs.models import Membership, Organization
 from mpro.orgs.services import RuleError
 
 log = logging.getLogger(__name__)
+# (org, meter, previous value, new value, reading) — registered by mpro.pm and mpro.automations (0.4.0)
+READING_HOOKS: list[Callable[[Organization, Meter, Decimal | None, Decimal, MeterReading], None]] = []
 PERIOD = {
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
@@ -416,6 +419,8 @@ def add_reading(
     )
     if mt.last_reading_at == at:
         fire_triggers(org, mt, prev, v, r)
+        for hook in READING_HOOKS:  # usage-based PM and automations (0.4.0); only for the latest reading
+            hook(org, mt, prev, v, r)
     if commit:
         db.session.commit()
     return r
