@@ -1,7 +1,7 @@
 {
   "name": "mpro-web",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "SEE LICENSE IN ../LICENSE",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@tesseract.js-data/eng": "1.0.0",
     "@zxing/browser": "0.2.1",
     "@zxing/library": "0.23.0",
+    "html-to-image": "1.11.13",
     "lucide-react": "0.445.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

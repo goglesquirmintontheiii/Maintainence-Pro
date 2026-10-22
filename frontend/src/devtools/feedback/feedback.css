@@ -1,0 +1,70 @@
+/* TEMPORARY (feedback capture, 0.4.2). Remove by 1.9.0 (2.0.0 at the latest). See ./README.md. */
+[data-mpro-feedback] { --fb-z: 2147483000; --fb-hl: #e8590c; font-family: var(--font); font-size: var(--fs-sm); color: var(--c-text); }
+
+.fb-layer { position: fixed; inset: 0; z-index: var(--fb-z); background: transparent; touch-action: none; }
+
+.fb-banner {
+  position: fixed; z-index: calc(var(--fb-z) + 2); bottom: calc(var(--s-4) + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--s-3); white-space: nowrap; max-width: calc(100vw - 2 * var(--s-4)); overflow: hidden;
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4); font-size: var(--fs-xs); line-height: 1.6; border-radius: var(--r-pill); background: var(--c-text); color: var(--c-panel); box-shadow: var(--shadow-3);
+}
+.fb-banner b { color: var(--fb-hl); font-weight: var(--fw-bold); }
+.fb-banner kbd { font-family: var(--font-mono); font-size: var(--fs-xs); border: 1px solid currentColor; border-radius: var(--r-sm); padding: 0 4px; margin-right: 2px; opacity: .85; }
+.fb-banner .fb-keys { opacity: .8; }
+.fb-banner button { border: 0; border-radius: var(--r-pill); padding: var(--s-1) var(--s-3); background: var(--c-panel); color: var(--c-text); font-weight: var(--fw-semibold); cursor: pointer; }
+.fb-banner .fb-err { color: #ffb4a8; white-space: normal; }
+.fb-banner > span:not(.fb-err) { overflow: hidden; text-overflow: ellipsis; }
+
+.fb-hl { position: fixed; z-index: calc(var(--fb-z) + 1); pointer-events: none; border: 2px solid var(--fb-hl); background: color-mix(in srgb, var(--fb-hl) 12%, transparent); border-radius: 2px; }
+.fb-area { border-style: dashed; }
+.fb-area span { position: absolute; right: 0; bottom: -22px; font: var(--fw-semibold) var(--fs-xs) var(--font-mono); background: var(--fb-hl); color: #fff; padding: 1px 6px; border-radius: var(--r-sm); }
+.fb-picked { background: transparent; box-shadow: 0 0 0 9999px rgba(10, 15, 25, .28); }
+.fb-tip {
+  position: fixed; z-index: calc(var(--fb-z) + 2); pointer-events: none; display: flex; gap: var(--s-2); align-items: center; max-width: 320px; white-space: nowrap; overflow: hidden;
+  padding: 3px var(--s-2); border-radius: var(--r-sm); background: var(--c-text); color: var(--c-panel); font-size: var(--fs-xs); box-shadow: var(--shadow-2);
+}
+.fb-tip code { font-family: var(--font-mono); color: #ffc69a; overflow: hidden; text-overflow: ellipsis; }
+.fb-tip .fb-name { overflow: hidden; text-overflow: ellipsis; opacity: .9; }
+.fb-tip .fb-dim { color: inherit; opacity: .65; }
+
+.fb-panel {
+  position: fixed; z-index: calc(var(--fb-z) + 3); right: var(--s-4); bottom: calc(var(--s-4) + env(safe-area-inset-bottom, 0px)); width: min(400px, calc(100vw - 2 * var(--s-4)));
+  max-height: calc(100vh - 2 * var(--s-4)); overflow: auto; display: grid; gap: var(--s-3); padding: var(--s-4);
+  background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--r-xl); box-shadow: var(--shadow-3);
+}
+.fb-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.fb-head b { font-size: var(--fs-md); }
+.fb-x { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--c-text-2); cursor: pointer; padding: 0 var(--s-1); }
+.fb-target { display: grid; gap: var(--s-1); padding: var(--s-3); border-radius: var(--r-md); background: var(--c-sunken); min-width: 0; }
+.fb-target code { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-primary); overflow-wrap: anywhere; }
+.fb-name { font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.fb-dim { color: var(--c-text-2); font-size: var(--fs-xs); }
+.fb-ok { color: var(--c-success); font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
+.fb-err { color: var(--c-danger); font-size: var(--fs-xs); }
+.fb-check { display: flex; gap: var(--s-2); align-items: center; font-size: var(--fs-xs); color: var(--c-text-2); margin-top: var(--s-1); }
+.fb-shotwrap { position: relative; }
+.fb-shot { display: block; max-width: 100%; max-height: 240px; border-radius: var(--r-sm); border: 1px solid var(--c-border); background: var(--c-panel); }
+.fb-num {
+  position: absolute; transform: translate(-30%, -30%); min-width: 16px; height: 16px; padding: 0 3px; border-radius: var(--r-pill);
+  background: var(--fb-hl); color: #fff; font: var(--fw-bold) 10px/16px var(--font-mono); text-align: center;
+}
+.fb-row { display: flex; gap: var(--s-1); flex-wrap: wrap; align-items: center; }
+.fb-seg { border: 1px solid var(--c-border); background: var(--c-panel); border-radius: var(--r-pill); padding: 3px var(--s-3); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--c-text-2); cursor: pointer; }
+.fb-seg[aria-checked="true"] { background: var(--c-text); border-color: var(--c-text); color: var(--c-panel); }
+.fb-row select { margin-left: auto; border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 3px var(--s-2); background: var(--c-panel); color: var(--c-text); font-size: var(--fs-xs); }
+.fb-panel textarea {
+  width: 100%; resize: vertical; border: 1px solid var(--c-border); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); background: var(--c-panel); color: var(--c-text);
+  font: var(--fs-sm)/1.45 var(--font);
+}
+.fb-panel textarea:focus { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+.fb-panel .fb-code { font: var(--fs-xs)/1.3 var(--font-mono); color: var(--c-text-2); word-break: break-all; }
+.fb-actions { display: flex; gap: var(--s-2); align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.fb-actions button { border: 1px solid var(--c-border); background: var(--c-panel); color: var(--c-text); border-radius: var(--r-md); padding: var(--s-1) var(--s-3); font-weight: var(--fw-semibold); cursor: pointer; }
+.fb-actions .fb-primary { background: var(--c-primary); border-color: var(--c-primary); color: var(--c-on-primary); }
+.fb-actions button:disabled { opacity: .5; cursor: default; }
+
+@media (max-width: 600px) {
+  .fb-panel { right: var(--s-2); left: var(--s-2); width: auto; bottom: calc(var(--s-2) + env(safe-area-inset-bottom, 0px)); }
+  .fb-banner .fb-keys { display: none; }
+  .fb-banner { bottom: calc(var(--bottomnav-h, 0px) + var(--s-2) + env(safe-area-inset-bottom, 0px)); }
+}

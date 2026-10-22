@@ -279,11 +279,42 @@ def capture_040(ctx: Any, shot: Any, url: str) -> None:
     c.close()
 
 
+def capture_042(ctx: Any, shot: Any, url: str) -> None:
+    """0.4.2: the temporary Ctrl+Shift+F feedback capture (remove these with the tool, by 1.9.0)."""
+    c, pg = ctx("light")
+    login(pg, url)
+    pg.goto(url + "/work-orders")
+    pg.wait_for_timeout(1500)
+    pg.keyboard.press("Control+Shift+F")
+    row = pg.get_by_text("Forklift 3 hydraulic leak").first.bounding_box()
+    assert row
+    pg.mouse.move(row["x"] + 10, row["y"] + 8)
+    shot(pg, "01-pick-element", 300)
+    pg.mouse.click(row["x"] + 10, row["y"] + 8)
+    note = pg.get_by_label("What's the bug, feature, change or note?")
+    note.fill("Show the asset next to the title\n\nIn To Do, add the asset name after the work order title.")
+    pg.get_by_role("radio", name="Feature").click()
+    shot(pg, "02-element-note", 300)
+    pg.get_by_role("button", name="Create code").click()
+    shot(pg, "03-element-code", 800)
+    pg.get_by_role("button", name="New capture").click()
+    pg.mouse.move(300, 120)
+    pg.mouse.down()
+    pg.mouse.move(900, 520, steps=12)
+    shot(pg, "04-drag-area", 200)
+    pg.mouse.up()
+    pg.wait_for_timeout(2500)
+    pg.get_by_label("What's the bug, feature, change or note?").fill("List rows feel cramped\n\nA bit more padding between rows.")
+    shot(pg, "05-area-note", 300)
+    pg.keyboard.press("Escape")
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
     ap.add_argument("--out", default="docs/screenshots/0.4.0")
-    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0"))
+    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2"))
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -304,8 +335,8 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
-        if a.release in ("0.3.0", "0.4.0"):
-            (capture_030 if a.release == "0.3.0" else capture_040)(ctx, shot, url)
+        if a.release in ("0.3.0", "0.4.0", "0.4.2"):
+            {"0.3.0": capture_030, "0.4.0": capture_040, "0.4.2": capture_042}[a.release](ctx, shot, url)
             b.close()
             if errors:
                 print("Console errors:\n" + "\n".join(errors))

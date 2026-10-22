@@ -45,6 +45,11 @@ uv run ruff check mpro tests && uv run ruff format mpro tests && uv run mypy
 cd frontend && npm run build             # typecheck + production build
 ```
 
+## Temporary features
+
+- Ctrl+Shift+F feedback capture (`frontend/src/devtools/feedback/`, added 0.4.2): remove by 1.9.0 (2.0.0 at the latest).
+  Steps in its README; `tests/test_temporary_features.py` fails when the version reaches the deadline.
+
 ## Conventions that matter
 
 - Business logic lives in `services.py`; API views stay thin.

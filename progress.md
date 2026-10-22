@@ -1,9 +1,37 @@
-# MPro 0.4.0 — Preventive maintenance, procedures & automations (and hotfix 0.4.1)
+# MPro 0.4.0 — Preventive maintenance, procedures & automations (and 0.4.1, 0.4.2)
 
 **Status: released** · Checklist milestone 0.4.0 · Started 2026-10-22 · Released 2026-10-22
 
 Scheduled and meter-triggered work (repeating work orders and Maintenance Plans with nested PMs), the procedure
 builder with every MaintainX field type, and automations. Also the changes requested in the 0.3.0 review.
+
+## 0.4.2 (2026-10-22): temporary feedback capture
+
+A testing aid for writing requests, **not a product feature: it will be removed by 1.9.0 (2.0.0 at the latest)**.
+No milestone of its own; it ships between 0.4.0 and 0.5.0.
+
+- **Ctrl+Shift+F** anywhere in MPro turns on feedback mode. Hover highlights elements like the browser's inspector
+  (↑/↓ for parent/child, Enter or click to pick), or drag to select an area. Ctrl+Shift+F or Esc leaves.
+- Pick Bug, Feature, Change or Note and a priority, write the note (first line is the title, Markdown works), and
+  **Create code**. The code is copied to the clipboard.
+- An **element** capture holds its selector, readable path, accessible name, text, attributes, the section headings it
+  sits in, the link or button around it, size and position, a few styles and a short outerHTML. Ticking "Add a screenshot of it" adds a picture.
+- An **area** capture holds a screenshot plus up to 60 labelled elements inside it (buttons, fields, headings, text),
+  each numbered with its box in the screenshot.
+- Every capture also records the page: route, heading, open dialog, selected tab, viewport, theme, MPro version and role.
+- In the release checklist, **Requests → Paste a capture** unpacks the code, previews it, and adds it as a request
+  with the screenshot (stored with the checklist) and details, so Claude can review exactly what you pointed at.
+- Easy to remove: everything is in `frontend/src/devtools/feedback/` plus one import line in `main.tsx`; steps are in
+  its README. `tests/test_temporary_features.py` fails once the version reaches 1.9.0 while it's still there.
+
+Screenshots:
+- [Picking an element](docs/screenshots/0.4.2/01-pick-element.png)
+- [Writing the note for an element](docs/screenshots/0.4.2/02-element-note.png)
+- [The code, copied](docs/screenshots/0.4.2/03-element-code.png)
+- [Dragging over an area](docs/screenshots/0.4.2/04-drag-area.png)
+- [Area capture with numbered elements](docs/screenshots/0.4.2/05-area-note.png)
+- [Checklist: pasting a code](docs/screenshots/0.4.2/07-checklist-paste-preview.png)
+- [Checklist: requests with their captures](docs/screenshots/0.4.2/06-checklist-captures.png)
 
 ## 0.4.1 hotfix (2026-10-22)
 

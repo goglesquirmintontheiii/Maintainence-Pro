@@ -28,6 +28,7 @@ import { PMPage } from "./pages/pm/PM";
 import { ProceduresPage } from "./pages/procedures/Procedures";
 import { AutomationsPage } from "./pages/automations/Automations";
 import { RolesPage } from "./pages/roles/Roles";
+import "./devtools/feedback"; // TEMPORARY Ctrl+Shift+F feedback capture (0.4.2). Remove by 1.9.0, see devtools/feedback/README.md
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
 
