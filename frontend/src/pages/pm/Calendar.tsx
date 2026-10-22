@@ -36,7 +36,7 @@ export function PMCalendar() {
   const count = q.data?.items.length ?? 0;
   return (
     <section className="card pm-cal">
-      <div className="card-head">
+      <div className="card-head pm-cal-head">
         <div className="row">
           <Button icon variant="ghost" aria-label="Previous month" onClick={() => step(-1)}><ChevronLeft size={18} /></Button>
           <h2 className="pm-cal-title">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2>
@@ -57,7 +57,7 @@ export function PMCalendar() {
             const out = d.getMonth() !== month.getMonth();
             return (
               <div key={k} role="gridcell" className={"pm-cal-day" + (out ? " out" : "") + (k === today ? " today" : "") + (items.length ? "" : " none")}>
-                <div className="pm-cal-n"><span className="mobile-only">{d.toLocaleDateString(undefined, { weekday: "short" })} </span>{d.getDate()}</div>
+                <div className="pm-cal-n"><span className="mobile-only pm-cal-wdn">{d.toLocaleDateString(undefined, { weekday: "short" })}</span>{d.getDate()}</div>
                 {items.slice(0, 4).map((it) => <CalItem key={it.plan.id + it.key} it={it} />)}
                 {items.length > 4 && <span className="small faint">+{items.length - 4} more</span>}
               </div>);

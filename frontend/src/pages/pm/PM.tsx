@@ -124,7 +124,7 @@ function PlanRow({ p, active }: { p: Plan; active: boolean }) {
       <div className="pm-row-side">
         {p.active ? <span className="small muted">{p.next_due_at ? `Next ${shortDate(p.next_due_at, session.org?.timezone)}` : "Nothing scheduled"}</span>
           : <Pill tone="warning"><PauseCircle size={12} />Paused</Pill>}
-        <span className={"pm-pct " + pctTone(pct)} title="Done on time, last 90 days">{pctLabel(pct)}</span>
+        {pct !== null && pct !== undefined && <span className={"pm-pct " + pctTone(pct)} title="Done on time, last 90 days">{pctLabel(pct)}</span>}
       </div>
     </Link>
   );

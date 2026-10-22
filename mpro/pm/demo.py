@@ -149,4 +149,38 @@ def seed_pm(org: Organization, admin: User) -> None:
         ).first()
         if eyewash is not None and eyewash.status not in ("done", "canceled") and not eyewash.parent_id:
             svc.set_repeat(org, m, eyewash, {"freq": "weekly", "interval": 1})
+        _history(org, tz, today)
         db.session.commit()
+
+
+def _history(org: Organization, tz: Any, today: Any) -> None:
+    """A few months of past visits so the compliance report and plan history have something to show."""
+    from mpro.pm import schedule as sch
+    from mpro.pm.models import MaintenancePlan, PMOccurrence
+    from mpro.pm.services import tasks_of
+
+    for plan in db.session.scalars(select(MaintenancePlan).where(MaintenancePlan.org_id == org.id)).all():
+        weekly = plan.kind == "repeat"
+        step, count = (7, 10) if weekly else (30, 5)
+        tasks = tasks_of(plan)
+        if not tasks or plan.schedule_kind == "usage":
+            continue
+        for i in range(1, count + 1):
+            day = today - timedelta(days=step * i)
+            due = sch.to_utc(datetime(day.year, day.month, day.day, 15), tz)
+            # mostly on time; one late, one skipped, one missed
+            late, skipped, missed = i == 3, i == (6 if weekly else 4), weekly and i == 8
+            occ = PMOccurrence(
+                org_id=org.id,
+                plan_id=plan.id,
+                key=f"t:{day.isoformat()}",
+                task_ids=[str(tasks[0].id)],
+                due_at=due,
+                original_due_at=due,
+                status="skipped" if skipped else "generated" if missed else "completed",
+                overrides={},
+                skip_reason="Line down for retooling" if skipped else "",
+                generated_at=due - timedelta(days=plan.horizon_days),
+                completed_at=None if skipped or missed else due + timedelta(days=2 if late else 0, hours=-3),
+            )
+            db.session.add(occ)

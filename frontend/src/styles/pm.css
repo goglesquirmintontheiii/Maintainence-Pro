@@ -13,7 +13,7 @@
 .pm-pct.danger { color: var(--c-danger); }
 
 /* plan detail */
-.pm-tiles { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.pm-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tile .v.sm { font-size: var(--fs-lg); }
 .pm-tasks, .pm-occ, .pm-hol-list { list-style: none; margin: 0; padding: 0; }
 .pm-tasks li { padding: var(--s-3) var(--s-5); border-top: 1px solid var(--c-border-soft); display: flex; flex-direction: column; gap: 4px; }
@@ -86,6 +86,10 @@
 .pm-hol-list li { padding: 6px 0; border-bottom: 1px solid var(--c-border-soft); gap: var(--s-3); }
 
 @media (max-width: 640px) {
+  .pm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
+  .pm-tiles .tile { padding: var(--s-3); }
+  .pm-cal-head { flex-wrap: wrap; }
+  .pm-cal-wdn { margin-right: 4px; }
   .pm-task-grid, .pm-task-grid.three { grid-template-columns: minmax(0, 1fr); }
   .pm-occ-row { padding: var(--s-3); flex-wrap: wrap; }
   .pm-occ-date { width: auto; flex-direction: row; gap: 6px; align-items: baseline; }

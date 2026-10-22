@@ -541,7 +541,7 @@ def _merged_details(plan: MaintenancePlan, tasks: list[PMTask], occ: PMOccurrenc
     names = [t.name for t in mine if t.name]
     title = d.get("title") or plan.name
     if plan.kind == "plan" and names:
-        title = f"{plan.name}: {', '.join(names)}"
+        title = f"{title}: {', '.join(names)}"
     desc = [d.get("description") or ""]
     prio = d.get("priority", "none")
     base_est = int(d.get("estimated_minutes") or 0)
@@ -1430,7 +1430,17 @@ def plan_dict(plan: MaintenancePlan, extra: dict[str, Any] | None = None, with_t
         next_due = up[0]["due_at"] if up else None
     tz = _tz(plan)
     summaries = [task_dict(plan, t)["summary"] for t in tasks]
-    usage = [f"every {_num(t.every_units):,} units" for t in tasks if t.every_units]
+    from mpro.meters.models import Meter
+
+    units = {
+        mt.id: mt.unit
+        for mt in db.session.scalars(select(Meter).where(Meter.id.in_([t.meter_id for t in tasks if t.meter_id]))).all()
+    }
+    usage = [
+        f"Every {_num(t.every_units):,} {units.get(t.meter_id) or 'units'}"
+        for t in tasks
+        if t.every_units and t.meter_id
+    ]
     d: dict[str, Any] = {
         "id": str(plan.id),
         "kind": plan.kind,
