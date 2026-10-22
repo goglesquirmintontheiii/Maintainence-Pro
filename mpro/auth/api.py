@@ -14,10 +14,12 @@ from mpro import __version__
 from mpro.auth import services as svc
 from mpro.auth.services import AuthError
 from mpro.core.entitlements import entitlements_for
-from mpro.core.permissions import ROLES, permissions_for
+from mpro.core.files import max_upload_bytes
+from mpro.core.permissions import permissions_for
 from mpro.extensions import db
 from mpro.orgs.models import Membership
-from mpro.orgs.services import org_dict
+from mpro.orgs.roles import role_label
+from mpro.orgs.services import avatar_url, org_dict
 
 bp = APIBlueprint("auth", __name__, url_prefix="/api/v1/auth", tag="Auth")
 
@@ -91,12 +93,15 @@ def session_payload() -> dict[str, Any]:
             "email": user.email,
             "initials": user.initials,
             "theme": user.theme,
+            "avatar_url": avatar_url(user),
         },
         "org": org_dict(g.org) if getattr(g, "org", None) else None,
         "role": m.role if m else None,
-        "role_label": ROLES.get(m.role, {}).get("label") if m else None,
-        "permissions": permissions_for(m.role) if m else [],
+        "role_id": str(m.role_id) if m and m.role_id else None,
+        "role_label": role_label(m),
+        "permissions": permissions_for(m) if m else [],
         "entitlements": entitlements_for(getattr(g, "org", None)).to_dict(),
+        "max_upload_mb": max_upload_bytes(getattr(g, "org", None)) // (1024 * 1024),
         "orgs": orgs,
     }
 
@@ -211,5 +216,75 @@ def prefs(body: dict[str, Any]) -> dict[str, Any]:
     if body["theme"] not in {"system", "light", "dark"}:
         abort(422, message="Theme must be system, light or dark.")
     g.user.theme = body["theme"]
+    db.session.commit()
+    return session_payload()
+
+
+# ---- profile photo (MP-116) ------------------------------------------------------------------
+AVATAR_MAX_BYTES = 10 * 1024 * 1024
+AVATAR_SIZE = 256
+
+
+@bp.post("/avatar")
+def upload_avatar() -> dict[str, Any]:
+    """Upload a profile photo (multipart `file`, an image up to 10 MB). It's re-encoded as a 256×256 WebP with
+    no metadata; crop it in the browser first (the server centre-crops anything that isn't square)."""
+    import io
+
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    user = getattr(g, "user", None)
+    if user is None:
+        abort(401, message="Please sign in.")
+    up = request.files.get("file")
+    if up is None:
+        abort(422, message="Choose a photo.")
+    data = up.read(AVATAR_MAX_BYTES + 1)
+    if len(data) > AVATAR_MAX_BYTES:
+        abort(413, message="Profile photos can be up to 10 MB.")
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            if im.format not in ("JPEG", "PNG", "WEBP", "GIF"):
+                abort(422, message="Use a JPG, PNG, WebP or GIF photo.")
+            if im.width * im.height > 50_000_000:
+                abort(422, message="That photo is too large.")
+            square = ImageOps.fit(
+                ImageOps.exif_transpose(im).convert("RGB"), (AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS
+            )
+            out = io.BytesIO()
+            square.save(out, "WEBP", quality=85, method=4)  # a fresh image: no EXIF or other metadata
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        abort(422, message="That doesn't look like a photo. Try a JPG or PNG.")
+    from mpro.core.events import emit
+    from mpro.core.models import utcnow
+
+    user.avatar = out.getvalue()
+    user.avatar_updated_at = utcnow()
+    emit(
+        "user.avatar_changed",
+        entity_type="user",
+        entity_id=user.id,
+        entity_label=user.name,
+        summary="Changed profile photo",
+    )
+    db.session.commit()
+    return session_payload()
+
+
+@bp.delete("/avatar")
+def delete_avatar() -> dict[str, Any]:
+    user = getattr(g, "user", None)
+    if user is None:
+        abort(401, message="Please sign in.")
+    from mpro.core.events import emit
+
+    user.avatar, user.avatar_updated_at = None, None
+    emit(
+        "user.avatar_removed",
+        entity_type="user",
+        entity_id=user.id,
+        entity_label=user.name,
+        summary="Removed profile photo",
+    )
     db.session.commit()
     return session_payload()

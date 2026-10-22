@@ -211,7 +211,7 @@ def delete_meter(org: Organization, m: Membership, mt: Meter, commit: bool = Tru
 
 
 def copy_meter(org: Organization, m: Membership, mt: Meter, asset_ids: list[Any] | None = None) -> list[Meter]:
-    """Copy a meter (with its triggers) — optionally once onto each of several assets."""
+    """Copy a meter (it joins the original's automations) — optionally once onto each of several assets."""
     targets: list[Any] = list(asset_ids or [None])
     if len(targets) > 200:
         raise RuleError("Copy to up to 200 assets at a time.", 422)
@@ -224,27 +224,9 @@ def copy_meter(org: Organization, m: Membership, mt: Meter, asset_ids: list[Any]
             new.asset_id, new.location_id = a.id, a.location_id
         db.session.add(new)
         db.session.flush()
-        for t in db.session.scalars(
-            select(MeterTrigger).where(MeterTrigger.meter_id == mt.id, MeterTrigger.deleted_at.is_(None))
-        ).all():
-            db.session.add(
-                MeterTrigger(
-                    org_id=org.id,
-                    meter_id=new.id,
-                    name=t.name,
-                    kind=t.kind,
-                    comparator=t.comparator,
-                    threshold=t.threshold,
-                    every_units=t.every_units,
-                    next_at=((new.last_value or Decimal(0)) + t.every_units)
-                    if t.kind == "every" and t.every_units
-                    else None,
-                    work_order=dict(t.work_order or {}),
-                    active=t.active,
-                    fired_count=0,
-                    last_note="",
-                )
-            )
+        from mpro.automations.services import meter_copied
+
+        meter_copied(mt.id, new.id)  # the copy joins the original's automations
         emit(
             "meter.created",
             entity_type="meter",
@@ -418,7 +400,7 @@ def add_reading(
         data={"value": str(v), "level": r.level, "anomaly": r.anomaly, "reading_id": r.id},
     )
     if mt.last_reading_at == at:
-        fire_triggers(org, mt, prev, v, r)
+        # 0.3.0 meter triggers (fire_triggers) became automations in 0.4.0; they run through READING_HOOKS now
         for hook in READING_HOOKS:  # usage-based PM and automations (0.4.0); only for the latest reading
             hook(org, mt, prev, v, r)
     if commit:

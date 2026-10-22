@@ -349,7 +349,11 @@ def upgrade():
         """
     )
     # ---- automations (MP-117): data steps go here ----------------------------------------------------------
+    _convert_meter_triggers()
     # ---- procedures: data steps go here ---------------------------------------------------------------------
+    # ---- preventive maintenance: schema ----------------------------------------------------------------------
+    with op.batch_alter_table('pm_tasks', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('spec', sa.JSON(), nullable=False, server_default='{}'))
     # ---- preventive maintenance: data steps go here ---------------------------------------------------------
 
 
@@ -442,3 +446,90 @@ def downgrade():
 
     op.drop_table('automations')
     # ### end Alembic commands ###
+
+
+def _convert_meter_triggers():
+    """0.3.0 meter triggers become automations (a copy of mpro.automations.services.legacy_to_doc: migrations
+    don't import application code)."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    bind = op.get_bind()
+    mt = sa.table(
+        "meter_triggers",
+        sa.column("id", sa.Uuid()), sa.column("org_id", sa.Uuid()), sa.column("meter_id", sa.Uuid()),
+        sa.column("name", sa.String()), sa.column("kind", sa.String()), sa.column("comparator", sa.String()),
+        sa.column("threshold", sa.Numeric(18, 4)), sa.column("every_units", sa.Numeric(18, 4)),
+        sa.column("next_at", sa.Numeric(18, 4)), sa.column("work_order", sa.JSON()), sa.column("active", sa.Boolean()),
+        sa.column("fired_count", sa.Integer()), sa.column("last_fired_at", sa.DateTime(timezone=True)),
+        sa.column("deleted_at", sa.DateTime(timezone=True)),
+    )
+    meters = sa.table("meters", sa.column("id", sa.Uuid()), sa.column("created_by_id", sa.Uuid()))
+    autos = sa.table(
+        "automations",
+        sa.column("id", sa.Uuid()), sa.column("org_id", sa.Uuid()), sa.column("name", sa.String()),
+        sa.column("description", sa.Text()), sa.column("active", sa.Boolean()), sa.column("trigger", sa.JSON()),
+        sa.column("conditions", sa.JSON()), sa.column("actions", sa.JSON()), sa.column("sensitivity", sa.JSON()),
+        sa.column("rerun_minutes", sa.Integer()), sa.column("targets", sa.JSON()),
+        sa.column("last_run_at", sa.DateTime(timezone=True)), sa.column("run_count", sa.Integer()),
+        sa.column("fail_count", sa.Integer()), sa.column("skip_count", sa.Integer()),
+        sa.column("created_by_id", sa.Uuid()), sa.column("legacy_trigger_id", sa.Uuid()),
+        sa.column("created_at", sa.DateTime(timezone=True)), sa.column("updated_at", sa.DateTime(timezone=True)),
+    )
+    states = sa.table(
+        "automation_states",
+        sa.column("id", sa.Uuid()), sa.column("org_id", sa.Uuid()), sa.column("automation_id", sa.Uuid()),
+        sa.column("target_id", sa.String()), sa.column("state", sa.JSON()),
+        sa.column("created_at", sa.DateTime(timezone=True)), sa.column("updated_at", sa.DateTime(timezone=True)),
+    )
+    now = datetime.now(timezone.utc)
+    rows = bind.execute(
+        sa.select(mt, meters.c.created_by_id.label("meter_creator"))
+        .select_from(mt.join(meters, meters.c.id == mt.c.meter_id))
+        .where(mt.c.deleted_at.is_(None))
+    ).mappings().all()
+    for t in rows:
+        wo = dict(t["work_order"] or {})
+        action = {"type": "create_work_order", "rerun_minutes": 0}
+        for k in ("title", "description", "priority", "assignees", "categories", "estimated_minutes"):
+            if wo.get(k) not in (None, ""):
+                action[k] = wo[k]
+        if wo.get("due_in_days") not in (None, ""):
+            try:
+                action["due_in_days"] = int(wo["due_in_days"])
+            except (TypeError, ValueError):
+                pass
+        action.setdefault("title", t["name"] or "Meter work")
+        if t["kind"] == "every":
+            every = Decimal(str(t["every_units"] or 1))
+            nxt = Decimal(str(t["next_at"])) if t["next_at"] is not None else every
+            trigger = {"type": "meter_reading", "condition": "increases_by", "value": str(every), "first_at": str(nxt)}
+            action["work_type"] = "preventive"
+            sensitivity = {}
+        else:
+            trigger = {
+                "type": "meter_reading",
+                "condition": "above" if (t["comparator"] or "gt") == "gt" else "below",
+                "value": str(Decimal(str(t["threshold"] or 0))),
+            }
+            sensitivity = {"mode": "once"}
+        aid = _uuid.uuid4()
+        bind.execute(
+            autos.insert().values(
+                id=aid, org_id=t["org_id"], name=(t["name"] or "Meter trigger")[:255],
+                description="Converted from a 0.3.0 meter trigger.", active=bool(t["active"]), trigger=trigger,
+                conditions=[], actions=[action], sensitivity=sensitivity, rerun_minutes=0,
+                targets=[str(t["meter_id"])], last_run_at=t["last_fired_at"], run_count=t["fired_count"] or 0,
+                fail_count=0, skip_count=0, created_by_id=t["meter_creator"], legacy_trigger_id=t["id"],
+                created_at=now, updated_at=now,
+            )
+        )
+        if t["kind"] == "every" and t["next_at"] is not None:
+            bind.execute(
+                states.insert().values(
+                    id=_uuid.uuid4(), org_id=t["org_id"], automation_id=aid, target_id=str(t["meter_id"]),
+                    state={"next": str(t["next_at"])}, created_at=now, updated_at=now,
+                )
+            )
+    bind.execute(sa.update(mt).where(mt.c.deleted_at.is_(None)).values(active=False))

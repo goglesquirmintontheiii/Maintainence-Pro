@@ -11,13 +11,15 @@ import {
   api, ApiError, upload, type ActivityItem, type AssetTask, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
 } from "../../lib/api";
 import { useSession } from "../../lib/session";
-import { dateTime, timeAgo } from "../../lib/format";
+import { currency, dateTime, timeAgo } from "../../lib/format";
 import { absoluteUrl, copyText, dueLabel, fmtDuration, fmtMinutes, money, STATUS_LABEL, useWOOptions, WORK_TYPE_LABEL } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
 import { Avatar, Button, Dropdown, EmptyState, Field, Input, ListSkeleton, Modal, Pill, PriorityBadge, Select, StatusPill } from "../../components/ui";
 import { AssigneeChips, CategoryChips, MentionBox, RichText, SignaturePad } from "../../components/pickers";
 import { fromDetail, WorkOrderForm } from "./Form";
 import { ASSET_STATUS_LABEL } from "../../lib/assets";
+import { FileViewer } from "../../components/FileViewer";
+import { ProcedureRuns } from "../procedures/Runner";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -188,13 +190,15 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
         {(opts.data?.custom_fields ?? []).filter((f) => wo.custom[f.id] !== undefined && wo.custom[f.id] !== "").map((f) => (
           <div key={f.id}><dt>{f.name}</dt><dd>{f.type === "checkbox" ? (wo.custom[f.id] ? "Yes" : "No") : f.type === "link"
             ? <a href={String(wo.custom[f.id])} target="_blank" rel="noopener noreferrer">{String(wo.custom[f.id])}</a>
-            : f.type === "datetime" ? dateTime(String(wo.custom[f.id]), tz) : String(wo.custom[f.id])}</dd></div>))}
+            : f.type === "datetime" ? dateTime(String(wo.custom[f.id]), tz) : f.type === "currency" ? currency(wo.custom[f.id], session.org?.currency)
+            : String(wo.custom[f.id])}</dd></div>))}
       </dl>
 
       {wo.description && <section><h3 className="sec-h">Description</h3><p className="prewrap">{wo.description}</p></section>}
 
       <Attachments wo={wo} editable={editable} onChange={() => refresh()} />
       {wo.asset_tasks.length > 0 && <AssetTasks wo={wo} editable={editable && !["done", "canceled"].includes(wo.status)} onChange={(w) => refresh(w)} />}
+      {can("procedures.view") && <ProcedureRuns wo={wo} onChange={() => refresh()} />}
 
       {(wo.completion_summary || wo.signature) && (
         <section className="card card-pad stack">
@@ -327,6 +331,12 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
   };
   const images = wo.attachments.filter((a) => a.is_image);
   const others = wo.attachments.filter((a) => !a.is_image);
+  const viewList = [...images, ...others];
+  const coverId = wo.cover_url?.split("/files/")[1]?.split("/")[0] ?? null;
+  const setCover = async (fileId: string) => {
+    try { await api(`/work-orders/${wo.id}/cover`, { method: "PUT", body: { file_id: fileId } }); onChange(); toast("Work order image updated"); }
+    catch (e) { toast((e as ApiError).message, { kind: "error" }); }
+  };
   if (!wo.attachments.length && !editable) return null;
   return (
     <section onDragOver={(e) => { if (editable) e.preventDefault(); }} onDrop={(e) => { if (editable) { e.preventDefault(); void add(e.dataTransfer.files); } }}>
@@ -338,16 +348,19 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
         <figure key={f.id} className="thumb">
           <button type="button" onClick={() => setView(f)} aria-label={`View ${f.name}`}><img src={f.thumb_url ?? f.url} alt={f.name} loading="lazy" /></button>
           {f.role && ["before", "after"].includes(f.role) && <span className="thumb-tag">{f.role === "before" ? "Before" : "After"}</span>}
+          {f.id === coverId && images.length > 1 && <span className="cover-tag">Cover</span>}
           {editable && <button type="button" className="thumb-x" aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={12} /></button>}
         </figure>))}</div>}
       {others.length > 0 && <div className="files">{others.map((f) => (
-        <div key={f.id} className="file-row"><FileText size={16} className="faint" /><a href={f.url} target="_blank" rel="noopener noreferrer" className="grow">{f.name}</a>
+        <div key={f.id} className="file-row"><FileText size={16} className="faint" /><button type="button" className="linkbtn grow" style={{ textAlign: "left" }} onClick={() => setView(f)}>{f.name}</button>
           <span className="small faint">{(f.size / 1024 / 1024).toFixed(f.size > 1048576 ? 1 : 2)} MB</span>
           <a className="btn ghost sm icon" href={f.url + "?download=1"} aria-label={`Download ${f.name}`}><Download size={14} /></a>
           {editable && <Button size="sm" variant="ghost" icon aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={14} /></Button>}</div>))}</div>}
-      {view && <div className="overlay lightbox" onClick={() => setView(null)} role="dialog" aria-label={view.name}>
-        <img src={view.url} alt={view.name} /><div className="lightbox-bar"><span className="grow">{view.name}</span><a className="btn sm" href={view.url + "?download=1"} onClick={(e) => e.stopPropagation()}><Download size={14} />Download</a>
-          <Button size="sm" onClick={() => setView(null)}>Close</Button></div></div>}
+      {view && <FileViewer files={viewList} index={Math.max(0, viewList.findIndex((f) => f.id === view.id))} onClose={() => setView(null)}
+        actions={(f) => editable && f.is_image && ["file", "photo", "before", "after"].includes((f as FileItem).role ?? "file")
+          ? (f.id === coverId ? <span className="small" style={{ color: "var(--c-viewer-muted)" }}>Work order image</span>
+            : <Button size="sm" className="viewer-btn" aria-label="Use as work order image" title="Use as work order image" onClick={() => void setCover(f.id)}><ImagePlus size={14} /><span className="desktop-only">Use as work order image</span></Button>)
+          : null} />}
     </section>
   );
 }
@@ -516,6 +529,7 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ files: FileItem[]; id: string } | null>(null);
   const [editBody, setEditBody] = useState("");
   const [showHistory, setShowHistory] = useState(true);
   const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
@@ -556,8 +570,8 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
                   <div className="row"><Button size="sm" onClick={() => setEditing(null)}>Cancel</Button><Button size="sm" variant="primary" onClick={() => edit.mutate(i.id)}>Save</Button></div></div>
               ) : <p className="prewrap"><RichText text={i.body} /></p>}
               {i.files.length > 0 && <div className="thumbs sm">{i.files.map((f) => f.is_image
-                ? <a key={f.id} className="thumb" href={f.url} target="_blank" rel="noopener noreferrer"><img src={f.thumb_url ?? f.url} alt={f.name} /></a>
-                : <a key={f.id} className="chip" href={f.url} target="_blank" rel="noopener noreferrer"><FileText size={13} />{f.name}</a>)}</div>}
+                ? <button type="button" key={f.id} className="thumb" aria-label={`View ${f.name}`} onClick={() => setViewing({ files: i.files, id: f.id })}><img src={f.thumb_url ?? f.url} alt={f.name} /></button>
+                : <button type="button" key={f.id} className="chip" onClick={() => setViewing({ files: i.files, id: f.id })}><FileText size={13} />{f.name}</button>)}</div>}
               {Object.keys(i.reactions).length > 0 && <div className="row" style={{ gap: 4, marginTop: 4 }}>{Object.entries(i.reactions).map(([e, who]) => (
                 <button key={e} type="button" className={"reaction" + (who.includes(session.user!.id) ? " mine" : "")} title={who.map((u) => people[u] ?? "Someone").join(", ")}
                   onClick={() => react.mutate({ cid: i.id, emoji: e })}>{e} {who.length}</button>))}</div>}
@@ -575,6 +589,7 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
             <span className="small faint grow">Ctrl + Enter to send{options?.settings.mention_assigns ? " · mentioning someone assigns them" : ""}</span>
             <Button size="sm" variant="primary" disabled={(!body.trim() && !files.length) || post.isPending} onClick={() => post.mutate()}><Send size={14} />Send</Button></div>
         </div>)}
+      {viewing && <FileViewer files={viewing.files} index={Math.max(0, viewing.files.findIndex((f) => f.id === viewing.id))} onClose={() => setViewing(null)} />}
     </section>
   );
 }

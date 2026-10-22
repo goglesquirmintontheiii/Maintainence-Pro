@@ -18,7 +18,8 @@ datas = [
 ] + collect_data_files("reportlab")
 hidden = (collect_submodules("mpro") + collect_submodules("alembic") + collect_submodules("flask_migrate")
           + collect_submodules("apiflask") + collect_submodules("reportlab.pdfbase") + collect_submodules("segno")
-          + ["PIL.Image", "PIL.ImageOps", "PIL.JpegImagePlugin", "PIL.PngImagePlugin", "PIL.GifImagePlugin", "PIL.WebPImagePlugin"]
+          + ["PIL.Image", "PIL.ImageOps", "PIL.JpegImagePlugin", "PIL.PngImagePlugin", "PIL.GifImagePlugin", "PIL.WebPImagePlugin",
+             "PIL.AvifImagePlugin", "PIL.PsdImagePlugin", "mammoth", "nh3", "openpyxl"]  # file previews (MP-107)
           + ["argon2", "_cffi_backend", "waitress", "sqlalchemy.dialects.sqlite",
                                                "logging.config"])
 

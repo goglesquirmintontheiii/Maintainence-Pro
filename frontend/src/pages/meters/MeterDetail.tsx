@@ -1,10 +1,10 @@
-// One meter: latest reading, record a reading, chart, readings history and triggers.
+// One meter: latest reading, record a reading, chart, readings history and its automations.
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Boxes, Camera, Copy, Gauge, MapPin, MoreHorizontal, Pencil, Plus, Printer, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Boxes, Camera, ClipboardList, Copy, Gauge, MapPin, MoreHorizontal, Pencil, Plus, Printer, Trash2, X, Zap } from "lucide-react";
 import { api, ApiError, upload, type FileItem } from "../../lib/api";
-import type { ChartData, MeterDetail as MeterDetailT, MeterTrigger, Reading } from "../../lib/assets";
+import type { ChartData, MeterDetail as MeterDetailT, Reading } from "../../lib/assets";
 import { useSession } from "../../lib/session";
 import { dateTime, timeAgo } from "../../lib/format";
 import { toLocalInput } from "../../lib/wo";
@@ -12,8 +12,10 @@ import { useToast } from "../../components/Toast";
 import { Button, Dropdown, EmptyState, ListSkeleton, Modal, Pill } from "../../components/ui";
 import { ClearableDate } from "../../components/assetPickers";
 import { LabelDialog } from "../../components/LabelDialog";
+import { useFileViewer, type ViewerFile } from "../../components/FileViewer";
 import { MeterChart, fmtNum } from "./MeterChart";
-import { CopyMeterDialog, MeterForm, TriggerForm } from "./MeterForms";
+import "../../styles/automations.css";
+import { CopyMeterDialog, MeterForm } from "./MeterForms";
 
 const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 yr"]] as const;
 const FREQ: Record<string, string> = { hour: "hour", day: "day", week: "week", month: "month", year: "year" };
@@ -45,14 +47,11 @@ export function MeterDetail({ id }: { id: string }) {
   const [copying, setCopying] = useState(false);
   const [labels, setLabels] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [trigger, setTrigger] = useState<MeterTrigger | "new" | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ["meter", id] }); qc.invalidateQueries({ queryKey: ["meters"] }); };
   const del = useMutation({ mutationFn: () => api(`/meters/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["meters"] }); toast("Meter deleted"); nav("/meters"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
   const delReading = useMutation({ mutationFn: (rid: string) => api(`/meters/${id}/readings/${rid}`, { method: "DELETE" }),
     onSuccess: () => { refresh(); toast("Reading deleted"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
-  const delTrigger = useMutation({ mutationFn: (tid: string) => api(`/meters/${id}/triggers/${tid}`, { method: "DELETE" }),
-    onSuccess: () => { refresh(); toast("Trigger deleted"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
 
   if (q.isError) return <EmptyState icon={<Gauge size={26} />} title="Meter not found">It may have been deleted, or you don't have access to it.</EmptyState>;
   if (!q.data) return <div className="detail"><ListSkeleton rows={4} /></div>;
@@ -75,6 +74,8 @@ export function MeterDetail({ id }: { id: string }) {
           </div>
         </div>
         <div className="row">
+          {can("wo.create") && <Button onClick={() => nav(`/work-orders?new=1${m.asset ? `&asset=${m.asset.id}` : ""}${m.location ? `&location=${m.location.id}` : ""}`)}
+            aria-label="New work order" title="New work order for this meter's asset"><ClipboardList size={15} /><span className="desktop-only">Work order</span></Button>}
           {can("meters.manage") && <Button onClick={() => setEditing(true)} aria-label="Edit"><Pencil size={15} /><span className="desktop-only">Edit</span></Button>}
           <Dropdown trigger={(_, t) => <Button icon aria-label="More actions" onClick={t}><MoreHorizontal size={18} /></Button>} width={230}>
             {(close) => <>
@@ -113,31 +114,24 @@ export function MeterDetail({ id }: { id: string }) {
       </section>
 
       <section className="card">
-        <div className="card-head"><h2>Triggers</h2>{can("meters.manage") && <Button size="sm" onClick={() => setTrigger("new")}><Plus size={14} />Add trigger</Button>}</div>
-        {m.triggers.length === 0 ? <div className="card-body small faint">Create work orders automatically when a reading crosses a value, or every so many {m.unit}.</div> : (
-          <div className="table-wrap"><table className="table">
-            <thead><tr><th>Trigger</th><th>Creates</th><th>Fired</th><th /></tr></thead>
-            <tbody>{m.triggers.map((t) => (
-              <tr key={t.id}>
-                <td><div className="row" style={{ gap: 6 }}><Zap size={14} className={t.active ? "" : "faint"} /><b>{t.name}</b>{!t.active && <Pill>Paused</Pill>}</div>
-                  <div className="small muted">{t.kind === "threshold" ? `Reading ${t.comparator === "gt" ? "above" : "below"} ${t.threshold} ${m.unit}` : `Every ${t.every_units} ${m.unit}${t.next_at !== null ? ` · next at ${t.next_at}` : ""}`}</div></td>
-                <td>{String(t.work_order.title ?? `${m.name}: ${t.name}`)}<div className="small muted">{t.work_order.priority ? `Priority ${t.work_order.priority}` : ""}</div></td>
-                <td className="small">{t.fired_count} time{t.fired_count === 1 ? "" : "s"}{t.last_fired_at && <div className="faint">{timeAgo(t.last_fired_at)}</div>}{t.last_note && <div className="faint">{t.last_note}</div>}</td>
-                <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>{can("meters.manage") && <>
-                  <Button size="sm" variant="ghost" icon aria-label={`Edit ${t.name}`} onClick={() => setTrigger(t)}><Pencil size={14} /></Button>
-                  <Button size="sm" variant="ghost" icon aria-label={`Delete ${t.name}`} onClick={() => delTrigger.mutate(t.id)}><Trash2 size={14} /></Button></>}</td>
-              </tr>))}</tbody></table></div>)}
+        <div className="card-head"><h2>Automations for this meter</h2>
+          <div className="row" style={{ gap: 6 }}>
+            {(m.automations?.length ?? 0) > 0 && <Link className="small" to={`/automations?meter_id=${m.id}`}>See all</Link>}
+            {can("automations.manage") && <Button size="sm" onClick={() => nav(`/automations?new=1&meter=${m.id}`)}><Plus size={14} />New automation</Button>}</div></div>
+        {!m.automations?.length ? <div className="card-body small faint">Create work orders, change the asset's status or send emails automatically when a reading crosses a value, or every so many {m.unit}.</div> : (
+          <ul className="auto-mini">{m.automations.map((x) => (
+            <li key={x.id}><Link to={`/automations/${x.id}`} className="row" style={{ gap: 6 }}><Zap size={14} className={x.active ? "" : "faint"} />{x.name}</Link>
+              {!x.active && <Pill>Off</Pill>}</li>))}</ul>)}
       </section>
 
       {m.description && <section><h3 className="sec-h">Description</h3><p className="prewrap">{m.description}</p></section>}
 
       {editing && <MeterForm edit={m} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
       {copying && <CopyMeterDialog meter={m} onClose={() => setCopying(false)} onDone={(ids) => { setCopying(false); if (ids.length === 1) nav(`/meters/${ids[0]}`); }} />}
-      {trigger && <TriggerForm meter={m} edit={trigger === "new" ? undefined : trigger} onClose={() => setTrigger(null)} />}
       {labels && <LabelDialog entityType="meter" ids={[m.id]} onClose={() => setLabels(false)} />}
       {confirmDelete && <Modal title="Delete meter?" onClose={() => setConfirmDelete(false)} footer={<><Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
         <Button variant="danger" onClick={() => del.mutate()} disabled={del.isPending}>Delete</Button></>}>
-        <p>“{m.name}” and its triggers stop working. Its readings are kept.</p></Modal>}
+        <p>Automations stop watching “{m.name}”. Its readings are kept.</p></Modal>}
     </div>
   );
 }
@@ -192,9 +186,12 @@ function RecordReading({ meter, onSaved }: { meter: MeterDetailT; onSaved: () =>
 }
 
 function ReadingsTable({ items, unit, tz, canDelete, onDelete }: { items: Reading[]; unit: string; tz?: string; canDelete: boolean; onDelete: (id: string) => void }) {
+  const photos: ViewerFile[] = items.filter((r) => r.file_id && r.file_url)
+    .map((r) => ({ id: r.file_id!, name: `Reading ${fmtNum(r.value)} ${unit} · ${dateTime(r.recorded_at, tz)}`, url: `/api/v1/files/${r.file_id}`, thumb_url: r.file_url, is_image: true }));
+  const [viewer, openPhoto] = useFileViewer(photos);
   if (!items.length) return null;
   return (
-    <div className="table-wrap"><table className="table mreadings">
+    <div className="table-wrap">{viewer}<table className="table mreadings">
       <thead><tr><th>When</th><th>Reading</th><th className="desktop-only">By</th><th>Note</th><th /></tr></thead>
       <tbody>{items.map((r) => (
         <tr key={r.id}>
@@ -203,7 +200,7 @@ function ReadingsTable({ items, unit, tz, canDelete, onDelete }: { items: Readin
             <div className="row" style={{ gap: 4, marginTop: 2 }}><LevelBadge level={r.level} />{r.anomaly && <Pill tone="info">Unusual</Pill>}
               {r.source !== "manual" && <span className="small faint">{r.source === "api" ? "API" : "Work order"}</span>}</div></td>
           <td className="small desktop-only">{r.recorded_by ?? "—"}</td>
-          <td className="small">{r.note}{r.file_url && <a href={`/api/v1/files/${r.file_id}`} target="_blank" rel="noopener noreferrer"><img src={r.file_url} alt="Reading photo" className="mread-thumb" /></a>}
+          <td className="small">{r.note}{r.file_url && <button type="button" className="linkbtn" aria-label="View reading photo" onClick={() => openPhoto(photos.findIndex((p) => p.id === r.file_id))}><img src={r.file_url} alt="Reading photo" className="mread-thumb" /></button>}
             {r.work_order_id && <div><Link to={`/work-orders/${r.work_order_id}`}>Work order</Link></div>}</td>
           <td style={{ textAlign: "right" }}>{canDelete && <Button size="sm" variant="ghost" icon aria-label="Delete reading" onClick={() => onDelete(r.id)}><Trash2 size={14} /></Button>}</td>
         </tr>))}</tbody></table></div>

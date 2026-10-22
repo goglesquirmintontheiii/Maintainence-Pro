@@ -4,12 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, GripVertical, RotateCcw } from "lucide-react";
 import { api, ApiError, type WOList, type WOStatus, type WorkOrder, type Workload } from "../../lib/api";
 import { useSession } from "../../lib/session";
-import { dateTime } from "../../lib/format";
+import { currency, dateTime } from "../../lib/format";
 import { addDays, filtersParam, fmtMinutes, shortDate, startOfDay, STATUS_LABEL, useWOOptions, WORK_TYPE_LABEL, ymd } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
 import { Avatar, Button, Checkbox, Dropdown, EmptyState, ListSkeleton, PriorityBadge, Select, StatusPill } from "../../components/ui";
 import { AssigneeChips, CategoryChips } from "../../components/pickers";
 import { BulkBar } from "./Bulk";
+import "../../styles/viewer.css";
+import { PeriodBar } from "../../components/PeriodBar";
 import type { ListQuery } from "./WorkOrders";
 
 function pref<T>(k: string, d: T): T { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } }
@@ -28,6 +30,7 @@ function usePatchWO() {
 // ---------------------------------------------------------------- table
 type Col = { id: string; label: string; sort?: string; cell: (w: WorkOrder, tz?: string) => React.ReactNode; num?: boolean };
 const BASE_COLS: Col[] = [
+  { id: "cover", label: "Picture", cell: (w) => (w.cover_url ? <img className="wo-cover sm" src={w.cover_url} alt="" loading="lazy" decoding="async" /> : <span className="wo-cover sm" aria-hidden />) },
   { id: "number", label: "ID", sort: "number", cell: (w) => <span className="mono">#{w.number}</span> },
   { id: "title", label: "Title", sort: "title", cell: (w) => <span className="t">{w.unread && <span className="unread-dot" />} {w.title}</span> },
   { id: "status", label: "Status", sort: "status", cell: (w) => <StatusPill status={w.status} sub={w.sub_status} /> },
@@ -45,7 +48,7 @@ const BASE_COLS: Col[] = [
   { id: "updated_at", label: "Updated", sort: "updated_at", cell: (w, tz) => dateTime(w.updated_at, tz) },
   { id: "completed_at", label: "Completed", sort: "completed_at", cell: (w, tz) => (w.completed_at ? dateTime(w.completed_at, tz) : <span className="faint">—</span>) },
 ];
-const DEFAULT_COLS = ["number", "title", "status", "priority", "assignees", "due_at", "categories"];
+const DEFAULT_COLS = ["cover", "number", "title", "status", "priority", "assignees", "due_at", "categories"];
 
 export function TableView({ query, onOpen }: { query: ListQuery; onOpen: (id: string) => void }) {
   const { session, can } = useSession();
@@ -60,7 +63,7 @@ export function TableView({ query, onOpen }: { query: ListQuery; onOpen: (id: st
   const [dragCol, setDragCol] = useState<string | null>(null);
   useEffect(() => { setPref("wo.table.cols", cols); setPref("wo.table.sort", sort); setPref("wo.table.pp", perPage); }, [cols, sort, perPage]);
   const all: Col[] = useMemo(() => [...BASE_COLS, ...(opts.data?.custom_fields ?? []).map<Col>((f) => ({ id: `cf:${f.id}`, label: f.name,
-    cell: (w) => { const v = w.custom[f.id]; return v === undefined || v === "" ? <span className="faint">—</span> : f.type === "checkbox" ? (v ? "Yes" : "No") : String(v); } }))], [opts.data]);
+    cell: (w) => { const v = w.custom[f.id]; return v === undefined || v === "" ? <span className="faint">—</span> : f.type === "checkbox" ? (v ? "Yes" : "No") : f.type === "currency" ? currency(v, session.org?.currency) : String(v); } }))], [opts.data, session.org?.currency]);
   const shown = cols.map((c) => all.find((x) => x.id === c)).filter(Boolean) as Col[];
   const qs = `sort=${sort}&per_page=${perPage}&page=${page}&q=${encodeURIComponent(query.q)}${filtersParam(query.filters)}${showDeleted ? "&include_deleted=1" : ""}${showUpcoming ? "" : "&tab=todo"}`;
   useEffect(() => { setPage(1); setSel([]); }, [query.q, query.filters, sort, perPage, showDeleted, showUpcoming]);
@@ -164,17 +167,11 @@ export function CalendarView({ query, onOpen }: { query: ListQuery; onOpen: (id:
   const heads = Array.from({ length: 7 }, (_, i) => addDays(from, i).toLocaleDateString(undefined, { weekday: "short" }));
   return (
     <div className="card cal">
-      <div className="card-head" style={{ flexWrap: "wrap" }}>
-        <div className="row"><Button size="sm" icon aria-label="Previous" onClick={() => move(-1)}><ChevronLeft size={16} /></Button>
-          <Button size="sm" onClick={() => setAnchor(startOfDay(new Date()))}>Today</Button>
-          <Button size="sm" icon aria-label="Next" onClick={() => move(1)}><ChevronRight size={16} /></Button><h2 style={{ marginLeft: 6 }}>{title}</h2></div>
-        <div className="row">
-          <Select value={weekStart} onChange={(e) => setWeekStart(Number(e.target.value) as 0 | 1)} aria-label="First day of week" style={{ width: 150, height: 30 }}>
-            <option value={0}>Sunday first</option><option value={1}>Monday first</option></Select>
-          <div className="seg" role="tablist"><button type="button" role="tab" aria-selected={mode === "month"} className={"seg-btn" + (mode === "month" ? " on" : "")} onClick={() => setMode("month")}>Month</button>
-            <button type="button" role="tab" aria-selected={mode === "week"} className={"seg-btn" + (mode === "week" ? " on" : "")} onClick={() => setMode("week")}>Week</button></div>
-        </div>
-      </div>
+      <PeriodBar label={title} onToday={() => setAnchor(startOfDay(new Date()))} onMove={move} rangeLabel="Calendar range"
+        range={mode} ranges={[{ id: "month", label: "Month" }, { id: "week", label: "Week" }]} onRange={setMode}>
+        <Select value={weekStart} onChange={(e) => setWeekStart(Number(e.target.value) as 0 | 1)} aria-label="First day of week" style={{ height: 30 }}>
+          <option value={0}>Sunday first</option><option value={1}>Monday first</option></Select>
+      </PeriodBar>
       <div className={"cal-grid " + mode}>
         {heads.map((h) => <div key={h} className="cal-head">{h}</div>)}
         {Array.from({ length: days }, (_, i) => {
@@ -238,17 +235,12 @@ export function WorkloadView({ query, onOpen }: { query: ListQuery; onOpen: (id:
     </td>);
   return (
     <div className="card">
-      <div className="card-head" style={{ flexWrap: "wrap" }}>
-        <div className="row"><Button size="sm" icon aria-label="Previous" onClick={() => setStart(addDays(start, -days))}><ChevronLeft size={16} /></Button>
-          <Button size="sm" onClick={() => { const d = startOfDay(new Date()); setStart(addDays(d, -((d.getDay() + 6) % 7))); }}>This week</Button>
-          <Button size="sm" icon aria-label="Next" onClick={() => setStart(addDays(start, days))}><ChevronRight size={16} /></Button>
-          <h2 style={{ marginLeft: 6 }}>{shortDate(start.toISOString())} – {shortDate(addDays(start, days - 1).toISOString())}</h2></div>
-        <div className="row">
-          <Select value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Team" style={{ width: 180, height: 30 }}><option value="">Everyone</option>
-            {(opts.data?.teams ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
-          <Select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Range" style={{ width: 120, height: 30 }}><option value={7}>1 week</option><option value={14}>2 weeks</option></Select>
-        </div>
-      </div>
+      <PeriodBar label={`${shortDate(start.toISOString())} – ${shortDate(addDays(start, days - 1).toISOString())}`} rangeLabel="Workload range"
+        onToday={() => { const d = startOfDay(new Date()); setStart(addDays(d, -((d.getDay() + 6) % 7))); }} onMove={(d) => setStart(addDays(start, d * days))}
+        range={days} ranges={[{ id: 7, label: "1 week" }, { id: 14, label: "2 weeks" }]} onRange={setDays}>
+        <Select value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Team" style={{ height: 30 }}><option value="">Everyone</option>
+          {(opts.data?.teams ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
+      </PeriodBar>
       {!w ? <ListSkeleton rows={5} /> : (
         <div className="table-wrap"><table className="table wl">
           <thead><tr><th style={{ minWidth: 180 }}>Person</th>{w.days.map((d) => { const dd = new Date(`${d}T00:00`); return (
@@ -304,6 +296,7 @@ export function BoardView({ query, onOpen }: { query: ListQuery; onOpen: (id: st
           <div className="board-list">
             {cols[s].map((w) => (
               <button type="button" key={w.id} className="board-card" draggable onDragStart={() => setDrag(w.id)} onClick={() => onOpen(w.id)}>
+                {w.cover_url && <img className="board-cover" src={w.cover_url} alt="" loading="lazy" decoding="async" draggable={false} />}
                 <div className="row small faint" style={{ justifyContent: "space-between" }}><span className="mono">#{w.number}</span><PriorityBadge priority={w.priority} /></div>
                 <div className="t">{w.title}</div>
                 <div className="row small" style={{ justifyContent: "space-between" }}>

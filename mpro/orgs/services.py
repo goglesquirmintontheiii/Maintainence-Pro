@@ -14,7 +14,7 @@ from mpro.auth.services import AuthError, get_user_by_email, link, make_token, n
 from mpro.core.events import diff, emit
 from mpro.core.mail import send_email
 from mpro.core.models import iso, utcnow
-from mpro.core.permissions import ROLES, can_assign_role
+from mpro.core.permissions import ROLES
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team, TeamMember
 
@@ -103,7 +103,10 @@ def member_dict(m: Membership, teams: list[Team] | None = None) -> dict[str, Any
         "email": u.email,
         "initials": u.initials,
         "role": m.role,
-        "role_label": ROLES.get(m.role, {}).get("label", m.role),
+        "role_id": str(m.role_id) if m.role_id else None,
+        "role_key": f"custom:{m.role_id}" if m.role == "custom" and m.role_id else m.role,
+        "role_label": _role_label(m),
+        "avatar_url": avatar_url(u),
         "job_title": m.job_title,
         "active": u.is_active and m.deleted_at is None,
         "has_password": bool(u.password_hash),
@@ -111,6 +114,19 @@ def member_dict(m: Membership, teams: list[Team] | None = None) -> dict[str, Any
         "joined_at": iso(m.created_at),
         "teams": [{"id": str(t.id), "name": t.name, "color": t.color} for t in (teams or [])],
     }
+
+
+def _role_label(m: Membership) -> str:
+    from mpro.orgs.roles import role_label
+
+    return role_label(m) or m.role
+
+
+def avatar_url(u: User) -> str | None:
+    """Profile photo address (cache-busted by its update time), or None for initials."""
+    if u.avatar_updated_at is None:
+        return None
+    return f"/api/v1/users/{u.id}/avatar?v={int(u.avatar_updated_at.timestamp())}"
 
 
 def members_query(org_id: uuid.UUID) -> Any:
@@ -152,8 +168,13 @@ def invite_member(
     email = normalize_email(email)
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         raise RuleError("Enter a valid email address.", 422)
-    if not can_assign_role(actor_m.role, role):
+    from mpro.orgs.roles import may_assign, resolve_role
+
+    role, custom = resolve_role(org.id, role)
+    if not may_assign(actor_m, role, custom):
         raise RuleError("You can't give someone that role.", 403)
+    role_id = custom.id if custom is not None else None
+    label = custom.name if custom is not None else ROLES[role]["label"]
     user = get_user_by_email(email)
     if user is None:
         user = User(email=email, name=name.strip() or email.split("@")[0])
@@ -165,10 +186,10 @@ def invite_member(
     if existing and existing.deleted_at is None:
         raise RuleError(f"{user.name} is already in this organization.", 409)
     if existing:
-        existing.deleted_at, existing.role, existing.job_title = None, role, job_title
+        existing.deleted_at, existing.role, existing.role_id, existing.job_title = None, role, role_id, job_title
         m = existing
     else:
-        m = Membership(org_id=org.id, user_id=user.id, role=role, job_title=job_title)
+        m = Membership(org_id=org.id, user_id=user.id, role=role, role_id=role_id, job_title=job_title)
         db.session.add(m)
     db.session.flush()
     path = ("/reset-password/" + make_token(user, "invite") + "?invite=1") if not user.password_hash else "/login"
@@ -176,7 +197,7 @@ def invite_member(
         user.email,
         f"You've been invited to {org.name} on Maintenance Pro",
         f"Hi {user.name},\n\n{actor_m.user.name} added you to {org.name} on Maintenance Pro as "
-        f"{ROLES[role]['label']}.\n\n"
+        f"{label}.\n\n"
         + (
             "Set your password and sign in here (link works for 7 days):\n"
             if not user.password_hash
@@ -191,7 +212,7 @@ def invite_member(
         entity_type="user",
         entity_id=user.id,
         entity_label=user.name,
-        summary=f"Invited {user.email} as {ROLES[role]['label']}",
+        summary=f"Invited {user.email} as {label}",
         data={"role": role},
         org_id=org.id,
     )
@@ -199,22 +220,29 @@ def invite_member(
     return m
 
 
-def update_member(org: Organization, actor_m: Membership, m: Membership, data: dict[str, Any]) -> Membership:
-    before = {"name": m.user.name, "role": m.role, "job_title": m.job_title}
-    if "role" in data and data["role"] != m.role:
-        new = data["role"]
-        if not can_assign_role(actor_m.role, new) or not can_assign_role(actor_m.role, m.role):
-            raise RuleError("You can't change this person's role.", 403)
-        if m.role == "owner" and new != "owner" and _admin_count(org.id) <= 1:
-            raise RuleError("Every organization needs at least one Owner.", 409)
-        m.role = new
+def update_member(
+    org: Organization, actor_m: Membership, m: Membership, data: dict[str, Any], self_edit: bool = False
+) -> Membership:
+    from mpro.orgs.roles import may_assign, may_manage, resolve_role
+
+    before = {"name": m.user.name, "role": _role_label(m), "job_title": m.job_title}
+    if "role" in data:
+        new, custom = resolve_role(org.id, data["role"])
+        new_id = custom.id if custom is not None else None
+        if (new, new_id) != (m.role, m.role_id):
+            if not may_assign(actor_m, new, custom) or not may_manage(actor_m, m):
+                raise RuleError("You can't change this person's role.", 403)
+            if m.role == "owner" and new != "owner" and _admin_count(org.id) <= 1:
+                raise RuleError("Every organization needs at least one Owner.", 409)
+            m.role, m.role_id = new, new_id
+            m.custom_role = custom
     if "job_title" in data:
         m.job_title = str(data["job_title"]).strip()[:120]
     if "name" in data:
         if not str(data["name"]).strip():
             raise RuleError("A name is required.", 422)
         m.user.name = str(data["name"]).strip()[:200]
-    changes = diff(before, {"name": m.user.name, "role": m.role, "job_title": m.job_title})
+    changes = diff(before, {"name": m.user.name, "role": _role_label(m), "job_title": m.job_title})
     if changes:
         emit(
             "member.updated",
@@ -232,7 +260,9 @@ def update_member(org: Organization, actor_m: Membership, m: Membership, data: d
 def remove_member(org: Organization, actor_m: Membership, m: Membership) -> None:
     if m.id == actor_m.id:
         raise RuleError("You can't remove yourself. Ask another administrator.", 409)
-    if not can_assign_role(actor_m.role, m.role):
+    from mpro.orgs.roles import may_manage
+
+    if not may_manage(actor_m, m):
         raise RuleError("You can't remove this person.", 403)
     if m.role == "owner" and _admin_count(org.id) <= 1:
         raise RuleError("Every organization needs at least one Owner.", 409)
@@ -364,3 +394,29 @@ def remove_team_member(org: Organization, t: Team, user_id: uuid.UUID) -> Team:
             )
     db.session.commit()
     return t
+
+
+def transfer_ownership(org: Organization, actor_m: Membership, target: Membership, stay_owner: bool) -> Membership:
+    """An Owner makes someone else Owner; by default they step down to Administrator."""
+    if actor_m.role != "owner":
+        raise RuleError("Only an Owner can hand over ownership.", 403)
+    if target.id == actor_m.id:
+        raise RuleError("Pick someone else.", 422)
+    if target.user.deleted_at is not None or not target.user.active:
+        raise RuleError("That person's account is deactivated.", 409)
+    before = _role_label(target)
+    target.role, target.role_id = "owner", None
+    if not stay_owner:
+        actor_m.role, actor_m.role_id = "admin", None
+    emit(
+        "org.ownership_transferred",
+        entity_type="org",
+        entity_id=org.id,
+        entity_label=org.name,
+        summary=f"Made {target.user.name} an Owner"
+        + ("" if stay_owner else f"; {actor_m.user.name} is now an Administrator"),
+        changes={"role": (before, "Owner")},
+        org_id=org.id,
+    )
+    db.session.commit()
+    return target

@@ -56,12 +56,18 @@ def parse_mentions(org_id: uuid.UUID, body: str) -> dict[str, list[str]]:
     return {"users": users, "teams": teams}
 
 
+def _person(u: Any) -> dict[str, Any] | None:
+    from mpro.workorders.queries import _person as person
+
+    return person(u)
+
+
 def comment_dict(c: Comment, files: list[Any] | None = None) -> dict[str, Any]:
     return {
         "id": str(c.id),
         "body": "" if c.deleted_at else c.body,
         "deleted": c.deleted_at is not None,
-        "author": {"id": str(c.author.id), "name": c.author.name, "initials": c.author.initials} if c.author else None,
+        "author": _person(c.author),
         "mentions": c.mentions or {"users": [], "teams": []},
         "reactions": c.reactions or {},
         "files": [link_dict(x) for x in (files or [])] if not c.deleted_at else [],

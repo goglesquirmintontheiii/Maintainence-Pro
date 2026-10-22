@@ -11,12 +11,13 @@ import { Button, Drawer, Field, Input, Select } from "../../components/ui";
 import { AssigneePicker, CategoryPicker } from "../../components/pickers";
 import { AssetPicker, ClearableDate, LocationPicker } from "../../components/assetPickers";
 import { useAssetList, useAssetOptions } from "../../lib/assets";
+import { ProcedurePicker } from "../procedures/Picker";
 
 export type FormInit = Partial<{
   title: string; description: string; priority: string; work_type: string; start_at: string | null; due_at: string | null; estimated_minutes: number | null;
   assignees: string[]; categories: string[]; custom: Record<string, unknown>; parent_id: string | null; template_id: string | null;
   asset_id: string | null; location_id: string | null; asset_tasks: string[];
-  asset_status: { status: string; reason?: string; downtime_type?: string } | null;
+  asset_status: { status: string; reason?: string; downtime_type?: string } | null; procedures: string[];
 }>;
 
 const PRIOS = [["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]] as const;
@@ -40,6 +41,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
   const [f, setF] = useState<FormInit>(() => ({ priority: "none", work_type: "reactive", assignees: [], categories: [], custom: {}, ...(edit ? fromDetail(edit) : {}), ...init }));
   const [files, setFiles] = useState<FileItem[]>([]);
   const [uploading, setUploading] = useState(0);
+  const [pct, setPct] = useState(0);
   const [err, setErr] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const set = (patch: FormInit) => setF((x) => ({ ...x, ...patch }));
@@ -75,6 +77,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     const body: Record<string, unknown> = { ...f, assignees: (f.assignees ?? []).map((a) => a), file_ids: edit ? undefined : files.map((x) => x.id) };
     if (edit) { delete body.template_id; body.version = edit.version; }
     if (!f.asset_status?.status) delete body.asset_status;
+    if (edit || !f.procedures?.length) delete body.procedures;
     if (!can("assets.view")) { delete body.asset_id; delete body.asset_tasks; }
     if (!can("locations.view")) delete body.location_id;
     return body;
@@ -99,7 +102,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     if (!list) return;
     for (const file of Array.from(list)) {
       setUploading((n) => n + 1);
-      try { const up = await upload(file); setFiles((x) => [...x, up]); }
+      try { const up = await upload(file, undefined, (p) => setPct(Math.round(p * 100))); setFiles((x) => [...x, up]); }
       catch (e) { toast((e as ApiError).message, { kind: "error" }); }
       finally { setUploading((n) => n - 1); }
     }
@@ -150,7 +153,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
           {(files.length > 0 || uploading > 0) && <div className="row wrap">{files.map((x) => (
             <span key={x.id} className="chip">{x.is_image ? <ImagePlus size={13} /> : <FileText size={13} />}{x.name}
               <button type="button" className="linkbtn" aria-label={`Remove ${x.name}`} onClick={() => setFiles((fs) => fs.filter((y) => y.id !== x.id))}><X size={12} /></button></span>))}
-            {uploading > 0 && <span className="small faint">Uploading {uploading}…</span>}</div>}
+            {uploading > 0 && <span className="small faint" role="status">Uploading {uploading}… {pct}%</span>}</div>}
         </div>)}
       <div className="form-grid">
         <Field label={"Assign to" + req("assignees")} className="full">{(id) => <AssigneePicker id={id} options={opts.data} value={f.assignees ?? []} onChange={(v) => set({ assignees: v })} />}</Field>
@@ -169,6 +172,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
             <Input type="number" min={0} max={59} step={5} aria-label="Minutes" placeholder="0" value={f.estimated_minutes ? f.estimated_minutes % 60 : ""}
               onChange={(e) => set({ estimated_minutes: Math.floor((f.estimated_minutes ?? 0) / 60) * 60 + (Number(e.target.value) || 0) || null })} /><span className="small muted">min</span></div>)}</Field>
         <Field label={"Categories" + req("categories")}>{(id) => <CategoryPicker id={id} options={opts.data} value={f.categories ?? []} onChange={(v) => set({ categories: v })} />}</Field>
+        {!edit && can("procedures.view") && <Field label="Procedures">{(id) => <ProcedurePicker id={id} value={f.procedures ?? []} onChange={(v) => set({ procedures: v })} />}</Field>}
         {can("assets.view") && <Field label="Asset">{(id) => <AssetPicker id={id} value={f.asset_id ? [f.asset_id] : []} onChange={(v) => pickAsset(v[0] ?? null)} />}</Field>}
         {can("locations.view") && <Field label="Location">{(id) => <LocationPicker id={id} value={f.location_id ?? null} onChange={(v) => set({ location_id: v })} />}</Field>}
         {askStatus && <AssetStatusField value={f.asset_status ?? null} onChange={(v) => set({ asset_status: v })} reasons={assetOpts.data?.statuses} />}
@@ -192,8 +196,11 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
 export function CustomInput({ def, value, onChange }: { def: CustomFieldDef; value: unknown; onChange: (v: unknown) => void }) {
   const label = def.name + (def.required ? " *" : "");
   const full = def.type === "textarea" ? "full" : "";
+  const org = useSession().session.org;
   switch (def.type) {
     case "textarea": return <Field label={label} className={full}>{(id) => <textarea id={id} className="textarea" rows={3} value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)} />}</Field>;
+    case "currency": return <Field label={label} hint={org?.currency}>{(id) => (
+      <Input id={id} inputMode="decimal" placeholder="0.00" value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value.replace(/[^0-9.,-]/g, ""))} />)}</Field>;
     case "number": return <Field label={label}>{(id) => <Input id={id} type="number" value={(value as number | string) ?? ""} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} />}</Field>;
     case "select": return <Field label={label}>{(id) => <Select id={id} value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)}><option value="">—</option>{def.options.map((o) => <option key={o}>{o}</option>)}</Select>}</Field>;
     case "date": return <Field label={label}>{(id) => <ClearableDate id={id} label={def.name} type="date" value={(value as string) ?? ""} onChange={(v) => onChange(v)} />}</Field>;

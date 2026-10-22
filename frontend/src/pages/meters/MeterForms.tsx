@@ -3,13 +3,11 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
-import type { Meter, MeterDetail, MeterTrigger } from "../../lib/assets";
+import type { Meter, MeterDetail } from "../../lib/assets";
 import { useSession } from "../../lib/session";
-import { useWOOptions } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
-import { Button, Drawer, Field, Input, Modal, Select, Toggle } from "../../components/ui";
+import { Button, Drawer, Field, Input, Modal, Select } from "../../components/ui";
 import { AssetPicker, LocationPicker } from "../../components/assetPickers";
-import { AssigneePicker } from "../../components/pickers";
 
 export type MeterOptions = { units: Record<string, string[]>; frequencies: { id: string; label: string }[];
   monitoring_points: { id: string; name: string; asset_id: string | null }[]; can: Record<"read" | "manage" | "delete", boolean> };
@@ -97,70 +95,6 @@ export function MeterForm({ edit, onClose, onSaved, initialAsset }: { edit?: Met
         </fieldset>
       </form>
     </Drawer>
-  );
-}
-
-// ---------------------------------------------------------------- triggers
-export function TriggerForm({ meter, edit, onClose }: { meter: MeterDetail; edit?: MeterTrigger; onClose: () => void }) {
-  const qc = useQueryClient();
-  const wopts = useWOOptions();
-  const { toast } = useToast();
-  const wo = (edit?.work_order ?? {}) as Record<string, unknown>;
-  const [f, setF] = useState({
-    name: edit?.name ?? "", kind: edit?.kind ?? "threshold", comparator: edit?.comparator ?? "gt", threshold: str(edit?.threshold),
-    every_units: str(edit?.every_units), start_at: "", active: edit?.active ?? true,
-    title: String(wo.title ?? ""), description: String(wo.description ?? ""), priority: String(wo.priority ?? "medium"),
-    assignees: (wo.assignees as string[] | undefined) ?? [], due_in_days: wo.due_in_days === undefined || wo.due_in_days === null ? "" : String(wo.due_in_days),
-  });
-  const [err, setErr] = useState("");
-  const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
-  const save = useMutation({
-    mutationFn: () => {
-      const work_order: Record<string, unknown> = { title: f.title.trim() || undefined, description: f.description || undefined, priority: f.priority, assignees: f.assignees };
-      if (f.due_in_days !== "") work_order.due_in_days = Number(f.due_in_days);
-      const body: Record<string, unknown> = { name: f.name, kind: f.kind, active: f.active, work_order: Object.fromEntries(Object.entries(work_order).filter(([, v]) => v !== undefined)) };
-      if (f.kind === "threshold") { body.comparator = f.comparator; body.threshold = numOrNull(f.threshold); }
-      else { body.every_units = numOrNull(f.every_units); if (f.start_at !== "") body.start_at = Number(f.start_at); }
-      return edit ? api<MeterTrigger>(`/meters/${meter.id}/triggers/${edit.id}`, { method: "PATCH", body }) : api<MeterTrigger>(`/meters/${meter.id}/triggers`, { method: "POST", body });
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["meter", meter.id] }); toast(edit ? "Trigger saved" : "Trigger added"); onClose(); },
-    onError: (e) => setErr((e as ApiError).message),
-  });
-  return (
-    <Modal title={edit ? "Edit trigger" : "Add trigger"} onClose={onClose} width={560}
-      footer={<><span className="grow small" style={{ color: "var(--c-danger)" }} role="alert">{err}</span><Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={save.isPending} onClick={() => { setErr(""); save.mutate(); }}>Save</Button></>}>
-      <div className="stack">
-        <div className="seg" role="radiogroup" aria-label="Trigger type">
-          <button type="button" role="radio" aria-checked={f.kind === "threshold"} className={"seg-btn" + (f.kind === "threshold" ? " on" : "")} onClick={() => set({ kind: "threshold" })}>When a reading crosses a value</button>
-          <button type="button" role="radio" aria-checked={f.kind === "every"} className={"seg-btn" + (f.kind === "every" ? " on" : "")} onClick={() => set({ kind: "every" })}>Every N {meter.unit}</button>
-        </div>
-        {f.kind === "threshold" ? (
-          <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
-            <Field label="Reading is">{(id) => <Select id={id} value={f.comparator} onChange={(e) => set({ comparator: e.target.value as "gt" | "lt" })}><option value="gt">Above</option><option value="lt">Below</option></Select>}</Field>
-            <Field label={`Value (${meter.unit})`}>{(id) => <Input id={id} type="number" step="any" value={f.threshold} onChange={(e) => set({ threshold: e.target.value })} />}</Field>
-          </div>
-        ) : (
-          <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
-            <Field label={`Every (${meter.unit})`}>{(id) => <Input id={id} type="number" step="any" min={0} value={f.every_units} onChange={(e) => set({ every_units: e.target.value })} />}</Field>
-            {!edit && <Field label="Counting from" hint={`Default: last reading (${meter.last_value ?? 0})`}>{(id) => <Input id={id} type="number" step="any" value={f.start_at} onChange={(e) => set({ start_at: e.target.value })} />}</Field>}
-          </div>)}
-        <p className="small muted" style={{ margin: 0 }}>{f.kind === "threshold"
-          ? "A work order is created when a reading crosses the value. No second one is created while the first is still open."
-          : `A work order is created each time the meter passes the next milestone${edit?.next_at !== null && edit?.next_at !== undefined ? ` (next at ${edit.next_at} ${meter.unit})` : ""}.`}</p>
-        <Field label="Trigger name">{(id) => <Input id={id} value={f.name} maxLength={120} placeholder={f.kind === "threshold" ? "e.g. Overheating" : "e.g. 250 hour service"} onChange={(e) => set({ name: e.target.value })} />}</Field>
-        <h3 className="sec-h" style={{ margin: "4px 0 0" }}>Work order to create</h3>
-        <Field label="Title">{(id) => <Input id={id} value={f.title} maxLength={255} placeholder={`${meter.name}: …`} onChange={(e) => set({ title: e.target.value })} />}</Field>
-        <Field label="Description">{(id) => <textarea id={id} className="textarea" rows={2} value={f.description} onChange={(e) => set({ description: e.target.value })} />}</Field>
-        <div className="form-grid">
-          <Field label="Priority">{(id) => <Select id={id} value={f.priority} onChange={(e) => set({ priority: e.target.value })}>
-            {(["none", "low", "medium", "high"] as const).map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}</Select>}</Field>
-          <Field label="Due in (days)">{(id) => <Input id={id} type="number" min={0} max={3650} value={f.due_in_days} placeholder="No due date" onChange={(e) => set({ due_in_days: e.target.value })} />}</Field>
-        </div>
-        <Field label="Assign to">{(id) => <AssigneePicker id={id} options={wopts.data} value={f.assignees} onChange={(assignees) => set({ assignees })} />}</Field>
-        <Toggle checked={f.active} onChange={(active) => set({ active })} label="Active" hint="Paused triggers don't create work orders." />
-      </div>
-    </Modal>
   );
 }
 

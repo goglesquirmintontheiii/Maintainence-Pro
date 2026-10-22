@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, and_, case, func, not_, or_, select
+from sqlalchemy import Numeric, Select, and_, case, cast, func, not_, or_, select
 
 from mpro.auth.models import User
 from mpro.core.files import link_dict, links_for
@@ -55,6 +55,7 @@ FILTER_FIELDS = {
     "unread": ("is",),
     "asset": ("in", "not_in", "within", "empty", "not_empty"),
     "location": ("in", "not_in", "within", "empty", "not_empty"),
+    "procedure_result": ("in", "not_in"),  # work orders with a procedure step marked fail / flag / pass (r085)
 }
 CUSTOM_OPS = ("in", "not_in", "empty", "not_empty", "contains", "not_contains", "between", "before", "after")
 SORTS = {
@@ -204,6 +205,12 @@ def _apply_filter(q: Select[Any], f: dict[str, Any], m: Membership) -> Select[An
             )
         else:
             cond = col.in_(ids) if op == "in" else or_(col.is_(None), col.not_in(ids))
+    elif field == "procedure_result":
+        from mpro.procedures.models import ProcedureAnswer
+
+        results = [str(v) for v in vals if str(v) in ("fail", "flag", "pass")] or ["fail", "flag"]
+        sub = select(ProcedureAnswer.work_order_id).where(ProcedureAnswer.result.in_(results))
+        cond = WorkOrder.id.not_in(sub) if op == "not_in" else WorkOrder.id.in_(sub)
     elif field == "unread":
         read = select(ReadMark.entity_id).where(
             ReadMark.user_id == m.user_id, ReadMark.read_at >= WorkOrder.activity_at
@@ -234,8 +241,9 @@ def _custom_clause(fid: str, op: str, value: Any, vals: list[Any], ftype: str) -
         conds = [b.is_(True) if w else or_(b.is_(None), b.is_(False)) for w in set(want)]
         cond = or_(*conds) if conds else None
         return cond if op == "in" or cond is None else not_(cond)
-    if ftype == "number":
-        num = node.as_float()
+    if ftype in ("number", "currency"):
+        # currency values are exact decimal strings ("1250.00", MP-108); numbers are JSON numbers
+        num = node.as_float() if ftype == "number" else cast(col, Numeric(18, 2))
 
         def f(x: Any) -> float | None:
             try:
@@ -353,14 +361,16 @@ def apply_sort(q: Select[Any], sort: str | None) -> Select[Any]:
 
 # ---- serialization ---------------------------------------------------------------------------
 def _person(u: User | None) -> dict[str, Any] | None:
-    return {"id": str(u.id), "name": u.name, "initials": u.initials} if u else None
+    from mpro.orgs.services import avatar_url
+
+    return {"id": str(u.id), "name": u.name, "initials": u.initials, "avatar_url": avatar_url(u)} if u else None
 
 
 def assignees_list(wo: WorkOrder) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for a in wo.assignees:
         if a.user is not None:
-            out.append({"type": "user", "id": str(a.user.id), "name": a.user.name, "initials": a.user.initials})
+            out.append({**(_person(a.user) or {}), "type": "user"})
         elif a.team is not None:
             out.append({"type": "team", "id": str(a.team.id), "name": a.team.name, "color": a.team.color})
     out.sort(key=lambda x: (x["type"] != "user", x["name"].lower()))
@@ -436,12 +446,18 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
     reads = read_map(m, ids)
     comments = counts_for(ids)
     sub_counts = _sub_counts(ids)
+    from mpro.workorders.cover import cover_map
+
+    covers = cover_map(list(rows))
+    parents = _parent_map(list(rows))  # sub-work orders show their parent's name in the Table (MP-118)
     return {
         "items": [
             summary_dict(
                 w,
                 reads.get(w.id),
-                {"comment_count": comments.get(w.id, 0), "sub_work_orders": sub_counts.get(w.id)},
+                {"comment_count": comments.get(w.id, 0), "sub_work_orders": sub_counts.get(w.id),
+                 "cover_url": covers.get(w.id),
+                 "parent": parents.get(w.parent_id) if w.parent_id else None},  # fmt: skip
             )
             for w in rows
         ],
@@ -449,6 +465,16 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
         "page": page,
         "per_page": per_page,
     }
+
+
+def _parent_map(rows: list[WorkOrder]) -> dict[uuid.UUID, dict[str, Any]]:
+    pids = {w.parent_id for w in rows if w.parent_id}
+    if not pids:
+        return {}
+    got = db.session.execute(
+        select(WorkOrder.id, WorkOrder.number, WorkOrder.title).where(WorkOrder.id.in_(pids))
+    ).all()
+    return {i: {"id": str(i), "number": n, "title": t} for i, n, t in got}
 
 
 def _sub_counts(ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
@@ -481,9 +507,10 @@ def time_in_status(wo: WorkOrder) -> dict[str, int]:
 
 def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
     from mpro.workorders.activity import attachments_for, costs_summary
+    from mpro.workorders.cover import cover_info
 
     reads = read_map(m, [wo.id])
-    d = summary_dict(wo, reads.get(wo.id))
+    d = summary_dict(wo, reads.get(wo.id), cover_info(wo))
     s = wo_settings(m.org_id)
     children = db.session.scalars(
         select(WorkOrder).where(WorkOrder.parent_id == wo.id, WorkOrder.deleted_at.is_(None)).order_by(WorkOrder.number)
@@ -521,14 +548,24 @@ def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
             "parent": _mini(parent) if parent and parent.deleted_at is None else None,
             "sub_work_orders": [_mini(c) for c in children],
             "links": link_items,
-            "attachments": [a for a in attachments_for(wo) if a["role"] != "signature"],
+            "attachments": [
+                a for a in attachments_for(wo) if a["role"] not in ("signature", "procedure", "procedure_signature")
+            ],
             "time_in_status": time_in_status(wo),
             "costs": costs_summary(m, wo),
             "sub_statuses": s["sub_statuses"],
             "asset_tasks": asset_tasks(wo),
+            "recurrence": _recurrence(wo),
+            "procedures": _procedure_runs(m, wo),
         }
     )
     return d
+
+
+def _procedure_runs(m: Membership, wo: WorkOrder) -> list[dict[str, Any]]:
+    from mpro.procedures.services import runs_for
+
+    return runs_for(m, wo)
 
 
 def _mini(wo: WorkOrder) -> dict[str, Any]:
@@ -678,6 +715,7 @@ def filter_options(m: Membership) -> dict[str, Any]:
                 "id": str(x.user_id),
                 "name": x.user.name,
                 "initials": x.user.initials,
+                "avatar_url": (_person(x.user) or {}).get("avatar_url"),
                 "role": x.role,
                 "assignable": x.role not in ("requester", "viewer"),
             }
@@ -706,3 +744,10 @@ def _tree_options(m: Membership, kind: str) -> list[dict[str, Any]]:
     ).all()
     paths = paths_for(kind, model, [r[0] for r in rows])
     return [{"id": str(i), "name": n, "path": " › ".join(p["name"] for p in paths.get(i, []))} for i, n in rows]
+
+
+def _recurrence(wo: WorkOrder) -> dict[str, Any] | None:
+    """How a repeating or planned work order repeats (MP-032), e.g. "Every 2 weeks on Mon, Thu"."""
+    from mpro.pm.services import recurrence_summary
+
+    return recurrence_summary(wo)

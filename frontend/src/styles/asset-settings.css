@@ -1,0 +1,10 @@
+/* Settings → Assets and locations: asset types with their own custom fields (MP-115). */
+.type-fields-all { border-bottom: 1px solid var(--c-border); }
+.type-fields-h { font-size: 14px; margin: 0; }
+.type-block { border-bottom: 1px solid var(--c-border-soft); }
+.type-block > .list-row { border-bottom: 0; }
+.type-name-btn { background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.type-name-btn:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; border-radius: var(--r-sm); }
+.type-fields { margin: 0 var(--s-4) var(--s-3) calc(var(--s-4) + 28px); border-left: 2px solid var(--c-border); background: var(--c-bg); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.type-fields .list-row:last-of-type { border-bottom: 0; }
+@media (max-width: 600px) { .type-fields { margin-left: var(--s-3); } }

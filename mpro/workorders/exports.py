@@ -26,6 +26,7 @@ PDF_SECTIONS = (
     "basic_info",
     "description",
     "custom_fields",
+    "procedures",
     "sub_work_orders",
     "costs",
     "attachments",
@@ -183,6 +184,10 @@ def render_pdf(m: Membership, org: Organization, wos: list[WorkOrder], options: 
                           colWidths=[1.8 * inch, 4.9 * inch])  # fmt: skip
                 t.setStyle(grid)
                 story += [Paragraph("Custom fields", h2), t]
+        if "procedures" in sec:
+            from mpro.procedures.exports import pdf_story
+
+            story += pdf_story(wo, h2, body, small, rows_style)
         if wo.completion_summary:
             story += [Paragraph("Completion summary", h2), p(wo.completion_summary)]
         if wo.cancel_reason:
@@ -335,6 +340,8 @@ def _plain_mentions(body: str) -> str:
 CSV_COLUMNS = [
     ("ID", lambda w, d: w.number),
     ("Title", lambda w, d: w.title),
+    ("Parent ID", lambda w, d: (d.get("parent") or {}).get("number", "")),
+    ("Parent", lambda w, d: (d.get("parent") or {}).get("title", "")),
     ("Status", lambda w, d: STATUS_LABELS[w.status]),
     ("Sub-status", lambda w, d: w.sub_status),
     ("Priority", lambda w, d: PRIORITY_LABELS[w.priority]),
@@ -355,6 +362,8 @@ CSV_COLUMNS = [
 
 def _safe_cell(v: Any) -> Any:
     """Stop spreadsheet formula injection (cells starting with = + - @)."""
+    if isinstance(v, str) and len(v) < 20 and v.lstrip("-").replace(".", "", 1).isdigit():
+        return v  # negative amounts (currency fields) are numbers, not formulas
     if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + v
     return v
@@ -394,8 +403,11 @@ def _csv(ex: Export) -> tuple[str, bytes, str]:
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow([_safe_cell(c[0]) for c in CSV_COLUMNS] + [_safe_cell(f.name) for f in fields])
+    from mpro.workorders.queries import _parent_map
+
+    parents = _parent_map(list(wos))
     for wo in wos:
-        d = summary_dict(wo)
+        d = summary_dict(wo, extra={"parent": parents.get(wo.parent_id) if wo.parent_id else None})
         w.writerow(
             [_safe_cell(fn(wo, d)) for _, fn in CSV_COLUMNS]
             + [_safe_cell((wo.custom or {}).get(str(f.id), "")) for f in fields]

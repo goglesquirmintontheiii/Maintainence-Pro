@@ -35,15 +35,17 @@ export function Pill({ tone = "neutral", children }: { tone?: "neutral" | "info"
   return <span className={"pill " + tone}>{children}</span>;
 }
 
-export function Avatar({ name, initials, size = "md" }: { name: string; initials?: string; size?: "sm" | "md" | "lg" | "xl" }) {
+export function Avatar({ name, initials, size = "md", src }: { name: string; initials?: string; size?: "sm" | "md" | "lg" | "xl"; src?: string | null }) {
   const ini = initials ?? name.split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+  const [failed, setFailed] = useState(false);
+  if (src && !failed) return <img className={"avatar photo " + (size !== "md" ? size : "")} src={src} alt={name} title={name} loading="lazy" onError={() => setFailed(true)} />;
   return <span className={"avatar " + (size !== "md" ? size : "")} style={{ background: avatarColor(name) }} title={name} aria-label={name}>{ini}</span>;
 }
-export function AvatarStack({ people, max = 4 }: { people: { name: string; initials?: string }[]; max?: number }) {
+export function AvatarStack({ people, max = 4 }: { people: { name: string; initials?: string; avatar_url?: string | null }[]; max?: number }) {
   const extra = people.length - max;
   return (
     <span className="avatars">
-      {people.slice(0, max).map((p) => <Avatar key={p.name} name={p.name} initials={p.initials} size="sm" />)}
+      {people.slice(0, max).map((p) => <Avatar key={p.name} name={p.name} initials={p.initials} src={p.avatar_url} size="sm" />)}
       {extra > 0 && <span className="avatar sm" style={{ background: "var(--c-text-3)" }}>+{extra}</span>}
     </span>
   );

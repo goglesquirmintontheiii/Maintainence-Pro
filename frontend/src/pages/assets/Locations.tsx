@@ -7,7 +7,7 @@ import { api, ApiError, type FileItem, type WOList } from "../../lib/api";
 import { useAssetOptions, type Asset, type Location, type LocationDetail, type Paged } from "../../lib/assets";
 import { useSession } from "../../lib/session";
 import { absoluteUrl, copyText, filtersParam } from "../../lib/wo";
-import { dateTime } from "../../lib/format";
+import { currency, dateTime } from "../../lib/format";
 import { useToast } from "../../components/Toast";
 import { Button, Dropdown, Drawer, EmptyState, Field, Input, ListSkeleton, Modal } from "../../components/ui";
 import { LocationPicker } from "../../components/assetPickers";
@@ -171,9 +171,10 @@ function LocationDetailView({ id, tab, onTab, onAddChild }: { id: string; tab: T
 }
 
 function LocCustom({ l }: { l: LocationDetail }) {
+  const { session } = useSession();
   const opts = useAssetOptions();
   const defs = (opts.data?.location_custom_fields ?? []).filter((f) => l.custom[f.id] !== undefined && l.custom[f.id] !== "");
-  return <>{defs.map((f) => <div key={f.id}><dt>{f.name}</dt><dd>{f.type === "checkbox" ? (l.custom[f.id] ? "Yes" : "No") : String(l.custom[f.id])}</dd></div>)}</>;
+  return <>{defs.map((f) => <div key={f.id}><dt>{f.name}</dt><dd>{f.type === "checkbox" ? (l.custom[f.id] ? "Yes" : "No") : f.type === "currency" ? currency(l.custom[f.id], session.org?.currency) : String(l.custom[f.id])}</dd></div>)}</>;
 }
 
 function LocAssets({ id }: { id: string }) {

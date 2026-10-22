@@ -49,7 +49,7 @@ PRIORITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
 WORK_TYPES = ("reactive", "preventive", "other")
 WORK_TYPE_LABELS = {"reactive": "Reactive", "preventive": "Preventive", "other": "Other"}
 LINK_KINDS = ("blocks", "related")
-FIELD_TYPES = ("text", "textarea", "number", "select", "date", "datetime", "link", "checkbox")
+FIELD_TYPES = ("text", "textarea", "number", "currency", "select", "date", "datetime", "link", "checkbox")
 
 
 class Counter(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RotateCw } from "lucide-react";
-import { api, ApiError, type AuditEvent, type Email, type Job, type Org } from "../lib/api";
+import { api, ApiError, getCsrf, type AuditEvent, type Email, type Job, type Member, type Org, type Session } from "../lib/api";
 import { useSession } from "../lib/session";
 import { dateTime, show, timeAgo } from "../lib/format";
 import { useToast } from "../components/Toast";
 import { Avatar, AvatarStack, Button, EmptyState, Field, Input, ListSkeleton, Modal, Pill, PriorityBadge, Select, StatusPill } from "../components/ui";
 import { SETTINGS_NAV } from "../shell/nav";
 import { LogoMark } from "../components/Logo";
+import { PhotoPickerButton } from "../components/AvatarCropper";
 
 export function SettingsLayout() {
   const { can } = useSession();
@@ -200,9 +201,27 @@ export function DesignSystem() {
 
 // ---------------------------------------------------------------- profile
 export function Profile() {
-  const { session, set } = useSession();
+  const { session, set, can } = useSession();
   const { toast } = useToast();
   const [name, setName] = useState(session.user!.name);
+  const me = useQuery({ queryKey: ["users", session.user!.id], queryFn: () => api<Member>(`/users/${session.user!.id}`) });
+  const [title, setTitle] = useState<string | null>(null);
+  const jobTitle = title ?? me.data?.job_title ?? "";
+  const canTitle = can("profile.job_title") || session.role === "owner" || session.role === "admin";
+  const saveTitle = useMutation({ mutationFn: () => api(`/users/${session.user!.id}`, { method: "PATCH", body: { job_title: jobTitle } }),
+    onSuccess: async () => { await me.refetch(); setTitle(null); toast("Job title saved"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
+  const photo = useMutation({
+    mutationFn: async (blob: Blob | null) => {
+      if (!blob) return api<Session>("/auth/avatar", { method: "DELETE" });
+      const fd = new FormData(); fd.append("file", blob, "photo.jpg");
+      const r = await fetch("/api/v1/auth/avatar", { method: "POST", body: fd, credentials: "same-origin", headers: { "X-CSRF-Token": getCsrf() } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new ApiError(r.status, (data as { message?: string }).message || "The photo couldn't be saved.");
+      return data as Session;
+    },
+    onSuccess: (s, blob) => { set(s); toast(blob ? "Photo saved" : "Photo removed"); },
+    onError: (e) => toast((e as Error).message, { kind: "error" }),
+  });
   const [pw, setPw] = useState({ current: "", next: "", again: "" });
   const [err, setErr] = useState("");
   const saveName = useMutation({ mutationFn: () => api(`/users/${session.user!.id}`, { method: "PATCH", body: { name } }),
@@ -211,12 +230,22 @@ export function Profile() {
     onSuccess: () => { setPw({ current: "", next: "", again: "" }); setErr(""); toast("Password changed"); }, onError: (e) => setErr((e as ApiError).message) });
   return (
     <div className="page" style={{ maxWidth: 760 }}>
-      <div className="page-head"><div className="row" style={{ gap: 16 }}><Avatar name={session.user!.name} initials={session.user!.initials} size="lg" />
-        <div><h1>{session.user!.name}</h1><p className="sub">{session.user!.email} · {session.role_label}</p></div></div></div>
+      <div className="page-head"><div className="row" style={{ gap: 16 }}><Avatar name={session.user!.name} initials={session.user!.initials} size="lg" src={session.user!.avatar_url} />
+        <div><h1>{session.user!.name}</h1><p className="sub">{session.user!.email} · {session.role_label}{jobTitle ? ` · ${jobTitle}` : ""}</p></div></div></div>
+      <section className="card"><div className="card-head"><h2>Profile photo</h2></div>
+        <div className="card-body row" style={{ gap: 16, flexWrap: "wrap" }}>
+          <Avatar name={session.user!.name} initials={session.user!.initials} size="lg" src={session.user!.avatar_url} />
+          <div className="stack" style={{ gap: 8 }}>
+            <p className="small faint" style={{ margin: 0 }}>Shown next to your name across the app. JPG, PNG, WebP or GIF, up to 10 MB.</p>
+            <div className="row"><PhotoPickerButton busy={photo.isPending} label={session.user!.avatar_url ? "Change photo" : "Add photo"} onBlob={(b) => photo.mutate(b)} />
+              {session.user!.avatar_url && <Button size="sm" variant="ghost" disabled={photo.isPending} onClick={() => photo.mutate(null)}>Remove photo</Button>}</div>
+          </div></div></section>
       <section className="card"><div className="card-head"><h2>Your details</h2></div>
         <div className="card-body form-grid"><Field label="Name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
-          <Field label="Email" hint="Ask an administrator to change your email.">{(id) => <Input id={id} value={session.user!.email} disabled />}</Field></div>
-        <div className="card-body" style={{ paddingTop: 0 }}><Button variant="primary" disabled={!name.trim() || name === session.user!.name} onClick={() => saveName.mutate()}>Save name</Button></div></section>
+          <Field label="Email" hint="Ask an administrator to change your email.">{(id) => <Input id={id} value={session.user!.email} disabled />}</Field>
+          <Field label="Job title" hint={canTitle ? undefined : "Ask an administrator to change your job title."}>{(id) => <Input id={id} value={jobTitle} maxLength={120} disabled={!canTitle} placeholder="e.g. Maintenance lead" onChange={(e) => setTitle(e.target.value)} />}</Field></div>
+        <div className="card-body" style={{ paddingTop: 0 }}><div className="row"><Button variant="primary" disabled={!name.trim() || name === session.user!.name} onClick={() => saveName.mutate()}>Save name</Button>
+          {canTitle && <Button disabled={title === null || title === (me.data?.job_title ?? "") || saveTitle.isPending} onClick={() => saveTitle.mutate()}>Save job title</Button>}</div></div></section>
       <section className="card"><div className="card-head"><h2>Change password</h2></div>
         <form className="card-body form-grid" onSubmit={(e) => { e.preventDefault(); if (pw.next !== pw.again) { setErr("The new passwords don't match."); return; } savePw.mutate(); }}>
           <Field label="Current password" className="full">{(id) => <Input id={id} type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />}</Field>

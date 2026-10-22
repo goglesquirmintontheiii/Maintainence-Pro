@@ -82,7 +82,9 @@ th:hover .grip { opacity: 1; }
 .wo-toolbar h1 { white-space: nowrap; }
 .wo-toolbar.compact h1 { font-size: var(--fs-lg); }
 .wo-split .split-list { min-width: 0; }
-.wo-split { grid-template-columns: minmax(340px, 480px) minmax(0, 1fr); }
+/* To Do list ~30% wider than before (MP-105); the divider sets --wo-list-w */
+.split.wo-split { grid-template-columns: clamp(340px, var(--wo-list-w, min(624px, 55%)), 64%) minmax(0, 1fr); }
+.wo-split .split-list { position: relative; }
 .wo-list-tools { gap: var(--s-2) !important; }
 .wo-list-tools .wo-toolbar h1 { font-size: var(--fs-lg); }
 .seg.views { flex-wrap: nowrap; }
@@ -206,7 +208,7 @@ th:hover .grip { opacity: 1; }
 .board-card .t { font-weight: var(--fw-semibold); }
 
 @media (max-width: 1000px) {
-  .wo-split { grid-template-columns: minmax(0, 1fr); }
+  .split.wo-split { grid-template-columns: minmax(0, 1fr); }
   .wo-scroll { padding: var(--s-4); }
   .status-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .meta-grid .span2 { grid-column: auto; }

@@ -31,13 +31,16 @@ from mpro.extensions import db
 
 log = logging.getLogger(__name__)
 
-IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
+PSD_TYPE = "image/vnd.adobe.photoshop"  # previewed as a flattened PNG (MP-107)
 # MaintainX accepts .doc/.docx/.xlsx/.csv/.pdf/.gif/.jpg/.png/.mp4 (no legacy .xls). We add a few safe extras.
 ALLOWED_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".pdf", ".doc", ".docx", ".xlsx", ".csv", ".txt",
-    ".mp4", ".mov", ".m4a", ".mp3", ".wav",
+    ".mp4", ".mov", ".m4a", ".mp3", ".wav", ".avif", ".psd", ".webm",
 }  # fmt: skip
-INLINE_TYPES = IMAGE_TYPES | {"application/pdf", "video/mp4", "video/quicktime", "audio/mpeg", "audio/mp4", "audio/wav"}
+INLINE_TYPES = IMAGE_TYPES | {
+    "application/pdf", "video/mp4", "video/quicktime", "video/webm", "audio/mpeg", "audio/mp4", "audio/wav",
+}  # fmt: skip
 EXPORT_RETENTION = timedelta(days=14)
 
 
@@ -109,6 +112,14 @@ class Storage:
     def delete(self, key: str) -> None:
         raise NotImplementedError
 
+    def put_stream(self, key: str, stream: Any, limit: int) -> tuple[int, str]:
+        """Store a file-like object; returns (size, sha256). Raises FileError past `limit` bytes."""
+        data = stream.read(limit + 1)
+        if len(data) > limit:
+            raise FileError(f"Files can be up to {limit // (1024 * 1024)} MB.", 413)
+        self.put(key, data)
+        return len(data), hashlib.sha256(data).hexdigest()
+
 
 class LocalStorage(Storage):
     """Files under <data dir>/files. Keys never come from user input, but are still confined to the root."""
@@ -128,6 +139,26 @@ class LocalStorage(Storage):
         tmp = p.with_suffix(p.suffix + ".part")
         tmp.write_bytes(data)
         tmp.replace(p)
+
+    def put_stream(self, key: str, stream: Any, limit: int) -> tuple[int, str]:
+        """Copy in 1 MB chunks so large uploads never sit in memory; hash as we go."""
+        p = self._path(key)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".part")
+        h, size = hashlib.sha256(), 0
+        try:
+            with tmp.open("wb") as out:
+                while chunk := stream.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise FileError(f"Files can be up to {limit // (1024 * 1024)} MB.", 413)
+                    h.update(chunk)
+                    out.write(chunk)
+            tmp.replace(p)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+        return size, h.hexdigest()
 
     def get(self, key: str) -> bytes:
         p = self._path(key)
@@ -173,8 +204,16 @@ def entity_access(entity_type: str) -> EntityAccess:
 
 
 # ---- upload / read ---------------------------------------------------------------------------
-def max_upload_bytes() -> int:
-    return int(current_app.config.get("MPRO_MAX_UPLOAD_MB", 50)) * 1024 * 1024
+def max_upload_bytes(org: Any = None) -> int:
+    """Largest single upload: MPRO_MAX_UPLOAD_MB (150 MB by default, MP-109), or the plan's file_mb on MPro Cloud."""
+    limit = int(current_app.config.get("MPRO_MAX_UPLOAD_MB", 150)) * 1024 * 1024
+    if org is not None:
+        from mpro.core.entitlements import entitlements_for
+
+        plan_mb = entitlements_for(org).limit("file_mb")
+        if plan_mb is not None:
+            limit = min(limit, int(plan_mb) * 1024 * 1024)
+    return limit
 
 
 def _clean_name(name: str) -> str:
@@ -199,9 +238,16 @@ def sniff_type(name: str, data: bytes) -> str:
                 fmt = (im.format or "").upper()
         except Exception as e:
             raise FileError("That image looks damaged. Try saving it again.") from e
-        ctype = {"PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp"}.get(fmt, "")
+        formats = {
+            "PNG": "image/png", "JPEG": "image/jpeg", "GIF": "image/gif", "WEBP": "image/webp", "AVIF": "image/avif",
+        }  # fmt: skip
+        ctype = formats.get(fmt, "")
         if not ctype:
-            raise FileError("That image format isn't supported. Use PNG, JPG, GIF or WebP.")
+            raise FileError("That image format isn't supported. Use PNG, JPG, GIF, WebP or AVIF.")
+    elif ext == ".psd":
+        if not data.startswith(b"8BPS"):
+            raise FileError("That Photoshop file looks damaged. Try saving it again.")
+        ctype = PSD_TYPE
     return ctype
 
 
@@ -230,10 +276,40 @@ def save_file(
     )
     db.session.add(f)
     db.session.flush()
-    if f.is_image:
-        from mpro.core.jobs import enqueue
+    queue_processing(f)
+    return f
 
-        enqueue("files.thumbnail", {"file_id": str(f.id)}, org_id=org_id)
+
+def queue_processing(f: FileObject) -> None:
+    """Background work after an upload: thumbnails for images, a flattened preview for PSD files (MP-107)."""
+    from mpro.core.jobs import enqueue
+
+    if f.is_image:
+        enqueue("files.thumbnail", {"file_id": str(f.id)}, org_id=f.org_id)
+    elif f.content_type == PSD_TYPE:
+        enqueue("files.preview", {"file_id": str(f.id)}, org_id=f.org_id)
+
+
+def save_file_stream(
+    org_id: uuid.UUID, name: str, stream: Any, uploaded_by: uuid.UUID | None, org: Any = None
+) -> FileObject:
+    """Like save_file, but reads the upload in chunks (uploads up to 150 MB, MP-109). Caller commits."""
+    name = _clean_name(name)
+    head = stream.read(256 * 1024)
+    if not head:
+        raise FileError("That file is empty.")
+    ctype = sniff_type(name, head)
+    stream.seek(0)
+    fid = uuid.uuid4()
+    key = f"{org_id}/{utcnow():%Y/%m}/{fid}"
+    size, digest = storage().put_stream(key, stream, max_upload_bytes(org))
+    f = FileObject(
+        id=fid, org_id=org_id, name=name, content_type=ctype, size=size, sha256=digest, storage_key=key,
+        uploaded_by_id=uploaded_by,
+    )  # fmt: skip
+    db.session.add(f)
+    db.session.flush()
+    queue_processing(f)
     return f
 
 
@@ -281,7 +357,7 @@ def file_dict(f: FileObject, role: str | None = None, link_id: uuid.UUID | None 
         "is_image": f.is_image,
         "role": role,
         "url": f"/api/v1/files/{f.id}",
-        "thumb_url": f"/api/v1/files/{f.id}/thumb" if f.is_image else None,
+        "thumb_url": f"/api/v1/files/{f.id}/thumb" if f.is_image or f.thumb_key else None,
         "width": f.width,
         "height": f.height,
         "created_at": iso(f.created_at),

@@ -62,6 +62,7 @@ class PMTask(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model)
     name: Mapped[str] = mapped_column(String(255), default="")
     sort: Mapped[int] = mapped_column(Integer, default=0)
     rrule: Mapped[str] = mapped_column(String(500), default="")  # time-based; "" for usage-only
+    spec: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # the friendly form the rule came from
     anchor: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # DTSTART (first due date)
     meter_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("meters.id"), nullable=True)
     every_units: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)  # usage-based

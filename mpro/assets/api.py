@@ -207,6 +207,26 @@ def patch_floor_plan(lid: str, pid: str) -> dict[str, Any]:
     return {"id": str(fp.id), "name": fp.name}
 
 
+@bp.get("/locations/<lid>/floor-plans/<pid>/annotations")
+@require("locations.view")
+def get_floor_plan_annotations(lid: str, pid: str) -> dict[str, Any]:
+    """The floor plan's drawing layer (shapes, lines, text, location links) and its version (MP-110)."""
+    from mpro.assets.floorplan_edits import annotations_dict
+
+    return annotations_dict(_plan(lid, pid))
+
+
+@bp.put("/locations/<lid>/floor-plans/<pid>/annotations")
+@require("locations.manage")
+def put_floor_plan_annotations(lid: str, pid: str) -> dict[str, Any]:
+    """{annotations: {shapes: [...]}, version: <the version you started from>} — 409 if someone saved first."""
+    from mpro.assets.floorplan_edits import annotations_dict, save_annotations
+
+    b = body()
+    fp = guard(save_annotations, g.org.id, _plan(lid, pid), b.get("annotations"), b.get("version"))
+    return annotations_dict(fp)
+
+
 @bp.delete("/locations/<lid>/floor-plans/<pid>")
 @require("locations.manage")
 def delete_floor_plan(lid: str, pid: str) -> tuple[str, int]:

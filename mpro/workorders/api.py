@@ -266,7 +266,7 @@ def restore_work_order(wo_id: str) -> dict[str, Any]:
 
 
 @bp.post("/work-orders/<wo_id>/status")
-@require("wo.edit")
+@require("wo.status")
 def change_status(wo_id: str) -> dict[str, Any]:
     """{status, comment, sub_status, summary, signature (PNG data URL), signed_by, file_ids, version,
     asset_status: {status, reason, downtime_type, note}} — asset_status also changes the linked asset's status."""
@@ -297,11 +297,22 @@ def change_status(wo_id: str) -> dict[str, Any]:
 
 
 @bp.patch("/work-orders/<wo_id>/asset-tasks/<task_id>")
-@require("wo.edit")
+@require("wo.status")
 def patch_asset_task(wo_id: str, task_id: str) -> dict[str, Any]:
     """Set one asset's task status (open, in_progress, on_hold, done) and/or notes on a work order."""
     wo = _wo(wo_id)
     guard(svc.update_asset_task, g.org, g.membership, wo, task_id, body())
+    return _detail(wo)
+
+
+@bp.put("/work-orders/<wo_id>/cover")
+@require("wo.edit")
+def set_cover(wo_id: str) -> dict[str, Any]:
+    """Pick the work order's picture for cards: {file_id} of one of its pictures, or null for the first one."""
+    from mpro.workorders.cover import set_cover as _set_cover
+
+    wo = _wo(wo_id)
+    guard(_set_cover, g.org, g.membership, wo, body().get("file_id"))
     return _detail(wo)
 
 
@@ -406,7 +417,7 @@ def react(wo_id: str, cid: str) -> dict[str, Any]:
 
 # ---- time, timers, costs ---------------------------------------------------------------------
 @bp.post("/work-orders/<wo_id>/time")
-@require("wo.edit")
+@require("wo.time")
 def add_time(wo_id: str) -> tuple[dict[str, Any], int]:
     """{minutes, time_type, user_id?, rate_cents?, note?, started_at?}"""
     wo = _wo(wo_id)
@@ -415,7 +426,7 @@ def add_time(wo_id: str) -> tuple[dict[str, Any], int]:
 
 
 @bp.delete("/work-orders/<wo_id>/time/<tid>")
-@require("wo.edit")
+@require("wo.time")
 def delete_time(wo_id: str, tid: str) -> dict[str, Any]:
     wo = _wo(wo_id)
     t = db.session.get(TimeEntry, _uuid(tid))
@@ -426,7 +437,7 @@ def delete_time(wo_id: str, tid: str) -> dict[str, Any]:
 
 
 @bp.post("/work-orders/<wo_id>/timer")
-@require("wo.edit")
+@require("wo.time")
 def start_timer(wo_id: str) -> dict[str, Any]:
     wo = _wo(wo_id)
     guard(act.start_timer, g.org, g.membership, wo, body().get("time_type"))
@@ -434,7 +445,7 @@ def start_timer(wo_id: str) -> dict[str, Any]:
 
 
 @bp.delete("/work-orders/<wo_id>/timer")
-@require("wo.edit")
+@require("wo.time")
 def stop_timer(wo_id: str) -> dict[str, Any]:
     wo = _wo(wo_id)
     guard(act.stop_timer, g.org, g.membership, wo, request.args.get("discard") == "1")
@@ -448,7 +459,7 @@ def my_timers() -> dict[str, Any]:
 
 
 @bp.post("/work-orders/<wo_id>/costs")
-@require("wo.edit")
+@require("wo.time")
 def add_cost(wo_id: str) -> tuple[dict[str, Any], int]:
     """{amount_cents, cost_type, description, user_id?, file_ids? (receipts)}"""
     wo = _wo(wo_id)
@@ -457,7 +468,7 @@ def add_cost(wo_id: str) -> tuple[dict[str, Any], int]:
 
 
 @bp.delete("/work-orders/<wo_id>/costs/<cid>")
-@require("wo.edit")
+@require("wo.time")
 def delete_cost(wo_id: str, cid: str) -> dict[str, Any]:
     wo = _wo(wo_id)
     c = db.session.get(CostEntry, _uuid(cid))
@@ -805,7 +816,7 @@ register_entity(
 register_entity(
     "cost",
     lambda cid: _cost_wo(cid) is not None,
-    lambda cid: _cost_wo(cid) is not None and can(g.membership, "wo.edit"),
+    lambda cid: _cost_wo(cid) is not None and can(g.membership, "wo.time"),
 )
 
 _ = timedelta  # keep import for type checkers

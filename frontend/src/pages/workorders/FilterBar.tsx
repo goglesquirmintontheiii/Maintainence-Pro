@@ -19,7 +19,7 @@ const OPS: Record<string, { id: string; label: string }[]> = {
   num: [{ id: "between", label: "Between" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   parent: [{ id: "empty", label: "Top-level only" }, { id: "not_empty", label: "Sub-work orders only" }],
 };
-const NO_EMPTY = new Set(["status", "priority", "work_type", "created_by", "completed_by"]);
+const NO_EMPTY = new Set(["status", "priority", "work_type", "created_by", "completed_by", "procedure_result"]);
 
 export function fieldDefs(o: WOOptions | undefined): FieldDef[] {
   const people = (x: WOOptions) => [{ id: "me", label: "Me" }, ...x.people.map((p) => ({ id: p.id, label: p.name, initials: p.initials }))];
@@ -40,6 +40,7 @@ export function fieldDefs(o: WOOptions | undefined): FieldDef[] {
     { id: "description", label: "Description", kind: "text" },
     { id: "parent", label: "Sub-work orders", kind: "parent" },
     { id: "unread", label: "Unread", kind: "bool" },
+    { id: "procedure_result", label: "Procedure result", kind: "list", options: () => [{ id: "fail", label: "A step failed" }, { id: "flag", label: "A step flagged" }, { id: "pass", label: "A step passed" }] },
     ...(o?.assets?.length ? [{ id: "asset", label: "Asset", kind: "tree" as const, options: (x: WOOptions) => (x.assets ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
     ...(o?.locations?.length ? [{ id: "location", label: "Location", kind: "tree" as const, options: (x: WOOptions) => (x.locations ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
   ];

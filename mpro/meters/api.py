@@ -16,7 +16,7 @@ from mpro.core.search import like, provider
 from mpro.core.tenancy import get_scoped, require, scoped
 from mpro.extensions import db
 from mpro.meters import services as svc
-from mpro.meters.models import UNITS, Meter, MeterTrigger, MonitoringPoint
+from mpro.meters.models import UNITS, Meter, MonitoringPoint
 from mpro.orgs.services import RuleError
 
 bp = APIBlueprint("meters", __name__, url_prefix="/api/v1", tag="Meters")
@@ -67,18 +67,23 @@ def _detail(mt: Meter) -> dict[str, Any]:
     a = db.session.get(Asset, mt.asset_id) if mt.asset_id else None
     loc = db.session.get(Location, mt.location_id) if mt.location_id else None
     mp = db.session.get(MonitoringPoint, mt.monitoring_point_id) if mt.monitoring_point_id else None
-    triggers = db.session.scalars(
-        select(MeterTrigger)
-        .where(MeterTrigger.meter_id == mt.id, MeterTrigger.deleted_at.is_(None))
-        .order_by(MeterTrigger.created_at)
-    ).all()
+    from mpro.automations.models import Automation
+
+    autos = [
+        x
+        for x in db.session.scalars(
+            select(Automation).where(Automation.org_id == mt.org_id, Automation.deleted_at.is_(None))
+        ).all()
+        if str(mt.id) in (x.targets or [])
+    ]
     return svc.meter_dict(
         mt,
         {
             "asset": {"id": str(a.id), "name": a.name, "status": a.status} if a and a.deleted_at is None else None,
             "location": {"id": str(loc.id), "name": loc.name} if loc and loc.deleted_at is None else None,
             "monitoring_point": {"id": str(mp.id), "name": mp.name} if mp and mp.deleted_at is None else None,
-            "triggers": [svc.trigger_dict(t) for t in triggers],
+            # 0.4.0: meter triggers became automations
+            "automations": [{"id": str(x.id), "name": x.name, "active": x.active} for x in autos],
         },
     )
 
@@ -316,50 +321,6 @@ def add_readings_batch() -> dict[str, Any]:
 @require("meters.manage")
 def delete_reading(mid: str, rid: str) -> tuple[str, int]:
     guard(svc.delete_reading, g.org, g.membership, _meter(mid), rid)
-    return "", 204
-
-
-@bp.post("/meters/<mid>/triggers")
-@require("meters.manage")
-def add_trigger(mid: str) -> tuple[dict[str, Any], int]:
-    """{name, kind: threshold|every, comparator: gt|lt, threshold, every_units, start_at, active,
-    work_order: {title, description, priority, assignees, categories, estimated_minutes, due_in_days}}"""
-    t = guard(svc.save_trigger, g.org, g.membership, _meter(mid), body())
-    return svc.trigger_dict(t), 201
-
-
-def _trigger(mt: Meter, tid: str) -> MeterTrigger:
-    t = get_scoped(MeterTrigger, tid)
-    if t.meter_id != mt.id:
-        abort(404)
-    return t
-
-
-@bp.patch("/meters/<mid>/triggers/<tid>")
-@require("meters.manage")
-def patch_trigger(mid: str, tid: str) -> dict[str, Any]:
-    mt = _meter(mid)
-    return svc.trigger_dict(guard(svc.save_trigger, g.org, g.membership, mt, body(), _trigger(mt, tid)))
-
-
-@bp.delete("/meters/<mid>/triggers/<tid>")
-@require("meters.manage")
-def delete_trigger(mid: str, tid: str) -> tuple[str, int]:
-    from mpro.core.models import utcnow
-
-    mt = _meter(mid)
-    t = _trigger(mt, tid)
-    t.deleted_at, t.active = utcnow(), False
-    from mpro.core.events import emit
-
-    emit(
-        "meter.trigger_deleted",
-        entity_type="meter",
-        entity_id=mt.id,
-        entity_label=mt.name,
-        summary=f"Deleted trigger {t.name}",
-    )
-    db.session.commit()
     return "", 204
 
 

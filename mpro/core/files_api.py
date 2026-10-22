@@ -22,7 +22,7 @@ from mpro.core.files import (
     export_dict,
     file_dict,
     link_dict,
-    save_file,
+    save_file_stream,
     storage,
 )
 from mpro.core.models import utcnow
@@ -30,7 +30,7 @@ from mpro.core.tenancy import require
 from mpro.extensions import db
 
 bp = APIBlueprint("files", __name__, url_prefix="/api/v1", tag="Files")
-ROLES = ("photo", "file", "before", "after", "comment", "receipt", "cancel")
+ROLES = ("photo", "file", "before", "after", "comment", "receipt", "cancel", "warranty")
 
 
 def _uuid(v: str) -> uuid.UUID:
@@ -67,8 +67,7 @@ def upload() -> tuple[dict[str, Any], int]:
             eid = _uuid(entity_id)
             if not acc.can_edit(eid):
                 abort(403, message="You can't add files to that record.")
-        data = up.read()
-        f = save_file(g.org.id, up.filename, data, g.user.id)
+        f = save_file_stream(g.org.id, up.filename, up.stream, g.user.id, g.org)
         link = None
         if acc is not None and eid is not None:
             link = attach(f, entity_type, eid, role)
@@ -188,3 +187,7 @@ def delete_export(export_id: str) -> tuple[str, int]:
     db.session.delete(ex)
     db.session.commit()
     return "", 204
+
+
+# In-page previews (MP-107) add their routes to this blueprint.
+from mpro.core import previews as _previews  # noqa: E402, F401

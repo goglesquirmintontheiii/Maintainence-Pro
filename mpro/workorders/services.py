@@ -168,9 +168,9 @@ def team_ids_of(org_id: uuid.UUID, user_id: uuid.UUID) -> list[uuid.UUID]:
 
 def visibility_clause(m: Membership) -> Any:
     """SQL condition for work orders this member may see (None = everything)."""
-    from mpro.core.permissions import FORCED_LIMITED_VISIBILITY
+    from mpro.orgs.roles import forces_limited
 
-    if (m.wo_visibility != "limited" and m.role not in FORCED_LIMITED_VISIBILITY) or m.role in (
+    if (m.wo_visibility != "limited" and not forces_limited(m)) or m.role in (
         "owner",
         "admin",
         "limited_admin",
@@ -194,9 +194,9 @@ def visibility_filter(m: Membership) -> Any:
 def can_see(m: Membership | None, wo: WorkOrder) -> bool:
     if m is None or not can(m, "wo.view", wo):
         return False
-    from mpro.core.permissions import FORCED_LIMITED_VISIBILITY
+    from mpro.orgs.roles import forces_limited
 
-    if (m.wo_visibility != "limited" and m.role not in FORCED_LIMITED_VISIBILITY) or m.role in (
+    if (m.wo_visibility != "limited" and not forces_limited(m)) or m.role in (
         "owner",
         "admin",
         "limited_admin",
@@ -446,6 +446,21 @@ def custom_fields(org_id: uuid.UUID, entity_type: str = "work_order") -> list[Cu
     )
 
 
+def _money(v: Any, name: str) -> str:
+    """An exact amount with two decimals, stored as a string ("1250.00") so nothing is lost to floats (G-12)."""
+    from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
+    if isinstance(v, bool):
+        raise RuleError(f"{name} must be an amount.", 422)
+    try:
+        d = Decimal(str(v).strip().replace(",", ""))
+    except InvalidOperation as e:
+        raise RuleError(f"{name} must be an amount, like 1250.00.", 422) from e
+    if not d.is_finite() or abs(d) >= Decimal("1e13"):
+        raise RuleError(f"{name} is out of range.", 422)
+    return str(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def _clean_custom(
     org_id: uuid.UUID,
     values: dict[str, Any],
@@ -476,6 +491,8 @@ def _clean_custom(
             except (TypeError, ValueError) as e:
                 raise RuleError(f"{f.name} must be a number.", 422) from e
             v = int(v) if v.is_integer() else v
+        if f.type == "currency":
+            v = _money(v, f.name)
         if f.type == "select" and v not in (f.options or []):
             raise RuleError(f"Pick one of the options for {f.name}.", 422)
         if f.type == "checkbox":
@@ -1475,6 +1492,7 @@ TEMPLATE_KEYS = (
     "asset_id",
     "location_id",
     "due_in_days",
+    "procedures",
 )
 
 
@@ -1518,6 +1536,10 @@ def save_template(org: Organization, m: Membership, data: dict[str, Any], t: Tem
             raise RuleError("Due in days must be a whole number.", 422) from e
         if not 0 <= content["due_in_days"] <= 3650:
             raise RuleError("Due in days must be between 0 and 3,650.", 422)
+    if "procedures" in content:
+        from mpro.procedures.services import check_template_procedures
+
+        content["procedures"] = check_template_procedures(org.id, content["procedures"])
     created = t is None
     if t is None:
         t = Template(org_id=org.id, created_by_id=m.user_id)

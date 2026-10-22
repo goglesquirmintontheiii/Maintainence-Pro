@@ -361,7 +361,7 @@ def test_template_quick_create(admin: Api) -> None:
 
 
 # ---- meters --------------------------------------------------------------------------------------
-def test_meters_readings_levels_and_triggers(admin: Api) -> None:
+def test_meters_readings_levels_and_automations(admin: Api) -> None:
     a = asset(admin)
     assert (
         admin.post(f"{API}/meters", {"name": "Temp", "unit": "°C", "warning_high": 90, "alarm_high": 80}).status_code
@@ -379,13 +379,13 @@ def test_meters_readings_levels_and_triggers(admin: Api) -> None:
         },
     ).json
     assert m["asset"]["name"] == "Conveyor 3" and m["overdue"] is False
-    t = admin.post(
-        f"{API}/meters/{m['id']}/triggers",
+    t = admin.post(  # 0.3.0 meter triggers are automations since 0.4.0
+        f"{API}/automations",
         {
-            "kind": "threshold",
-            "comparator": "gt",
-            "threshold": 80,
-            "work_order": {"title": "Bearing overheating", "priority": "high"},
+            "name": "Bearing hot",
+            "trigger": {"type": "meter_reading", "condition": "above", "value": 80},
+            "targets": [m["id"]],
+            "actions": [{"type": "create_work_order", "title": "Bearing overheating", "priority": "high"}],
         },
     ).json
     r = admin.post(f"{API}/meters/{m['id']}/readings", {"value": 65}).json
@@ -401,8 +401,10 @@ def test_meters_readings_levels_and_triggers(admin: Api) -> None:
     admin.post(f"{API}/meters/{m['id']}/readings", {"value": 60})
     admin.post(f"{API}/meters/{m['id']}/readings", {"value": 86})
     assert admin.get(f"{API}/work-orders?tab=all&q=Bearing").json["total"] == 1
-    detail = admin.get(f"{API}/meters/{m['id']}").json
-    assert "still open" in detail["triggers"][0]["last_note"] and detail["triggers"][0]["fired_count"] == 1
+    runs = admin.get(f"{API}/automations/{t['id']}/runs").json["items"]
+    assert "still open" in runs[0]["results"][0]["message"]
+    assert admin.get(f"{API}/automations/{t['id']}").json["run_count"] == 1
+    assert admin.get(f"{API}/meters/{m['id']}").json["automations"][0]["id"] == t["id"]
     admin.post(f"{API}/work-orders/{wos[0]['id']}/status", {"status": "done"})
     admin.post(f"{API}/meters/{m['id']}/readings", {"value": 50})
     admin.post(f"{API}/meters/{m['id']}/readings", {"value": 95})
@@ -420,16 +422,21 @@ def test_meters_readings_levels_and_triggers(admin: Api) -> None:
     ch = admin.get(f"{API}/meters/{m['id']}/chart?days=7").json
     assert ch["limits"]["alarm_high"] == 85 and len(ch["points"]) == 9
     assert admin.get(f"{API}/meters?level=alarm").json["total"] == 1
-    admin.delete(f"{API}/meters/{m['id']}/triggers/{t['id']}")
+    assert admin.delete(f"{API}/automations/{t['id']}").status_code == 204
 
 
 def test_every_n_trigger_and_batch_api(app: Any, admin: Api) -> None:
     m = admin.post(f"{API}/meters", {"name": "Run hours", "unit": "hours"}).json
     admin.post(f"{API}/meters/{m['id']}/readings", {"value": 100})
-    admin.post(
-        f"{API}/meters/{m['id']}/triggers",
-        {"kind": "every", "every_units": 250, "work_order": {"title": "250h service"}},
-    )
+    auto = admin.post(
+        f"{API}/automations",
+        {
+            "name": "250h service",
+            "trigger": {"type": "meter_reading", "condition": "increases_by", "value": 250, "first_at": 350},
+            "targets": [m["id"]],
+            "actions": [{"type": "create_work_order", "title": "250h service", "work_type": "preventive"}],
+        },
+    ).json
     r = admin.post(
         f"{API}/meter-readings",
         {
@@ -444,7 +451,7 @@ def test_every_n_trigger_and_batch_api(app: Any, admin: Api) -> None:
     assert r["recorded"] == 2 and [f["index"] for f in r["failed"]] == [2, 3]
     wos = admin.get(f"{API}/work-orders?tab=all&q=250h").json["items"]
     assert len(wos) == 1 and wos[0]["work_type"] == "preventive"
-    assert admin.get(f"{API}/meters/{m['id']}").json["triggers"][0]["next_at"] == 600
+    assert admin.get(f"{API}/automations/{auto['id']}").json["next_expected"][0]["value"] == 600
     viewer = login(app, "quinn.foster@example.com")
     assert viewer.post(f"{API}/meters/{m['id']}/readings", {"value": 1}).status_code == 403
     tech = login(app, "avery.kim@example.com")
@@ -452,7 +459,7 @@ def test_every_n_trigger_and_batch_api(app: Any, admin: Api) -> None:
     assert tech.delete(f"{API}/meters/{m['id']}").status_code == 403
     copies = admin.post(f"{API}/meters/{m['id']}/copy", {}).json["items"]
     assert copies[0]["name"] == "Copy - Run hours"
-    assert admin.get(f"{API}/meters/{copies[0]['id']}").json["triggers"][0]["kind"] == "every"
+    assert copies[0]["id"] in admin.get(f"{API}/automations/{auto['id']}").json["targets"]
 
 
 def test_chart_buckets_many_readings(app: Any, admin: Api) -> None:
@@ -697,22 +704,36 @@ def test_review_fixes(app: Any, admin: Api) -> None:
         db.session.commit()
     tech = login(app, "avery.kim@example.com")
     assert tech.get(f"{API}/assets/{a['id']}/insights").json["costs"]["other_cents"] == 0
-    # bad due_in_days on triggers and templates are refused instead of breaking later
+    # bad due_in_days on automations and templates are refused instead of breaking later
     m = admin.post(f"{API}/meters", {"name": "Hours", "unit": "hours"}).json
-    bad = {"kind": "threshold", "threshold": 10, "work_order": {"title": "x", "due_in_days": "soon"}}
-    assert admin.post(f"{API}/meters/{m['id']}/triggers", bad).status_code == 422
+    bad = {
+        "name": "x",
+        "trigger": {"type": "meter_reading", "condition": "above", "value": 10},
+        "targets": [m["id"]],
+        "actions": [{"type": "create_work_order", "title": "x", "due_in_days": "soon"}],
+    }
+    assert admin.post(f"{API}/automations", bad).status_code == 422
     t = admin.post(f"{API}/work-order-templates", {"name": "T", "data": {"title": "x", "due_in_days": ""}}).json
     assert admin.post(f"{API}/work-order-templates/{t['id']}/create", {}).status_code == 201
-    # switching a trigger to "every" needs an interval
-    trig = admin.post(
-        f"{API}/meters/{m['id']}/triggers", {"kind": "threshold", "threshold": 10, "work_order": {"title": "x"}}
-    ).json
-    assert admin.patch(f"{API}/meters/{m['id']}/triggers/{trig['id']}", {"kind": "every"}).status_code == 422
-    # copied "every N" triggers fire
+    # switching an automation to "increases by" needs a positive amount
+    trig = admin.post(f"{API}/automations", {**bad, "actions": [{"type": "create_work_order", "title": "x"}]}).json
+    assert (
+        admin.patch(
+            f"{API}/automations/{trig['id']}",
+            {"trigger": {"type": "meter_reading", "condition": "increases_by", "value": 0}},
+        ).status_code
+        == 422
+    )
+    # copied meters join "every N" automations, which fire on the copy
     every = admin.post(f"{API}/meters", {"name": "Cycles", "unit": "cycles"}).json
     admin.post(
-        f"{API}/meters/{every['id']}/triggers",
-        {"kind": "every", "every_units": 100, "work_order": {"title": "Copy service"}},
+        f"{API}/automations",
+        {
+            "name": "Every 100",
+            "trigger": {"type": "meter_reading", "condition": "increases_by", "value": 100},
+            "targets": [every["id"]],
+            "actions": [{"type": "create_work_order", "title": "Copy service"}],
+        },
     )
     copy = admin.post(f"{API}/meters/{every['id']}/copy", {}).json["items"][0]
     admin.post(f"{API}/meters/{copy['id']}/readings", {"value": 150})

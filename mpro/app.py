@@ -100,6 +100,11 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
             if not sent or sent != session.get("csrf"):
                 abort(403, message="Your session expired. Reload the page and try again.")
 
+    @app.errorhandler(413)
+    def _too_large(_e: Any) -> tuple[dict[str, Any], int]:
+        mb = int(app.config.get("MPRO_MAX_UPLOAD_MB", 150))
+        return {"message": f"That file is too large. Files can be up to {mb} MB.", "status": 413}, 413
+
     @app.after_request
     def after(resp: Response) -> Response:
         if app.config.get("MPRO_INLINE_JOBS") and request.method not in {"GET", "HEAD"}:

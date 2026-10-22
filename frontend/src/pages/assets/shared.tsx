@@ -8,8 +8,9 @@ import { ASSET_STATUS_LABEL, type HistoryItem } from "../../lib/assets";
 import { useSession } from "../../lib/session";
 import { dateTime } from "../../lib/format";
 import { useToast } from "../../components/Toast";
-import { Button, EmptyState, ListSkeleton } from "../../components/ui";
+import { Button, EmptyState, ListSkeleton, Pill } from "../../components/ui";
 import { MultiPicker } from "../../components/pickers";
+import { FileViewer, type ViewerFile } from "../../components/FileViewer";
 import "../../styles/assets.css";
 
 export function AssetStatusPill({ status, reason }: { status: AssetStatus; reason?: string }) {
@@ -124,25 +125,22 @@ export function FilesSection({ files, entityType, entityId, editable, queryKey, 
       {files.length === 0 && <span className="small faint">No photos or files yet. Add photos, manuals or drawings.</span>}
       {imgs.length > 0 && <div className="thumbs">{imgs.map((f) => (
         <figure key={f.id} className="thumb"><button type="button" onClick={() => setView(f)} aria-label={`Open ${f.name}`}><img src={f.thumb_url ?? f.url} alt={f.name} /></button>
+          {f.role === "warranty" && <span className="cover-tag">Warranty</span>}
           {editable && f.link_id && <button type="button" className="thumb-x" aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={12} /></button>}</figure>))}</div>}
       {docs.length > 0 && <div className="files">{docs.map((f) => (
-        <div key={f.id} className="file-row"><span className="grow">{f.name}</span>
+        <div key={f.id} className="file-row"><button type="button" className="linkbtn grow" style={{ textAlign: "left" }} onClick={() => setView(f)}>{f.name}</button>
+          {f.role === "warranty" && <Pill tone="info">Warranty</Pill>}
           <a className="btn ghost sm icon" href={f.url + "?download=1"} aria-label={`Download ${f.name}`}><Download size={14} /></a>
           {editable && f.link_id && <Button size="sm" variant="ghost" icon aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={14} /></Button>}</div>))}</div>}
-      {view && <Lightbox file={view} onClose={() => setView(null)} />}
+      {view && <Lightbox file={view} files={[...imgs, ...docs]} onClose={() => setView(null)} />}
     </section>
   );
 }
 
-export function Lightbox({ file, onClose }: { file: { url: string; name: string }; onClose: () => void }) {
-  return (
-    <div className="overlay lightbox" onClick={onClose} role="dialog" aria-label={file.name}>
-      <img src={file.url} alt={file.name} />
-      <div className="lightbox-bar"><span className="grow">{file.name}</span>
-        <a className="btn sm" href={file.url + "?download=1"} onClick={(e) => e.stopPropagation()}><Download size={14} />Download</a>
-        <Button size="sm" onClick={onClose}>Close</Button></div>
-    </div>
-  );
+/** One file, or a list with `index`, in the shared in-page viewer (MP-107). */
+export function Lightbox({ file, files, onClose }: { file: ViewerFile; files?: ViewerFile[]; onClose: () => void }) {
+  const list = files?.length ? files : [file];
+  return <FileViewer files={list} index={Math.max(0, list.findIndex((f) => f.id === file.id))} onClose={onClose} />;
 }
 
 const FIELD_NAMES: Record<string, string> = { parent_id: "parent", location_id: "location", types: "types", custom: "custom fields" };

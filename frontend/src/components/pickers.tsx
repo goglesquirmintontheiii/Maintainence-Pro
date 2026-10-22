@@ -59,7 +59,7 @@ export function MultiPicker({ options, value, onChange, placeholder, label, rend
 export function assigneeOptions(o: WOOptions | undefined): Opt[] {
   if (!o) return [];
   return [
-    ...o.people.filter((p) => p.assignable).map((p) => ({ key: `user:${p.id}`, label: p.name, icon: <Avatar name={p.name} initials={p.initials} size="sm" /> })),
+    ...o.people.filter((p) => p.assignable).map((p) => ({ key: `user:${p.id}`, label: p.name, icon: <Avatar name={p.name} initials={p.initials} src={p.avatar_url} size="sm" /> })),
     ...o.teams.map((t) => ({ key: `team:${t.id}`, label: t.name, sub: "Team", icon: <span className="team-ic" style={{ background: t.color }}><Users size={12} /></span> })),
   ];
 }
@@ -69,7 +69,7 @@ export function AssigneeChips({ items, max = 3 }: { items: Assignee[]; max?: num
   return (
     <span className="row" style={{ gap: 4, flexWrap: "wrap" }}>
       {items.slice(0, max).map((a) => a.type === "user"
-        ? <span key={a.id} className="chip"><Avatar name={a.name} initials={a.initials} size="sm" />{a.name}</span>
+        ? <span key={a.id} className="chip"><Avatar name={a.name} initials={a.initials} src={a.avatar_url} size="sm" />{a.name}</span>
         : <span key={a.id} className="chip"><span className="team-ic" style={{ background: a.color }}><Users size={11} /></span>{a.name}</span>)}
       {items.length > max && <span className="chip">+{items.length - max}</span>}
     </span>

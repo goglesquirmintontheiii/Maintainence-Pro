@@ -7,14 +7,16 @@ import { api, ApiError, type WOList } from "../../lib/api";
 import { useAssetOptions, type Asset, type AssetDetail as AD, type Insights, type Paged, type PhotoItem, type StatusChange } from "../../lib/assets";
 import { useSession } from "../../lib/session";
 import { absoluteUrl, copyText, money, shortDate } from "../../lib/wo";
-import { dateTime, show } from "../../lib/format";
+import { currency, dateTime, show } from "../../lib/format";
 import { useToast } from "../../components/Toast";
 import { Button, Checkbox, Dropdown, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../../components/ui";
 import { ClearableDate } from "../../components/assetPickers";
 import { LabelDialog } from "../../components/LabelDialog";
+import { QuickTemplateItems } from "../../components/QuickTemplates";
 import { WORow } from "../workorders/WorkOrders";
 import { AssetForm } from "./AssetForm";
 import { AssetStatusPill, BarChart2, Crumbs, FilesSection, fmtSeconds, HistoryList, Lightbox, TeamChips } from "./shared";
+import { WarrantyFiles } from "./WarrantyFiles";
 
 export const ASSET_TABS = [["details", "Details"], ["work-orders", "Work Orders"], ["insights", "Insights"], ["photos", "Photos"], ["downtime", "Downtime"],
   ["lifecycle", "Lifecycle"], ["history", "History"]] as const;
@@ -70,6 +72,8 @@ export function AssetDetailView({ id, tab, onTab }: { id: string; tab: AssetTab;
           <Dropdown trigger={(_, t) => <Button icon aria-label="More actions" onClick={t}><MoreHorizontal size={18} /></Button>} width={240}>
             {(close) => <>
               {can("wo.create") && !a.deleted && <button className="menu-item" onClick={() => { close(); nav(`/work-orders?new=1&asset=${a.id}`); }}><ClipboardList size={15} />New work order</button>}
+              {!a.deleted && <QuickTemplateItems assetId={a.id} close={close} label="From a template" />}
+              <div className="menu-sep" />
               {manage && <button className="menu-item" onClick={() => { close(); setAddSub(true); }}><Plus size={15} />Add sub-asset</button>}
               {manage && <button className="menu-item" onClick={() => { close(); dup.mutate(); }}><Copy size={15} />Duplicate</button>}
               <button className="menu-item" onClick={() => { close(); setLabels(true); }}><Printer size={15} />Print QR label</button>
@@ -149,7 +153,7 @@ export function StatusModal({ assets, onClose, onDone }: { assets: Pick<Asset, "
 
 // ---------------------------------------------------------------- tabs
 function DetailsTab({ a, tz }: { a: AD; tz?: string }) {
-  const { can } = useSession();
+  const { can, session } = useSession();
   const subs = useQuery({ queryKey: ["assets", "children", a.id], queryFn: () => api<Paged<Asset>>(`/assets?parent_id=${a.id}&per_page=200`) });
   const cf = a.custom_fields.filter((f) => a.custom[f.id] !== undefined && a.custom[f.id] !== "");
   return (
@@ -170,7 +174,8 @@ function DetailsTab({ a, tz }: { a: AD; tz?: string }) {
         <div><dt>Open work orders</dt><dd>{a.open_work_orders}</dd></div>
         <div><dt>Availability (30 days)</dt><dd>{a.downtime_30d.availability === null ? <span className="faint">—</span> : `${a.downtime_30d.availability}%`}</dd></div>
         {cf.map((f) => <div key={f.id}><dt>{f.name}</dt><dd>{f.type === "checkbox" ? (a.custom[f.id] ? "Yes" : "No") : f.type === "link"
-          ? <a href={String(a.custom[f.id])} target="_blank" rel="noopener noreferrer">{String(a.custom[f.id])}</a> : String(a.custom[f.id])}</dd></div>)}
+          ? <a href={String(a.custom[f.id])} target="_blank" rel="noopener noreferrer">{String(a.custom[f.id])}</a>
+          : f.type === "currency" ? currency(a.custom[f.id], session.org?.currency) : String(a.custom[f.id])}</dd></div>)}
         <div><dt>Created</dt><dd className="small">{dateTime(a.created_at, tz)}</dd></div>
         <div><dt>Updated</dt><dd className="small">{dateTime(a.updated_at, tz)}</dd></div>
       </dl>
@@ -292,7 +297,7 @@ function PhotosTab({ id }: { id: string }) {
               <figcaption className="small faint">{shortDate(p.taken_at)}{p.source.work_order && <> · <Link to={`/work-orders/${p.source.work_order.id}`}>#{p.source.work_order.number}</Link></>}</figcaption>
             </figure>))}</div>
         </section>))}
-      {view && <Lightbox file={view} onClose={() => setView(null)} />}
+      {view && <Lightbox file={view} files={q.data.items} onClose={() => setView(null)} />}
     </div>
   );
 }
@@ -323,7 +328,8 @@ function DowntimeTab({ a, tz }: { a: AD; tz?: string }) {
 }
 
 function LifecycleTab({ a }: { a: AD }) {
-  const { session } = useSession();
+  const { session, can } = useSession();
+  const canEdit = can("assets.manage") && !a.deleted;
   const cur = session.org?.currency;
   const l = a.lifecycle, w = a.warranty, f = a.financials;
   const lifePct = l.expected_life_years ? Math.min(100, Math.round((l.age_years / l.expected_life_years) * 100)) : null;
@@ -349,6 +355,7 @@ function LifecycleTab({ a }: { a: AD }) {
             ? <Pill tone={w.days_left <= 60 ? "warning" : "success"}>{w.days_left} days left</Pill> : <Pill tone="neutral">Ended {-w.days_left} days ago</Pill>)}
             <span className="small muted">{w.start ? `${shortDate(w.start)} – ` : "Until "}{shortDate(w.end)}{w.provider && ` · ${w.provider}`}</span></div>
           {w.terms && <p className="small prewrap" style={{ margin: 0 }}>{w.terms}</p>}</>}
+        {(w.files?.length || canEdit) ? <WarrantyFiles assetId={a.id} files={w.files ?? []} editable={canEdit} /> : null}
       </section>
       {f && <section className="card">
         <div className="card-head"><h3 className="sec-h" style={{ margin: 0 }}>Financials</h3><span className="small muted">Straight-line depreciation</span></div>

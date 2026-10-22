@@ -8,9 +8,16 @@ import { dateTime, timeAgo } from "../lib/format";
 import { useToast } from "../components/Toast";
 import { Avatar, AvatarStack, Button, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../components/ui";
 
-const ROLE_TONE: Record<string, "info" | "success" | "warning" | "neutral"> = { admin: "info", limited_admin: "info", technician: "success", requester: "warning", viewer: "neutral" };
+const ROLE_TONE: Record<string, "info" | "success" | "warning" | "neutral"> = { owner: "info", admin: "info", limited_admin: "info", technician: "success",
+  operator: "success", custom: "success", requester: "warning", viewer: "neutral" };
 
-function useRoles() { return useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles"), staleTime: Infinity }); }
+function useRoles() { return useQuery({ queryKey: ["roles"], queryFn: () => api<Role[]>("/roles"), staleTime: 60_000 }); }
+
+/** Roles this person may hand out; the server has the final say (nobody grants more than they have). */
+function assignableRoles(roles: Role[] | undefined, myRole: string | null | undefined): Role[] {
+  return (roles ?? []).filter((r) => !r.deleted && (myRole === "owner" || (r.key !== "owner" && (myRole === "admin" || !["admin", "limited_admin"].includes(r.key)))));
+}
+const keyOf = (m: Member) => m.role_key ?? m.role;
 
 export function People() {
   const { tab = "users", id } = useParams();
@@ -58,7 +65,7 @@ function UserList({ selected }: { selected?: string }) {
           {can("users.manage") && <Button variant="primary" onClick={() => setParams({ invite: "1" })} aria-label="Invite"><UserPlus size={16} /><span className="desktop-only">Invite</span></Button>}
         </div>
         <Select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Filter by role">
-          <option value="">All roles</option>{roles.data?.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+          <option value="">All roles</option>{roles.data?.filter((r) => !r.deleted).map((r) => <option key={r.key} value={r.key}>{r.label}{r.custom ? " (custom)" : ""}</option>)}
         </Select>
         <div className="small muted">{users.data ? `${users.data.total} ${users.data.total === 1 ? "person" : "people"}` : " "}</div>
       </div>
@@ -66,7 +73,7 @@ function UserList({ selected }: { selected?: string }) {
         {users.isLoading ? <ListSkeleton /> : users.data?.items.length === 0 ? <EmptyState title="Nobody matches">Try a different name or role.</EmptyState>
           : users.data?.items.map((u) => (
             <Link key={u.id} to={`/people/users/${u.id}`} className={"list-row" + (u.id === selected ? " active" : "")} role="listitem">
-              <Avatar name={u.name} initials={u.initials} />
+              <Avatar name={u.name} initials={u.initials} src={u.avatar_url} />
               <div className="grow"><div className="t">{u.name}</div><div className="s">{u.job_title || u.email}</div></div>
               <Pill tone={ROLE_TONE[u.role]}>{u.role_label}</Pill>
             </Link>))}
@@ -89,7 +96,7 @@ function InviteModal({ onClose }: { onClose: () => void }) {
     onSuccess: (u) => { qc.invalidateQueries({ queryKey: ["users"] }); toast(`Invitation sent to ${u.email}`); onClose(); nav(`/people/users/${u.id}`); },
     onError: (e) => setErr((e as ApiError).message),
   });
-  const assignable = roles.data?.filter((r) => session.role === "admin" || !["admin", "limited_admin"].includes(r.id)) ?? [];
+  const assignable = assignableRoles(roles.data, session.role);
   return (
     <Modal title="Invite a person" onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!f.email || m.isPending} onClick={() => m.mutate()}>{m.isPending ? "Sending…" : "Send invitation"}</Button></>}>
@@ -97,10 +104,10 @@ function InviteModal({ onClose }: { onClose: () => void }) {
       <Field label="Email">{(id) => <Input id={id} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />}</Field>
       <Field label="Name">{(id) => <Input id={id} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />}</Field>
       <div className="form-grid">
-        <Field label="Role">{(id) => <Select id={id} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{assignable.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</Select>}</Field>
+        <Field label="Role">{(id) => <Select id={id} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{assignable.map((r) => <option key={r.key} value={r.key}>{r.label}{r.custom ? " (custom)" : ""}</option>)}</Select>}</Field>
         <Field label="Job title (optional)">{(id) => <Input id={id} value={f.job_title} onChange={(e) => setF({ ...f, job_title: e.target.value })} />}</Field>
       </div>
-      <p className="small muted">{roles.data?.find((r) => r.id === f.role)?.description}</p>
+      <p className="small muted">{roles.data?.find((r) => r.key === f.role)?.description}</p>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );
@@ -114,6 +121,14 @@ function UserDetail({ id }: { id: string }) {
   const roles = useRoles();
   const u = useQuery({ queryKey: ["user", id], queryFn: () => api<Member>(`/users/${id}`) });
   const [confirm, setConfirm] = useState(false);
+  const [transfer, setTransfer] = useState<null | { stay: boolean }>(null);
+  const { refresh } = useSession();
+  const makeOwner = useMutation({
+    mutationFn: (stay: boolean) => api<Member>("/org/transfer-ownership", { method: "POST", body: { user_id: id, stay_owner: stay } }),
+    onSuccess: async (m) => { qc.setQueryData(["user", id], m); qc.invalidateQueries({ queryKey: ["users"] }); qc.invalidateQueries({ queryKey: ["roles"] });
+      setTransfer(null); toast(`${m.name} is now an Owner`); await refresh(); },
+    onError: (e) => toast((e as ApiError).message, { kind: "error" }),
+  });
   const save = useMutation({
     mutationFn: (body: Partial<Member>) => api<Member>(`/users/${id}`, { method: "PATCH", body }),
     onSuccess: (m) => { qc.setQueryData(["user", id], m); qc.invalidateQueries({ queryKey: ["users"] }); toast("Saved"); },
@@ -128,12 +143,12 @@ function UserDetail({ id }: { id: string }) {
   if (!u.data) return <div className="detail"><ListSkeleton rows={3} /></div>;
   const m = u.data;
   const manage = can("users.manage") && m.id !== session.user?.id;
-  const assignable = roles.data?.filter((r) => session.role === "admin" || !["admin", "limited_admin"].includes(r.id)) ?? [];
+  const assignable = assignableRoles(roles.data, session.role);
   return (
     <div className="detail">
       <Link to="/people/users" className="row small mobile-only"><ArrowLeft size={14} />All people</Link>
       <div className="detail-head">
-        <Avatar name={m.name} initials={m.initials} size="xl" />
+        <Avatar name={m.name} initials={m.initials} size="xl" src={m.avatar_url} />
         <div className="grow"><h1>{m.name}</h1><div className="muted">{m.job_title || "No job title"}</div>
           <div className="row wrap" style={{ marginTop: 8 }}><Pill tone={ROLE_TONE[m.role]}>{m.role_label}</Pill>{!m.has_password && <Pill tone="warning">Invitation pending</Pill>}</div></div>
         <a className="btn" href={`mailto:${m.email}`}><Mail size={16} />Email</a>
@@ -148,20 +163,31 @@ function UserDetail({ id }: { id: string }) {
         <section className="card">
           <div className="card-head"><h2>Role and details</h2></div>
           <div className="card-body form-grid">
-            <Field label="Role" hint={roles.data?.find((r) => r.id === m.role)?.description}>{(fid) => (
-              <Select id={fid} value={m.role} disabled={save.isPending || !assignable.some((r) => r.id === m.role)} onChange={(e) => save.mutate({ role: e.target.value })}>
-                {(assignable.some((r) => r.id === m.role) ? assignable : roles.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            <Field label="Role" hint={roles.data?.find((r) => r.key === keyOf(m))?.description}>{(fid) => (
+              <Select id={fid} value={keyOf(m)} disabled={save.isPending || !assignable.some((r) => r.key === keyOf(m))} onChange={(e) => save.mutate({ role: e.target.value })}>
+                {(assignable.some((r) => r.key === keyOf(m)) ? assignable : roles.data ?? []).map((r) => <option key={r.key} value={r.key}>{r.label}{r.custom ? " (custom)" : ""}</option>)}
               </Select>)}</Field>
             <Field label="Job title">{(fid) => <Input id={fid} defaultValue={m.job_title} key={m.job_title} onBlur={(e) => { if (e.target.value !== m.job_title) save.mutate({ job_title: e.target.value }); }} />}</Field>
           </div>
+          {session.role === "owner" && m.role !== "owner" && m.has_password && (
+            <div className="card-body row wrap" style={{ borderTop: "1px solid var(--c-border-soft)" }}>
+              <span className="grow small muted">Owners can change organization settings, billing and roles. Every organization needs at least one.</span>
+              <Button onClick={() => setTransfer({ stay: false })}>Make {m.name.split(" ")[0]} an Owner…</Button>
+            </div>)}
           <div className="card-body" style={{ borderTop: "1px solid var(--c-border-soft)" }}>
             {confirm ? <div className="row wrap"><span className="grow">Remove {m.name} from {session.org?.name}? Their history stays in the audit log.</span>
               <Button onClick={() => setConfirm(false)}>Keep</Button><Button variant="danger" className="solid" onClick={() => remove.mutate()} disabled={remove.isPending}>Remove</Button></div>
               : <Button variant="danger" onClick={() => setConfirm(true)}><Trash2 size={15} />Remove from organization</Button>}
           </div>
         </section>)}
-      {can("wo.view") && ["admin", "limited_admin", "technician"].includes(m.role) && <WorkSettings userId={m.id} manage={can("users.manage") && m.role !== "admin"} self={m.id === session.user?.id} />}
+      {can("wo.view") && ["owner", "admin", "limited_admin", "technician", "operator", "custom"].includes(m.role) && <WorkSettings userId={m.id} manage={can("users.manage") && !["owner", "admin"].includes(m.role)} self={m.id === session.user?.id} />}
       {can("audit.view") && <Link to={`/settings/audit-log?entity_id=${m.id}`} className="small">See this person's history in the audit log</Link>}
+      {transfer && <Modal title={`Make ${m.name} an Owner?`} onClose={() => setTransfer(null)}
+        footer={<><Button onClick={() => setTransfer(null)}>Cancel</Button><Button variant="primary" disabled={makeOwner.isPending} onClick={() => makeOwner.mutate(transfer.stay)}>Make Owner</Button></>}>
+        <p>{m.name} will get full access, including organization settings, billing and roles.</p>
+        <label className="check"><input type="checkbox" checked={transfer.stay} onChange={(e) => setTransfer({ stay: e.target.checked })} />
+          <span>I stay an Owner too (otherwise I become an Administrator)</span></label>
+      </Modal>}
     </div>
   );
 }

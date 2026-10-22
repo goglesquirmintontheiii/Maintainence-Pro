@@ -1,13 +1,15 @@
-// Floor plans on a location: upload a plan image, drop pins for assets (or a label), drag pins to move them.
+// Floor plans on a location: upload a plan image; the card shows the plan with its pins and drawing, and opens the
+// full-screen viewer/editor (FloorPlanEditor) to zoom, draw, pin assets and link areas to locations (MP-110).
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, MapPin, Trash2 } from "lucide-react";
+import { ImagePlus, MapPin, Maximize2, Pencil, Trash2 } from "lucide-react";
 import { api, ApiError, upload } from "../../lib/api";
-import type { FloorPlan, FloorPlanPin, LocationDetail } from "../../lib/assets";
+import type { FloorPlan, LocationDetail } from "../../lib/assets";
 import { useToast } from "../../components/Toast";
-import { Button, EmptyState, Field, Input, Modal } from "../../components/ui";
-import { AssetPicker } from "../../components/assetPickers";
+import { Button, EmptyState, Modal } from "../../components/ui";
+import { FloorPlanEditor, PlanShapes } from "./FloorPlanEditor";
+import type { Shape } from "./floorplanShapes";
 
 export function FloorPlans({ loc, editable }: { loc: LocationDetail; editable: boolean }) {
   const qc = useQueryClient();
@@ -42,57 +44,36 @@ export function FloorPlans({ loc, editable }: { loc: LocationDetail; editable: b
 }
 
 function PlanCanvas({ loc, plan, editable, onChanged }: { loc: LocationDetail; plan: FloorPlan; editable: boolean; onChanged: () => void }) {
-  const box = useRef<HTMLDivElement>(null);
   const nav = useNavigate();
   const { toast } = useToast();
-  const [adding, setAdding] = useState<{ x: number; y: number } | null>(null);
-  const [drag, setDrag] = useState<{ id: string; x: number; y: number; moved: boolean } | null>(null);
+  const [open, setOpen] = useState<null | "view" | "edit">(null);
   const [confirm, setConfirm] = useState(false);
+  const [aspect, setAspect] = useState(0.66);
   const base = `/locations/${loc.id}/floor-plans/${plan.id}`;
-  const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
-  const move = useMutation({ mutationFn: (p: { id: string; x: number; y: number }) => api(`${base}/pins/${p.id}`, { method: "PATCH", body: { x: p.x, y: p.y } }), onSuccess: onChanged, onError: err });
-  const delPin = useMutation({ mutationFn: (id: string) => api(`${base}/pins/${id}`, { method: "DELETE" }), onSuccess: () => { onChanged(); toast("Pin removed"); }, onError: err });
-  const delPlan = useMutation({ mutationFn: () => api(base, { method: "DELETE" }), onSuccess: () => { onChanged(); toast("Floor plan removed"); }, onError: err });
-  const frac = (clientX: number, clientY: number) => {
-    const r = box.current!.getBoundingClientRect();
-    return { x: Math.min(1, Math.max(0, (clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (clientY - r.top) / r.height)) };
-  };
-  const pinAt = (p: FloorPlanPin) => (drag && drag.id === p.id ? { x: drag.x, y: drag.y } : { x: p.x, y: p.y });
+  const delPlan = useMutation({ mutationFn: () => api(base, { method: "DELETE" }), onSuccess: () => { onChanged(); toast("Floor plan removed"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
+  const shapes = (plan.annotations?.shapes ?? []) as unknown as Shape[];
   return (
     <div className="card-body stack">
-      <div ref={box} className={"plan-box" + (editable ? " editable" : "")} onClick={(e) => { if (!editable || drag) return; if ((e.target as HTMLElement).closest(".plan-pin")) return; setAdding(frac(e.clientX, e.clientY)); }}
-        onPointerMove={(e) => { if (drag) { const f = frac(e.clientX, e.clientY); setDrag({ ...drag, ...f, moved: true }); } }}
-        onPointerUp={() => { if (drag) { if (drag.moved) move.mutate({ id: drag.id, x: drag.x, y: drag.y }); setTimeout(() => setDrag(null), 0); } }}>
-        <img src={plan.url} alt={`Floor plan: ${plan.name}`} draggable={false} />
-        {plan.pins.map((p) => { const at = pinAt(p); return (
-          <button key={p.id} type="button" className={"plan-pin" + (p.asset_status ? " " + p.asset_status : "")} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
-            title={p.label} aria-label={`${p.label}${p.asset_id ? " (asset)" : ""}`}
-            onPointerDown={(e) => { if (!editable) return; e.stopPropagation(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); setDrag({ id: p.id, x: p.x, y: p.y, moved: false }); }}
-            onClick={(e) => { e.stopPropagation(); if (drag?.moved) return; if (p.asset_id) nav(`/assets/${p.asset_id}`); }}
-            onKeyDown={(e) => { if (editable && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); delPin.mutate(p.id); } }}>
+      <div className="plan-box fp-preview" role="button" tabIndex={0} aria-label={`Open ${plan.name} full screen`} title="Open full screen"
+        onClick={() => setOpen("view")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen("view"); } }}>
+        <img src={plan.url} alt={`Floor plan: ${plan.name}`} draggable={false} onLoad={(e) => setAspect(e.currentTarget.naturalHeight / e.currentTarget.naturalWidth || 0.66)} />
+        <PlanShapes shapes={shapes} aspect={aspect} onOpen={(s) => nav(s.location_id ? `/locations/${s.location_id}` : `/assets/${s.asset_id}`)} />
+        {plan.pins.map((p) => (
+          <button key={p.id} type="button" className={"plan-pin" + (p.asset_status ? " " + p.asset_status : "")} style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
+            title={p.label} aria-label={`${p.label}${p.asset_id ? " (asset)" : ""}`} onClick={(e) => { e.stopPropagation(); if (p.asset_id) nav(`/assets/${p.asset_id}`); else setOpen("view"); }}>
             <MapPin size={22} /><span className="plan-pin-label">{p.label}</span>
-          </button>); })}
+          </button>))}
+        <span className="fp-open-hint"><Maximize2 size={14} />Open</span>
       </div>
-      {editable && <div className="row small muted wrap" style={{ justifyContent: "space-between" }}>
-        <span>Click the plan to add a pin. Drag a pin to move it; select it and press Delete to remove it.</span>
-        <Button size="sm" variant="ghost" onClick={() => setConfirm(true)}><Trash2 size={14} />Remove this plan</Button></div>}
-      {adding && <AddPin base={base} at={adding} onClose={() => setAdding(null)} onDone={() => { setAdding(null); onChanged(); }} />}
+      <div className="row small muted wrap" style={{ justifyContent: "space-between" }}>
+        <span>{editable ? "Open the plan to zoom in, or edit it to draw rooms, add pins and link areas to locations." : "Click the plan to open it full screen. Click a pin or a linked area to open it."}</span>
+        {editable && <span className="row" style={{ gap: 6 }}>
+          <Button size="sm" onClick={() => setOpen("edit")}><Pencil size={14} />Edit plan</Button>
+          <Button size="sm" variant="ghost" onClick={() => setConfirm(true)}><Trash2 size={14} />Remove this plan</Button></span>}
+      </div>
+      {open && <FloorPlanEditor locId={loc.id} plan={plan} editable={editable} startEditing={open === "edit"} onClose={() => setOpen(null)} onChanged={onChanged} />}
       {confirm && <Modal title="Remove floor plan?" onClose={() => setConfirm(false)} footer={<><Button onClick={() => setConfirm(false)}>Cancel</Button>
-        <Button variant="danger" onClick={() => { setConfirm(false); delPlan.mutate(); }}>Remove</Button></>}><p>{plan.name} and its pins will be removed.</p></Modal>}
+        <Button variant="danger" onClick={() => { setConfirm(false); delPlan.mutate(); }}>Remove</Button></>}><p>{plan.name}, its pins and its drawing will be removed.</p></Modal>}
     </div>
-  );
-}
-
-function AddPin({ base, at, onClose, onDone }: { base: string; at: { x: number; y: number }; onClose: () => void; onDone: () => void }) {
-  const [asset, setAsset] = useState<string[]>([]);
-  const [label, setLabel] = useState("");
-  const [err, setErr] = useState("");
-  const m = useMutation({ mutationFn: () => api(`${base}/pins`, { method: "POST", body: { ...at, asset_id: asset[0] ?? null, label } }), onSuccess: onDone, onError: (e) => setErr((e as ApiError).message) });
-  return (
-    <Modal title="Add a pin" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={(!asset.length && !label.trim()) || m.isPending} onClick={() => m.mutate()}>Add pin</Button></>}>
-      <Field label="Asset">{(id) => <AssetPicker id={id} value={asset} onChange={setAsset} placeholder="Pick an asset" />}</Field>
-      <Field label="Label" hint="Optional for assets. Use a label alone for things like an exit or an electrical panel.">{(id) => <Input id={id} value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />}</Field>
-      {err && <div className="banner warning" role="alert">{err}</div>}
-    </Modal>
   );
 }

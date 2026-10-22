@@ -4,9 +4,9 @@ import uuid
 from typing import Any
 
 from apiflask import APIBlueprint, Schema, abort
-from apiflask.fields import String
-from apiflask.validators import Length, OneOf
-from flask import g, request
+from apiflask.fields import Boolean, String
+from apiflask.validators import Length
+from flask import Response, g, request
 from sqlalchemy import func, or_, select
 
 from mpro.auth.models import User
@@ -14,6 +14,7 @@ from mpro.core.permissions import ROLES, can
 from mpro.core.search import like, provider
 from mpro.core.tenancy import get_scoped, require, scoped
 from mpro.extensions import db
+from mpro.orgs import roles as rl
 from mpro.orgs import services as svc
 from mpro.orgs.models import Membership, Team
 
@@ -38,14 +39,19 @@ class OrgPatch(Schema):
 class InviteIn(Schema):
     email = String(required=True, validate=Length(3, 320))
     name = String(load_default="")
-    role = String(required=True, validate=OneOf(list(ROLES)))
+    role = String(required=True, validate=Length(1, 60))  # built-in key or "custom:<role id>"
     job_title = String(load_default="")
 
 
 class MemberPatch(Schema):
     name = String(validate=Length(1, 200))
-    role = String(validate=OneOf(list(ROLES)))
+    role = String(validate=Length(1, 60))
     job_title = String(validate=Length(0, 120))
+
+
+class TransferIn(Schema):
+    user_id = String(required=True)
+    stay_owner = Boolean(load_default=False)
 
 
 class TeamIn(Schema):
@@ -77,10 +83,99 @@ def patch_org(body: dict[str, Any]) -> dict[str, Any]:
     return svc.org_dict(guard(svc.update_org, g.org, body))
 
 
+@bp.post("/org/transfer-ownership")
+@require("org.manage")
+@bp.input(TransferIn, arg_name="body")
+def transfer_ownership(body: dict[str, Any]) -> dict[str, Any]:
+    """Make someone an Owner. The current Owner becomes an Administrator unless `stay_owner` is true."""
+    m = guard(svc.transfer_ownership, g.org, g.membership, _member(body["user_id"]), bool(body["stay_owner"]))
+    return svc.member_dict(m)
+
+
+# ---- roles (MP-106) --------------------------------------------------------------------------
 @bp.get("/roles")
 @require("org.view")
 def roles() -> list[dict[str, Any]]:
-    return [{"id": k, **v} for k, v in ROLES.items()]
+    """Built-in roles and the organization's own roles, with how many people have each."""
+    return rl.list_roles(
+        g.org, include_deleted=request.args.get("include_deleted") == "1" and can(g.membership, "roles.manage")
+    )
+
+
+@bp.get("/roles/catalogue")
+@require("users.view")
+def role_catalogue() -> dict[str, Any]:
+    """Every permission with its area and plain-language name, and what each built-in role has."""
+    return rl.catalogue()
+
+
+@bp.get("/roles/view-as")
+@require("users.view")
+def view_as() -> dict[str, Any]:
+    """What a role (`?role=technician` or `custom:<id>`) or a person (`?user=<id>`) can see and do."""
+    if request.args.get("user"):
+        m = _member(str(request.args["user"]))
+        return {**rl.view_as(g.org, m.role, m.custom_role), "person": m.user.name}
+    role, custom = guard(rl.resolve_role, g.org.id, request.args.get("role") or "")
+    return rl.view_as(g.org, role, custom)
+
+
+@bp.post("/roles")
+@require("roles.manage")
+def create_role() -> tuple[dict[str, Any], int]:
+    """{name, description, base, permissions?, settings: {wo_visibility}}"""
+    r = guard(rl.create_role, g.org, g.membership, request.get_json(silent=True) or {})
+    return rl.role_dict(r), 201
+
+
+@bp.get("/roles/<rid>")
+@require("users.view")
+def get_role(rid: str) -> dict[str, Any]:
+    r = guard(rl.get_role, g.org.id, rid, True)
+    return rl.role_dict(r, rl._member_counts(g.org.id)[1].get(r.id, 0))
+
+
+@bp.patch("/roles/<rid>")
+@require("roles.manage")
+def patch_role(rid: str) -> dict[str, Any]:
+    r = guard(
+        rl.update_role, g.org, g.membership, guard(rl.get_role, g.org.id, rid), request.get_json(silent=True) or {}
+    )
+    return rl.role_dict(r, rl._member_counts(g.org.id)[1].get(r.id, 0))
+
+
+@bp.post("/roles/<rid>/duplicate")
+@require("roles.manage")
+def duplicate_role(rid: str) -> tuple[dict[str, Any], int]:
+    return rl.role_dict(guard(rl.duplicate_role, g.org, g.membership, guard(rl.get_role, g.org.id, rid))), 201
+
+
+@bp.delete("/roles/<rid>")
+@require("roles.manage")
+def delete_role(rid: str) -> dict[str, Any]:
+    moved = guard(rl.delete_role, g.org, g.membership, guard(rl.get_role, g.org.id, rid))
+    return {"moved": moved}
+
+
+@bp.post("/roles/<rid>/restore")
+@require("roles.manage")
+def restore_role(rid: str) -> dict[str, Any]:
+    r = guard(rl.restore_role, g.org, g.membership, guard(rl.get_role, g.org.id, rid, True))
+    return rl.role_dict(r)
+
+
+# ---- profile photos (MP-116) -----------------------------------------------------------------
+@bp.get("/users/<user_id>/avatar")
+@require("org.view")
+def avatar(user_id: str) -> Response:
+    """A person's profile photo, for anyone in an organization with them."""
+    m = _member(user_id)
+    u = db.session.get(User, m.user_id)
+    if u is None or not u.avatar:
+        abort(404)
+    resp = Response(u.avatar, mimetype="image/webp")
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
 
 
 # ---- people ----------------------------------------------------------------------------------
@@ -111,6 +206,10 @@ def list_users() -> dict[str, Any]:
         )
     if role in ROLES:
         query = query.where(Membership.role == role)
+    elif role and role.startswith("custom:"):
+        query = query.where(
+            Membership.role == "custom", Membership.role_id == guard(rl.get_role, g.org.id, role, True).id
+        )
     ms = db.session.scalars(query.order_by(func.lower(User.name))).all()
     tm = svc.teams_of(g.org.id, [m.user_id for m in ms])
     return {"items": [svc.member_dict(m, tm.get(m.user_id)) for m in ms], "total": len(ms)}
@@ -138,8 +237,14 @@ def patch_user(user_id: str, body: dict[str, Any]) -> dict[str, Any]:
         abort(401)
     m = _member(user_id)
     is_self = m.user_id == g.user.id
-    if not can(g.membership, "users.manage") and not (is_self and set(body) <= {"name"}):
+    own_fields = {"name"}
+    if can(g.membership, "profile.job_title") or g.membership.role in ("owner", "admin"):
+        own_fields.add("job_title")  # MP-111: administrators edit their own job title
+    if not can(g.membership, "users.manage") and not (is_self and set(body) <= own_fields):
         abort(403, message="You don't have permission to do that.")
+    if is_self and set(body) <= own_fields:  # editing your own profile never needs users.manage rules
+        m = guard(svc.update_member, g.org, g.membership, m, body, self_edit=True)
+        return svc.member_dict(m, svc.teams_of(g.org.id, [m.user_id]).get(m.user_id))
     m = guard(svc.update_member, g.org, g.membership, m, body)
     return svc.member_dict(m, svc.teams_of(g.org.id, [m.user_id]).get(m.user_id))
 
@@ -222,7 +327,7 @@ def _search_people(q: str, limit: int) -> list[dict[str, Any]]:
         {
             "id": str(m.user_id),
             "title": m.user.name,
-            "subtitle": f"{ROLES[m.role]['label']} · {m.user.email}",
+            "subtitle": f"{rl.role_label(m)} · {m.user.email}",
             "url": f"/people/users/{m.user_id}",
             "initials": m.user.initials,
         }

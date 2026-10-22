@@ -9,12 +9,14 @@ import { useToast } from "../components/Toast";
 import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select, Toggle } from "../components/ui";
 import { AssigneePicker, CategoryPicker } from "../components/pickers";
 import { AssetPicker, LocationPicker } from "../components/assetPickers";
+import { ProcedureSettings } from "./procedures/Settings";
+import { ProcedurePicker } from "./procedures/Picker";
 
 const REQUIRABLE: [string, string][] = [["description", "Description"], ["due_date", "Due date"], ["priority", "Priority"], ["categories", "Categories"],
   ["assignees", "Assignees"], ["attachment", "A picture or file"], ["estimated_time", "Estimated time"]];
 const RULES = [["none", "Don't ask"], ["optional", "Optional"], ["mandatory", "Required"]] as const;
 const FIELD_TYPES: [CustomFieldDef["type"], string][] = [["text", "Single line text"], ["textarea", "Multi-line text"], ["number", "Number"], ["select", "Single select"],
-  ["date", "Date"], ["datetime", "Date and time"], ["checkbox", "Checkbox"], ["link", "Link (URL or phone)"]];
+  ["date", "Date"], ["datetime", "Date and time"], ["checkbox", "Checkbox"], ["link", "Link (URL or phone)"], ["currency", "Currency"]];
 
 function useSettings() { return useQuery({ queryKey: ["wo-settings"], queryFn: () => api<WOSettings>("/work-orders/settings") }); }
 
@@ -49,6 +51,7 @@ export function WorkOrderSettings() {
           </div>
         </div>
       </section>
+      <ProcedureSettings />
       <section className="card">
         <div className="card-head"><h2>Required fields</h2><span className="small muted">Must be filled in to create or save a work order</span></div>
         <div className="card-body check-grid">{REQUIRABLE.map(([k, l]) => <Checkbox key={k} label={l} disabled={ro} checked={v.required_fields.includes(k)}
@@ -197,11 +200,12 @@ function TemplateModal({ tpl, onClose }: { tpl?: Template; onClose: () => void }
   const [f, setF] = useState({ name: tpl?.name ?? "", description: tpl?.description ?? "", title: (d.title as string) ?? "", body: (d.description as string) ?? "",
     priority: (d.priority as string) ?? "none", work_type: (d.work_type as string) ?? "reactive", estimated_minutes: (d.estimated_minutes as number | null) ?? null,
     assignees: (d.assignees as string[]) ?? [], categories: (d.categories as string[]) ?? [], asset_id: (d.asset_id as string | null) ?? null,
-    location_id: (d.location_id as string | null) ?? null, due_in_days: (d.due_in_days as number | null) ?? null, pinned: tpl?.pinned ?? false });
+    location_id: (d.location_id as string | null) ?? null, due_in_days: (d.due_in_days as number | null) ?? null, pinned: tpl?.pinned ?? false,
+    procedures: (d.procedures as string[]) ?? [] });
   const [err, setErr] = useState("");
   const payload = { name: f.name, description: f.description, pinned: f.pinned, data: { title: f.title, description: f.body, priority: f.priority, work_type: f.work_type,
     estimated_minutes: f.estimated_minutes, assignees: f.assignees, categories: f.categories,
-    ...(f.asset_id ? { asset_id: f.asset_id } : {}), ...(f.location_id ? { location_id: f.location_id } : {}), ...(f.due_in_days !== null ? { due_in_days: f.due_in_days } : {}) } };
+    ...(f.asset_id ? { asset_id: f.asset_id } : {}), ...(f.location_id ? { location_id: f.location_id } : {}), ...(f.due_in_days !== null ? { due_in_days: f.due_in_days } : {}), ...(f.procedures.length ? { procedures: f.procedures } : {}) } };
   const m = useMutation({ mutationFn: () => tpl ? api(`/work-order-templates/${tpl.id}`, { method: "PATCH", body: payload }) : api("/work-order-templates", { method: "POST", body: payload }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["wo-templates"] }); onClose(); }, onError: (e) => setErr((e as ApiError).message) });
   return (
@@ -218,6 +222,7 @@ function TemplateModal({ tpl, onClose }: { tpl?: Template; onClose: () => void }
         <Field label="Assign to" className="full">{(id) => <AssigneePicker id={id} options={opts.data} value={f.assignees} onChange={(v) => setF({ ...f, assignees: v })} />}</Field>
         {can("assets.view") && <Field label="Asset">{(id) => <AssetPicker id={id} value={f.asset_id ? [f.asset_id] : []} onChange={(v) => setF({ ...f, asset_id: v[0] ?? null })} />}</Field>}
         {can("locations.view") && <Field label="Location">{(id) => <LocationPicker id={id} value={f.location_id} onChange={(v) => setF({ ...f, location_id: v })} />}</Field>}
+        {can("procedures.view") && <Field label="Procedures" className="full">{(id) => <ProcedurePicker id={id} value={f.procedures} onChange={(v) => setF({ ...f, procedures: v })} />}</Field>}
         <Field label="Due" hint="Days after the work order is created (0 = same day). Leave empty for no due date.">{(id) => (
           <Input id={id} type="number" min={0} max={3650} value={f.due_in_days ?? ""} onChange={(e) => setF({ ...f, due_in_days: e.target.value === "" ? null : Number(e.target.value) })} />)}</Field>
         <div className="field" style={{ justifyContent: "flex-end" }}><Toggle checked={f.pinned} onChange={(v) => setF({ ...f, pinned: v })} label="Pin to the Create menu"

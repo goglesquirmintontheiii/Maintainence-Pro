@@ -14,7 +14,8 @@ export type Location = {
   path: Crumb[]; child_count: number; asset_count: number; teams: TeamRef[]; open_work_orders: number;
 };
 export type FloorPlanPin = { id: string; x: number; y: number; label: string; asset_id: string | null; asset_status: AssetStatus | null };
-export type FloorPlan = { id: string; name: string; file_id: string; url: string; pins: FloorPlanPin[] };
+export type FloorPlan = { id: string; name: string; file_id: string; url: string; pins: FloorPlanPin[];
+  annotations?: { shapes: Record<string, unknown>[] } | null; annotations_version?: number };
 export type LocationDetail = Location & { files: FileItem[]; floor_plans: FloorPlan[]; maps_url: string | null };
 
 export type Asset = {
@@ -34,7 +35,7 @@ export type AssetDetail = Asset & {
   description: string; teams: TeamRef[]; status_changed_by: { id: string; name: string } | null; files: FileItem[];
   lifecycle: { commissioned_on: string | null; expected_life_years: number | null; replacement_year: number | null; disposed_on: string | null;
     disposal_method: string; disposal_notes: string; age_years: number };
-  warranty: { start: string | null; end: string | null; provider: string; terms: string; days_left: number | null };
+  warranty: { start: string | null; end: string | null; provider: string; terms: string; days_left: number | null; files?: FileItem[] };
   downtime_30d: Downtime; custom_fields: CustomFieldDef[]; codes: QrCodeItem[];
   financials?: { purchase_price_cents: number | null; purchase_date: string | null; useful_life_years: number | null; salvage_value_cents: number | null;
     depreciation_start: string | null; replacement_cost_cents: number | null; disposal_value_cents: number | null;
@@ -65,7 +66,7 @@ export type Meter = {
 export type MeterTrigger = { id: string; meter_id: string; name: string; kind: "threshold" | "every"; comparator: "gt" | "lt"; threshold: number | null;
   every_units: number | null; next_at: number | null; work_order: Record<string, unknown>; active: boolean; fired_count: number; last_fired_at: string | null;
   last_note: string };
-export type MeterDetail = Meter & { monitoring_point: { id: string; name: string } | null; triggers: MeterTrigger[] };
+export type MeterDetail = Meter & { monitoring_point: { id: string; name: string } | null; automations?: { id: string; name: string; active: boolean }[] };
 export type Reading = { id: string; value: number; recorded_at: string; source: string; recorded_by: string | null; recorded_by_id: string | null;
   work_order_id: string | null; file_id: string | null; file_url: string | null; note: string; level: "" | "warning" | "alarm"; anomaly: boolean };
 export type ChartData = { bucketed: boolean; unit: string; points: { at: string; value: number; min?: number; max?: number; count?: number }[];

@@ -11,6 +11,7 @@ import { MultiPicker } from "../../components/pickers";
 import { AssetPicker, ClearableDate, LocationPicker } from "../../components/assetPickers";
 import { CustomInput } from "../workorders/Form";
 import { centsToInput, Collapsible, inputToCents, PhotoPicker, TeamsPicker } from "./shared";
+import { WarrantyFiles } from "./WarrantyFiles";
 
 type F = Record<string, string> & { name: string };
 const TEXT = ["name", "description", "manufacturer", "model", "serial_number", "barcode", "criticality", "warranty_provider", "warranty_terms", "disposal_method", "disposal_notes"];
@@ -45,6 +46,7 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
   const [teams, setTeams] = useState<string[]>(edit?.teams.map((t) => t.id) ?? []);
   const [custom, setCustom] = useState<Record<string, unknown>>(edit?.custom ?? {});
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [warrantyFiles, setWarrantyFiles] = useState<FileItem[]>([]);
   const [err, setErr] = useState("");
   const [plate, setPlate] = useState(false);
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -71,7 +73,7 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
     if (fin) for (const k of MONEY) b[k] = inputToCents(f[k]);
     if (!fin) { delete b.purchase_date; delete b.useful_life_years; delete b.depreciation_start; }
     Object.assign(b, { parent_id: parent[0] ?? null, location_id: location, types, teams, custom });
-    if (!edit) b.file_ids = files.map((x) => x.id); else b.version = edit.version;
+    if (!edit) { b.file_ids = files.map((x) => x.id); b.warranty_file_ids = warrantyFiles.map((x) => x.id); } else b.version = edit.version;
     return b;
   };
   const save = useMutation({
@@ -126,10 +128,12 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
               {(opts.data?.disposal_methods ?? []).map((m) => <option key={m} value={m}>{m[0].toUpperCase() + m.slice(1)}</option>)}</Select>}</Field>
             <Field label="Disposal notes" className="full">{(id) => <textarea id={id} className="textarea" rows={2} value={f.disposal_notes} onChange={(e) => set("disposal_notes", e.target.value)} />}</Field>
           </Collapsible>
-          <Collapsible title="Warranty" defaultOpen={!!f.warranty_end}>
+          <Collapsible title="Warranty" defaultOpen={!!f.warranty_end || !!edit?.warranty.files?.length}>
             {date("warranty_start", "Warranty start")}{date("warranty_end", "Warranty end")}
             <Field label="Provider" className="full">{(id) => <Input id={id} value={f.warranty_provider} maxLength={200} onChange={(e) => set("warranty_provider", e.target.value)} />}</Field>
             <Field label="Terms" className="full">{(id) => <textarea id={id} className="textarea" rows={2} value={f.warranty_terms} onChange={(e) => set("warranty_terms", e.target.value)} />}</Field>
+            <div className="full"><span className="small" style={{ fontWeight: 600 }}>Warranty documents</span>
+              {edit ? <WarrantyFiles assetId={edit.id} files={edit.warranty.files ?? []} /> : <WarrantyFiles files={warrantyFiles} setFiles={setWarrantyFiles} />}</div>
           </Collapsible>
           {fin && <Collapsible title="Financials" hint="Straight-line depreciation">
             {money("purchase_price_cents", "Purchase price")}{date("purchase_date", "Purchase date")}

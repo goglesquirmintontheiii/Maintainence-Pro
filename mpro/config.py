@@ -74,8 +74,8 @@ def load_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         "MAIL_FROM": os.environ.get("MPRO_MAIL_FROM", "Maintenance Pro <no-reply@localhost>"),
         "LOGIN_MAX_FAILURES": int(os.environ.get("MPRO_LOGIN_MAX_FAILURES", "10")),
         "LOGIN_WINDOW_MINUTES": 15,
-        "MPRO_MAX_UPLOAD_MB": int(os.environ.get("MPRO_MAX_UPLOAD_MB", "50")),
-        "MAX_CONTENT_LENGTH": (int(os.environ.get("MPRO_MAX_UPLOAD_MB", "50")) + 2) * 1024 * 1024,
+        "MPRO_MAX_UPLOAD_MB": int(os.environ.get("MPRO_MAX_UPLOAD_MB", "150")),
+        "MAX_CONTENT_LENGTH": (int(os.environ.get("MPRO_MAX_UPLOAD_MB", "150")) + 2) * 1024 * 1024,
         # APIFlask / OpenAPI
         "TITLE": "Maintenance Pro API",
         "VALIDATION_ERROR_STATUS_CODE": 422,

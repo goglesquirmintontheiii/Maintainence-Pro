@@ -124,7 +124,7 @@ export function AppShell() {
           <Dropdown trigger={(_, toggle) => <Button variant="ghost" icon aria-label="Notifications" onClick={toggle}><Bell size={18} /></Button>}>
             {() => <div style={{ padding: 16, width: 280 }} className="small muted">Notifications arrive in 0.6.0. Until then, unread work orders show a blue dot in the Work Orders list.</div>}
           </Dropdown>
-          <Dropdown trigger={(_, toggle) => <button className="btn ghost icon" onClick={toggle} aria-label="Account menu" style={{ width: 40 }}><Avatar name={user.name} initials={user.initials} size="sm" /></button>}>
+          <Dropdown trigger={(_, toggle) => <button className="btn ghost icon" onClick={toggle} aria-label="Account menu" style={{ width: 40 }}><Avatar name={user.name} initials={user.initials} src={user.avatar_url} size="sm" /></button>}>
             {(close) => <>
               <div style={{ padding: "8px 10px" }}><div style={{ fontWeight: 600 }}>{user.name}</div><div className="small muted">{user.email}</div>
                 <div className="small faint">{session.role_label} · {session.org?.name}</div></div>

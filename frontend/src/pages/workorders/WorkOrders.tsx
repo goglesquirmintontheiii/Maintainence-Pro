@@ -13,6 +13,9 @@ import { WorkOrderDetail } from "./Detail";
 import { WorkOrderForm } from "./Form";
 import { BoardView, CalendarView, TableView, WorkloadView } from "./Views";
 import { BulkBar } from "./Bulk";
+import "../../styles/viewer.css";
+import { SplitDivider, useSplitWidth } from "../../components/SplitDivider";
+import { QuickTemplates } from "../../components/QuickTemplates";
 
 export type ViewKind = "todo" | "table" | "calendar" | "workload" | "board";
 const VIEWS: { id: ViewKind; label: string; icon: typeof LayoutList }[] = [
@@ -87,7 +90,7 @@ export function WorkOrdersPage() {
     <div className={"wo-toolbar" + (compact ? " compact" : "")}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h1>Work Orders</h1>
-        <div className="row">{viewSeg}{more}{newBtn}</div>
+        <div className="row">{viewSeg}{more}<QuickTemplates compact={compact} />{newBtn}</div>
       </div>
       <div className="row wrap">
         <div className="search-in" style={{ minWidth: 220, flex: "0 1 300px" }}><Search size={15} className="faint" />
@@ -159,9 +162,11 @@ function ToDoView({ id, header, query }: { id?: string; header: React.ReactNode;
     return () => window.removeEventListener("keydown", onKey);
   }, [items, id, nav]);
   useEffect(() => { listRef.current?.querySelector(".list-row.active")?.scrollIntoView({ block: "nearest" }); }, [id]);
+  const split = useSplitWidth("wo.todo.width", { min: 340, max: 960 });
   return (
-    <div className={"split wo-split" + (id ? " has-detail" : "")}>
+    <div className={"split wo-split" + (id ? " has-detail" : "")} style={split.width ? ({ "--wo-list-w": `${split.width}px` } as React.CSSProperties) : undefined}>
       <div className="split-list">
+        <SplitDivider width={split.width} onChange={split.set} min={split.min} max={split.max} label="Resize work order list" />
         <div className="list-tools wo-list-tools">
           {header}
           <div className="row" style={{ justifyContent: "space-between" }}>
@@ -205,6 +210,7 @@ export function WORow({ w, active, tz, selecting, selected, onSelect, onClick }:
   const inner = (
     <>
       {selecting && <span onClick={(e) => e.stopPropagation()}><Checkbox checked={!!selected} onChange={(c) => onSelect?.(c)} label={<span className="sr-only">Select #{w.number}</span>} /></span>}
+      {w.cover_url && <img className="wo-cover" src={w.cover_url} alt="" loading="lazy" decoding="async" />}
       <div className="grow wo-row-main">
         <div className="row" style={{ gap: 6 }}>{w.unread && <span className="unread-dot" aria-label="Unread" />}<span className="t">{w.title}</span></div>
         <div className="s row" style={{ gap: 8 }}><span className="mono">#{w.number}</span>

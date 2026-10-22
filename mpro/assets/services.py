@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -742,6 +743,7 @@ def create_asset(org: Organization, m: Membership, data: dict[str, Any], commit:
     )
     _set_teams(org.id, "asset", a.id, data.get("teams") or [])
     _attach_files(org.id, m, "asset", a.id, data.get("file_ids") or [], "photo")
+    _attach_files(org.id, m, "asset", a.id, data.get("warranty_file_ids") or [], "warranty")  # MP-114
     emit("asset.created", entity_type="asset", entity_id=a.id, entity_label=a.name, summary=f"Created asset {a.name}")
     if commit:
         db.session.commit()
@@ -814,6 +816,10 @@ def update_asset(
     return a
 
 
+# (org, member, asset, from status, to status) — registered by mpro.automations (0.4.0)
+ASSET_STATUS_HOOKS: list[Callable[[Organization, Membership, Asset, str, str], None]] = []
+
+
 def set_status(
     org: Organization,
     m: Membership,
@@ -884,6 +890,8 @@ def set_status(
             changes={"status": (prev, status)},
             data={"reason": reason, "downtime_type": downtime_type, "note": note, "work_order_id": work_order_id},
         )
+        for hook in ASSET_STATUS_HOOKS:  # automations (0.4.0)
+            hook(org, m, t, prev, status)
     if commit:
         db.session.commit()
     return a

@@ -98,7 +98,7 @@ export function MetersPage() {
             </div>)}
         </div>
         <div className="split-detail">
-          {id ? <MeterDetail id={id} key={id} /> : <EmptyState icon={<Gauge size={28} />} title="Select a meter">Pick one from the list to see its readings, chart and triggers.</EmptyState>}
+          {id ? <MeterDetail id={id} key={id} /> : <EmptyState icon={<Gauge size={28} />} title="Select a meter">Pick one from the list to see its readings, chart and automations.</EmptyState>}
         </div>
       </div>
       {creating && <MeterForm onClose={() => setCreating(false)} onSaved={(m) => { setCreating(false); nav(`/meters/${m.id}`); }} />}
@@ -106,7 +106,7 @@ export function MetersPage() {
       {bulk === "edit" && <BulkMeterDialog ids={sel} onClose={() => setBulk(null)} onDone={() => { setBulk(null); setSel([]); }} />}
       {bulk === "delete" && <Modal title={`Delete ${sel.length} meter${sel.length === 1 ? "" : "s"}?`} onClose={() => setBulk(null)}
         footer={<><Button onClick={() => setBulk(null)}>Cancel</Button><Button variant="danger" disabled={del.isPending} onClick={() => del.mutate()}>Delete</Button></>}>
-        <p>Their triggers stop too. Readings are kept.</p></Modal>}
+        <p>Automations stop watching them. Readings are kept.</p></Modal>}
     </div>
   );
 }

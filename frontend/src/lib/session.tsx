@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, setCsrf, setUnauthorizedHandler, type Session } from "./api";
+import { api, setCsrf, setMaxUpload, setUnauthorizedHandler, type Session } from "./api";
 
 type Ctx = { session: Session; refresh: () => Promise<void>; set: (s: Session) => void; can: (perm: string) => boolean };
 const SessionCtx = createContext<Ctx | null>(null);
@@ -17,7 +17,7 @@ export function SessionProvider({ children, fallback }: { children: ReactNode; f
   const q = useQuery({ queryKey: ["session"], queryFn: () => api<Session>("/auth/session"), staleTime: 60_000, retry: 1 });
   const set = useCallback((s: Session) => { setCsrf(s.csrf); qc.setQueryData(["session"], s); }, [qc]);
   const refresh = useCallback(async () => { set(await api<Session>("/auth/session")); }, [set]);
-  useEffect(() => { if (q.data) { setCsrf(q.data.csrf); applyTheme(q.data.user?.theme); } }, [q.data]);
+  useEffect(() => { if (q.data) { setCsrf(q.data.csrf); applyTheme(q.data.user?.theme); setMaxUpload(q.data.max_upload_mb); } }, [q.data]);
   useEffect(() => { setUnauthorizedHandler(() => { qc.clear(); void refresh(); }); }, [qc, refresh]);
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");

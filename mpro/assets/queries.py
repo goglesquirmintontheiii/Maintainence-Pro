@@ -237,6 +237,8 @@ def location_detail(m: Membership, loc: Location) -> dict[str, Any]:
                     "file_id": str(p.file_id),
                     "url": f"/api/v1/files/{p.file_id}",
                     "pins": pins_by_plan.get(p.id, []),
+                    "annotations": p.annotations or {"shapes": []},
+                    "annotations_version": p.annotations_version or 0,
                 }
                 for p in plans
             ],
@@ -447,6 +449,8 @@ def asset_detail(m: Membership, a: Asset) -> dict[str, Any]:
                 "provider": a.warranty_provider,
                 "terms": a.warranty_terms,
                 "days_left": (a.warranty_end - now.date()).days if a.warranty_end else None,
+                # MP-114: warranty certificates, terms, receipts
+                "files": [file_dict(link.file, link.role, link.id) for link in files if link.role == "warranty"],
             },
             "downtime_30d": downtime(a.id, now - timedelta(days=30), now),
             "custom_fields": [
@@ -634,6 +638,8 @@ def assets_csv(m: Membership, params: dict[str, Any]) -> bytes:
         s = "" if v is None else str(v)
         if isinstance(v, int | float) and not isinstance(v, bool):
             return s  # numbers (including negatives) are safe
+        if isinstance(v, str) and len(v) < 20 and v.lstrip("-").replace(".", "", 1).isdigit():
+            return s  # currency amounts like "-12.50" are numbers too
         return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s  # CSV injection guard
 
     def dt(v: date | None) -> str:

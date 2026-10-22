@@ -25,3 +25,10 @@ export function show(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   return String(v);
 }
+
+/** A currency custom field's stored amount ("1250.00") shown in the organization's currency (MP-108). */
+export function currency(amount: unknown, code = "USD"): string {
+  const n = Number(amount);
+  if (amount === null || amount === undefined || amount === "" || Number.isNaN(n)) return "—";
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(n); } catch { return n.toFixed(2); }
+}
