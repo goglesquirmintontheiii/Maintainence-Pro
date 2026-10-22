@@ -12,6 +12,7 @@ import base64
 import binascii
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -605,6 +606,15 @@ def _set_parent(wo: WorkOrder, parent_id: Any, m: Membership | None = None) -> N
     wo.parent_id = parent.id
 
 
+# Extension points for other modules (0.4.0). Hooks run inside the status change's transaction.
+StatusHook = Callable[[Organization, Membership, WorkOrder, str, str], None]  # (org, member, wo, from, to)
+CompletionCheck = Callable[[Organization, Membership, WorkOrder], str | None]  # message blocks Done
+CreateHook = Callable[[Organization, Membership, WorkOrder, dict[str, Any]], None]  # after a WO is created
+STATUS_HOOKS: list[StatusHook] = []
+COMPLETION_CHECKS: list[CompletionCheck] = []
+CREATE_HOOKS: list[CreateHook] = []
+
+
 ASSET_TASK_STATUSES = ("open", "in_progress", "on_hold", "done")
 
 
@@ -817,6 +827,8 @@ def create_work_order(
     if data.get("asset_tasks"):
         _set_asset_tasks(wo, data["asset_tasks"], m)
     _asset_status_from_wo(org, m, wo, data.get("asset_status"))
+    for create_hook in CREATE_HOOKS:  # procedures from templates, sub-work order inheritance, … (0.4.0)
+        create_hook(org, m, wo, data)
     touch(wo, m.user_id)
     emit(
         "wo.created",
@@ -999,6 +1011,10 @@ def set_status(
         raise RuleError(f"{sub_status!r} isn't a sub-status of {STATUS_LABELS[status]}.", 422)
     from_status = wo.status
     if status == "done" and from_status != "done":
+        for check in COMPLETION_CHECKS:  # e.g. procedures with unanswered required fields (0.4.0)
+            problem = check(org, m, wo)
+            if problem:
+                raise RuleError(problem, 422)
         _complete(org, m, wo, s, summary, signature, signed_by)
     if status == "canceled":
         wo.cancel_reason = comment
@@ -1036,6 +1052,9 @@ def set_status(
         changes={"status": (from_status, status)},
         data={"comment": comment, "sub_status": sub_status},
     )  # fmt: skip
+    if from_status != status:
+        for hook in STATUS_HOOKS:  # PM occurrences, automations, sub-work orders (0.4.0)
+            hook(org, m, wo, from_status, status)
     if commit:
         db.session.commit()
     return wo
