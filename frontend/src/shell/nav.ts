@@ -1,6 +1,6 @@
 import {
   Activity, BarChart3, Download, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
-  MapPin, MessageSquare, Package, Settings, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
+  MapPin, MessageSquare, Package, QrCode, ScanLine, Settings, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
 } from "lucide-react";
 
 export type NavItem = { id: string; label: string; path: string; icon: LucideIcon; group: string; phase?: string; blurb?: string; perm?: string; keywords?: string };
@@ -22,14 +22,14 @@ export const NAV: NavItem[] = [
     blurb: "Drag-and-drop dashboards and a TV mode for the shop floor." },
   { id: "reporting", label: "Reporting", path: "/reporting", icon: BarChart3, group: "Optimize", phase: "0.7.0",
     blurb: "MTTR, MTBF, PM compliance, downtime, costs and every export MaintainX offers." },
-  { id: "meters", label: "Meters", path: "/meters", icon: Gauge, group: "Optimize", phase: "0.3.0",
-    blurb: "Hours, miles, cycles and sensor readings that can trigger work automatically." },
+  { id: "meters", label: "Meters", path: "/meters", icon: Gauge, group: "Optimize", perm: "meters.view",
+    blurb: "Hours, miles, cycles and sensor readings that can trigger work automatically.", keywords: "readings sensors thresholds triggers gauges" },
   { id: "automations", label: "Automations", path: "/automations", icon: Workflow, group: "Optimize", phase: "0.4.0",
     blurb: "Rules that create or update work when something happens." },
-  { id: "assets", label: "Assets", path: "/assets", icon: Boxes, group: "Manage", phase: "0.3.0",
-    blurb: "Equipment hierarchy, downtime, QR codes, documents and full work history." },
-  { id: "locations", label: "Locations", path: "/locations", icon: MapPin, group: "Manage", phase: "0.3.0",
-    blurb: "Sites, buildings and rooms in a hierarchy, with the assets and work in each." },
+  { id: "assets", label: "Assets", path: "/assets", icon: Boxes, group: "Manage", perm: "assets.view",
+    blurb: "Equipment hierarchy, downtime, QR codes, documents and full work history.", keywords: "equipment machines downtime warranty qr labels" },
+  { id: "locations", label: "Locations", path: "/locations", icon: MapPin, group: "Manage", perm: "locations.view",
+    blurb: "Sites, buildings and rooms in a hierarchy, with the assets and work in each.", keywords: "sites buildings rooms floor plans" },
   { id: "parts", label: "Parts & Inventory", path: "/parts", icon: Package, group: "Manage", phase: "0.5.0",
     blurb: "Stock per location, minimum quantities, supplier product cards and reordering." },
   { id: "purchase-orders", label: "Purchase Orders", path: "/purchase-orders", icon: ShoppingCart, group: "Manage", phase: "0.5.0",
@@ -40,12 +40,15 @@ export const NAV: NavItem[] = [
     blurb: "Organize work orders by type: Electrical, Safety, Inspection and more.", keywords: "labels tags" },
   { id: "people", label: "Teams & Users", path: "/people", icon: Users, group: "Manage", perm: "teams.view", keywords: "people users members roles invite" },
   { id: "settings", label: "Settings", path: "/settings", icon: Settings, group: "Manage", keywords: "organization audit jobs email outbox work order settings custom fields templates" },
+  { id: "scan", label: "Scan a code", path: "/scan", icon: ScanLine, group: "hidden", perm: "org.view", keywords: "qr barcode scanner camera label" },
   { id: "downloads", label: "Download Center", path: "/downloads", icon: Download, group: "hidden", perm: "exports.use", keywords: "exports csv pdf" },
 ];
 
 export const SETTINGS_NAV = [
   { path: "/settings/organization", label: "Organization", icon: Building2, perm: "org.view" },
   { path: "/settings/work-orders", label: "Work orders", icon: ClipboardList, perm: "wo.view" },
+  { path: "/settings/assets", label: "Assets and locations", icon: Boxes, perm: "assets.view" },
+  { path: "/settings/qr-codes", label: "QR codes and labels", icon: QrCode, perm: "qr.manage" },
   { path: "/settings/audit-log", label: "Audit log", icon: Activity, perm: "audit.view" },
   { path: "/settings/jobs", label: "Background jobs", icon: Workflow, perm: "jobs.view" },
   { path: "/settings/email", label: "Email outbox", icon: Inbox, perm: "mail.view" },

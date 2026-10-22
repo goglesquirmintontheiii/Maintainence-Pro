@@ -94,4 +94,7 @@ def _seed_work(org: Organization) -> None:
 
     admin = db.session.scalars(select(User).where(User.email == DEMO_EMAIL)).first()
     if admin is not None:
+        from mpro.assets.demo import seed_assets
+
         seed_work_orders(org, admin)
+        seed_assets(org, admin)

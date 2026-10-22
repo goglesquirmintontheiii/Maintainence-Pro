@@ -29,6 +29,7 @@ from mpro.core.models import IdMixin, OrgScopedMixin, SoftDeleteMixin, Timestamp
 from mpro.extensions import db
 
 if TYPE_CHECKING:
+    from mpro.assets.models import Asset, Location
     from mpro.auth.models import User
     from mpro.orgs.models import Team
 
@@ -90,6 +91,11 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("work_orders.id"), nullable=True, index=True)
     template_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("assets.id"), nullable=True, index=True)
+    location_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("locations.id"), nullable=True, index=True)
+    # what created it automatically, e.g. ("meter_trigger", <id>); used to avoid duplicate open work orders
+    source_type: Mapped[str] = mapped_column(String(30), default="")
+    source_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # custom field id -> value
 
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
@@ -118,6 +124,23 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     created_by: Mapped[User | None] = relationship(foreign_keys=[created_by_id], lazy="joined")
     completed_by: Mapped[User | None] = relationship(foreign_keys=[completed_by_id], lazy="joined")
     approved_by: Mapped[User | None] = relationship(foreign_keys=[approved_by_id], lazy="joined")
+    asset: Mapped[Asset | None] = relationship(foreign_keys=[asset_id], lazy="joined")
+    location: Mapped[Location | None] = relationship(foreign_keys=[location_id], lazy="joined")
+
+
+class WorkOrderAssetTask(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """One asset in a work order's task list, with its own status and notes (MP-099)."""
+
+    __tablename__ = "work_order_asset_tasks"
+    __table_args__ = (UniqueConstraint("work_order_id", "asset_id", name="uq_wo_asset_tasks_wo_asset"),)
+
+    work_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("work_orders.id"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("assets.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="open")
+    note: Mapped[str] = mapped_column(Text, default="")
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    status_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class WorkOrderAssignee(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
@@ -230,6 +253,8 @@ class CustomField(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.M
     __tablename__ = "custom_fields"
 
     entity_type: Mapped[str] = mapped_column(String(40), default="work_order")
+    # for assets: only show on assets of this asset type (None = all assets)
+    scope_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     type: Mapped[str] = mapped_column(String(16))
     options: Mapped[list[str]] = mapped_column(JSON, default=list)  # for select
@@ -246,6 +271,9 @@ class Template(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mode
     description: Mapped[str] = mapped_column(String(500), default="")
     data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class SavedView(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

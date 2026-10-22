@@ -13,6 +13,7 @@ from sqlalchemy import Select, and_, case, func, not_, or_, select
 from mpro.auth.models import User
 from mpro.core.files import link_dict, links_for
 from mpro.core.models import iso, utcnow
+from mpro.core.permissions import can
 from mpro.core.search import like
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team
@@ -32,7 +33,7 @@ from mpro.workorders.models import (
     WorkOrderCategory,
     WorkOrderLink,
 )
-from mpro.workorders.services import can_see, custom_fields, team_ids_of, visibility_clause, wo_settings
+from mpro.workorders.services import asset_tasks, can_see, custom_fields, team_ids_of, visibility_clause, wo_settings
 
 FILTER_FIELDS = {
     "status": ("in", "not_in"),
@@ -52,6 +53,8 @@ FILTER_FIELDS = {
     "approval": ("in",),
     "parent": ("empty", "not_empty", "in"),
     "unread": ("is",),
+    "asset": ("in", "not_in", "within", "empty", "not_empty"),
+    "location": ("in", "not_in", "within", "empty", "not_empty"),
 }
 CUSTOM_OPS = ("in", "not_in", "empty", "not_empty", "contains", "not_contains", "between", "before", "after")
 SORTS = {
@@ -184,6 +187,23 @@ def _apply_filter(q: Select[Any], f: dict[str, Any], m: Membership) -> Select[An
             cond = WorkOrder.parent_id.is_not(None)
         else:
             cond = WorkOrder.parent_id.in_(_ids(vals))
+    elif field in ("asset", "location"):
+        from mpro.core.hierarchy import TreePath
+
+        col = WorkOrder.asset_id if field == "asset" else WorkOrder.location_id
+        ids = _ids(vals)
+        if op == "empty":
+            cond = col.is_(None)
+        elif op == "not_empty":
+            cond = col.is_not(None)
+        elif op == "within":  # the record and everything under it
+            cond = col.in_(
+                select(TreePath.descendant_id).where(
+                    TreePath.kind == field, TreePath.ancestor_id.in_(ids or [uuid.uuid4()])
+                )
+            )
+        else:
+            cond = col.in_(ids) if op == "in" else or_(col.is_(None), col.not_in(ids))
     elif field == "unread":
         read = select(ReadMark.entity_id).where(
             ReadMark.user_id == m.user_id, ReadMark.read_at >= WorkOrder.activity_at
@@ -385,6 +405,13 @@ def summary_dict(wo: WorkOrder, read_at: datetime | None = None, extra: dict[str
         "completed_at": iso(wo.completed_at),
         "approval_status": wo.approval_status,
         "custom": wo.custom or {},
+        "asset": {"id": str(wo.asset.id), "name": wo.asset.name, "status": wo.asset.status}
+        if wo.asset is not None and wo.asset.deleted_at is None
+        else None,
+        "location": {"id": str(wo.location.id), "name": wo.location.name}
+        if wo.location is not None and wo.location.deleted_at is None
+        else None,
+        "source_type": wo.source_type,
         "unread": read_at is None or read_at < wo.activity_at,
         "deleted": wo.deleted_at is not None,
         "version": wo.version,
@@ -498,6 +525,7 @@ def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
             "time_in_status": time_in_status(wo),
             "costs": costs_summary(m, wo),
             "sub_statuses": s["sub_statuses"],
+            "asset_tasks": asset_tasks(wo),
         }
     )
     return d
@@ -516,15 +544,23 @@ def _mini(wo: WorkOrder) -> dict[str, Any]:
 
 
 # ---- workload --------------------------------------------------------------------------------
-def workload(m: Membership, org: Organization, start: date, days: int, team_id: uuid.UUID | None) -> dict[str, Any]:
+def workload(
+    m: Membership,
+    org: Organization,
+    start: date,
+    days: int,
+    team_id: uuid.UUID | None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Scheduled hours per person per day (MaintainX Workload view). Work counts on its due date, using
     its estimated time. Team-only assignments show in their own row so they can be handed to a person."""
     days = max(1, min(days, 42))
     tz = ZoneInfo(org.timezone or "UTC")
     lo = datetime.combine(start, datetime.min.time(), tz).astimezone(UTC)
     hi = lo + timedelta(days=days)
+    # the search box and filter chips apply here too (0.3.0 review of the Workload view)
     q = (
-        base_query(m)
+        build_query(m, {"tab": "all", "q": (params or {}).get("q"), "filters": (params or {}).get("filters")})
         .where(WorkOrder.status.in_(ACTIVE_STATUSES), WorkOrder.due_at.is_not(None))
         .where(WorkOrder.due_at >= lo, WorkOrder.due_at < hi)
     )
@@ -588,6 +624,7 @@ def workload(m: Membership, org: Organization, start: date, days: int, team_id: 
         "days": [(start + timedelta(days=i)).isoformat() for i in range(days)],
         "capacity_minutes": wo_settings(org.id)["workday_minutes"],
         "people": people,
+        "totals": {u: sum(c["minutes"] for c in d.values()) for u, d in cells.items()},
         "cells": cells,
         "unassigned": list(team_rows.values()),
     }
@@ -650,4 +687,22 @@ def filter_options(m: Membership) -> dict[str, Any]:
             {"id": str(f.id), "name": f.name, "type": f.type, "options": f.options or [], "required": f.required}
             for f in custom_fields(m.org_id)
         ],
+        "assets": _tree_options(m, "asset") if can(m, "assets.view") else [],
+        "locations": _tree_options(m, "location") if can(m, "locations.view") else [],
     }
+
+
+def _tree_options(m: Membership, kind: str) -> list[dict[str, Any]]:
+    """Assets or locations for filter pickers, with their parent path (up to 2,000)."""
+    from mpro.assets.models import Asset, Location
+    from mpro.assets.queries import paths_for
+
+    model: Any = Asset if kind == "asset" else Location
+    rows = db.session.execute(
+        select(model.id, model.name)
+        .where(model.org_id == m.org_id, model.deleted_at.is_(None))
+        .order_by(func.lower(model.name))
+        .limit(2000)
+    ).all()
+    paths = paths_for(kind, model, [r[0] for r in rows])
+    return [{"id": str(i), "name": n, "path": " › ".join(p["name"] for p in paths.get(i, []))} for i, n in rows]

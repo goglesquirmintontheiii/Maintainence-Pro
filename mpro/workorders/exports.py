@@ -153,6 +153,8 @@ def render_pdf(m: Membership, org: Organization, wos: list[WorkOrder], options: 
                 ["Start", _fmt_dt(wo.start_at, tz)],
                 ["Work type", WORK_TYPE_LABELS[wo.work_type]],
                 ["Categories", ", ".join(c["name"] for c in d["categories"]) or "—"],
+                ["Asset", d["asset"]["name"] if d["asset"] else "—"],
+                ["Location", d["location"]["name"] if d["location"] else "—"],
                 ["Created", f"{_fmt_dt(wo.created_at, tz)} by {d['created_by']['name'] if d['created_by'] else '—'}"],
             ]
             if "estimated_time" in sec and wo.estimated_minutes:
@@ -185,6 +187,13 @@ def render_pdf(m: Membership, org: Organization, wos: list[WorkOrder], options: 
             story += [Paragraph("Completion summary", h2), p(wo.completion_summary)]
         if wo.cancel_reason:
             story += [Paragraph("Cancel reason", h2), p(wo.cancel_reason)]
+        if d.get("asset_tasks"):
+            rows = [["Asset", "Status", "Notes"]] + [
+                [p(x["asset"]["name"]), STATUS_LABELS[x["status"]], p(x["note"] or "—")] for x in d["asset_tasks"]
+            ]
+            t = Table(rows, colWidths=[2.4 * inch, 1.1 * inch, 3.2 * inch], repeatRows=1)
+            t.setStyle(rows_style)
+            story += [Paragraph("Asset tasks", h2), t]
         if "sub_work_orders" in sec and d["sub_work_orders"]:
             rows = [["#", "Title", "Status", "Due"]] + [
                 [str(s["number"]), p(s["title"]), STATUS_LABELS[s["status"]], s["due_at"][:10] if s["due_at"] else "—"]
@@ -332,6 +341,8 @@ CSV_COLUMNS = [
     ("Work type", lambda w, d: WORK_TYPE_LABELS[w.work_type]),
     ("Assigned to", lambda w, d: "; ".join(a["name"] for a in d["assignees"])),
     ("Categories", lambda w, d: "; ".join(c["name"] for c in d["categories"])),
+    ("Asset", lambda w, d: d["asset"]["name"] if d["asset"] else ""),
+    ("Location", lambda w, d: d["location"]["name"] if d["location"] else ""),
     ("Start date", lambda w, d: d["start_at"] or ""),
     ("Due date", lambda w, d: d["due_at"] or ""),
     ("Estimated minutes", lambda w, d: w.estimated_minutes or ""),

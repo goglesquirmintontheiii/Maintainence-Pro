@@ -27,7 +27,7 @@ class User(IdMixin, TimestampMixin, SoftDeleteMixin, db.Model):  # type: ignore[
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    theme: Mapped[str] = mapped_column(String(16), default="system")  # system | light | dark
+    theme: Mapped[str] = mapped_column(String(16), default="light")  # system | light | dark
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", lazy="selectin")
 

@@ -6,8 +6,9 @@ type Ctx = { session: Session; refresh: () => Promise<void>; set: (s: Session) =
 const SessionCtx = createContext<Ctx | null>(null);
 
 export function applyTheme(theme: string | undefined) {
-  const t = theme === "light" || theme === "dark" ? theme
-    : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Light is the default (0.3.0); "system" follows the device only when someone picks it.
+  const t = theme === "dark" ? "dark"
+    : theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   document.documentElement.dataset.theme = t;
 }
 

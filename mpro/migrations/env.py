@@ -103,6 +103,16 @@ def run_migrations_online():
 
     conf_args.setdefault("render_item", render_item)
 
+    def include_name(name, type_, parent_names):
+        # Monthly partitions of meter_readings are created by a job, not by migrations.
+        if type_ == "table" and name and name.startswith("meter_readings_"):
+            return False
+        if type_ == "index" and name and name.startswith("meter_readings_") and not name.startswith("meter_readings_meter"):
+            return False
+        return True
+
+    conf_args.setdefault("include_name", include_name)
+
     connectable = get_engine()
 
     with connectable.connect() as connection:

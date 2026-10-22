@@ -1,0 +1,50 @@
+/* Meters (0.3.0). Tokens only. */
+.meter-row { align-items: center; }
+.mrow-ic { width: 32px; height: 32px; border-radius: var(--r-md); display: grid; place-items: center; flex: none; background: var(--c-sunken); color: var(--c-text-2); }
+.mrow-ic.warning { background: var(--c-warning-soft); color: var(--c-warning); }
+.mrow-ic.alarm { background: var(--c-danger-soft); color: var(--c-danger); }
+.mrow-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.mrow-val { font-weight: var(--fw-semibold); }
+.mstat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); }
+.mstat-row .tile .v .unit { font-size: var(--fs-md); color: var(--c-text-2); font-weight: var(--fw-medium); }
+.mstat-row .tile .v.sm { font-size: var(--fs-lg); }
+.mstat-row .tile .v.warning { color: var(--c-warning); }
+.mstat-row .tile .v.danger { color: var(--c-danger); }
+.mlims { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--c-text-2); }
+.mread { display: flex; flex-direction: column; gap: var(--s-2); }
+.mread-main { display: flex; gap: var(--s-2); align-items: stretch; }
+.mread-value { position: relative; flex: 1; display: block; }
+.mread-value .input { font-size: var(--fs-lg); height: var(--tap); padding-right: 72px; font-variant-numeric: tabular-nums; }
+.mread-value .unit { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--c-text-2); font-size: var(--fs-sm); pointer-events: none; }
+.mread-main .btn { height: var(--tap); min-width: 96px; }
+.mread-more { display: grid; grid-template-columns: 220px minmax(0, 1fr) auto; gap: var(--s-2); align-items: center; }
+.mread-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: var(--r-sm); display: block; margin-top: 4px; }
+.chip .mread-thumb { width: 20px; height: 20px; margin: 0; }
+.mfield { border: 1px solid var(--c-border-soft); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); margin: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.mfield legend { font-weight: var(--fw-semibold); padding: 0 4px; }
+.mlimits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-2); }
+/* chart */
+.mchart { position: relative; display: flex; flex-direction: column; gap: var(--s-2); }
+.mchart svg { width: 100%; height: 240px; display: block; overflow: visible; }
+.mchart .grid { stroke: var(--c-border-soft); stroke-width: 1; }
+.mchart .axis { fill: var(--c-text-3); font-size: 11px; }
+.mchart .series { fill: none; stroke: var(--c-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.mchart .minmax { fill: var(--c-primary-soft); stroke: none; opacity: .9; }
+.mchart .pt { fill: var(--c-panel); stroke: var(--c-primary); stroke-width: 1.5; }
+.mchart .pt.hi { fill: var(--c-primary); }
+.mchart .cursor { stroke: var(--c-text-3); stroke-dasharray: 3 3; }
+.mchart .band-warn { fill: var(--c-warning-soft); opacity: .7; }
+.mchart .band-alarm { fill: var(--c-danger-soft); opacity: .7; }
+.mchart .lim-warn { stroke: var(--c-warning); stroke-dasharray: 5 4; stroke-width: 1; }
+.mchart .lim-alarm { stroke: var(--c-danger); stroke-dasharray: 5 4; stroke-width: 1; }
+.mchart-tip { position: absolute; top: 4px; transform: translateX(-50%); background: var(--c-panel); border: 1px solid var(--c-border); box-shadow: var(--shadow-2);
+  border-radius: var(--r-md); padding: 6px 10px; font-size: var(--fs-sm); display: flex; flex-direction: column; pointer-events: none; white-space: nowrap; z-index: 2; }
+.mchart-empty { position: absolute; top: 100px; left: 0; right: 0; text-align: center; }
+.mchart details summary { cursor: pointer; color: var(--c-text-2); }
+@media (max-width: 760px) {
+  .mstat-row { grid-template-columns: minmax(0, 1fr); }
+  .mread-more { grid-template-columns: minmax(0, 1fr) auto; }
+  .mread-more .clearable { grid-column: 1 / -1; }
+  .mlimits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mchart svg { height: 200px; }
+}

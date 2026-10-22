@@ -112,8 +112,8 @@ def test_create_team_and_see_it_in_audit_log(page: Any, server: str) -> None:
 
 def test_unbuilt_module_explains_itself(page: Any, server: str) -> None:
     _login(page, server)
-    page.goto(server + "/assets")
-    page.get_by_text("Arrives in MPro 0.3.0").wait_for()
+    page.goto(server + "/parts")
+    page.get_by_text("Arrives in MPro 0.5.0").wait_for()
 
 
 def test_create_comment_and_complete_work_order(page: Any, server: str) -> None:
@@ -155,3 +155,43 @@ def test_views_filters_and_bulk(page: Any, server: str) -> None:
         page.wait_for_timeout(300)
     page.get_by_role("tab", name="Board").wait_for()
     page.locator(".board-card").first.wait_for()
+
+
+def test_light_theme_is_default(page: Any, server: str) -> None:
+    _login(page, server)
+    assert page.evaluate("document.documentElement.dataset.theme") == "light"
+    bg = page.evaluate("getComputedStyle(document.querySelector('.sidebar')).backgroundColor")
+    assert bg == "rgb(255, 255, 255)"  # light sidebar in the light theme
+
+
+def test_work_order_with_asset_and_quick_template(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/work-orders?view=todo")
+    page.get_by_role("listitem").first.wait_for()
+    page.keyboard.press("c")
+    page.get_by_label("What needs to be done? *").fill("E2E: check compressor oil")
+    page.get_by_label("Asset", exact=True).click()
+    page.get_by_role("listbox", name="Asset").get_by_placeholder("Search assets").fill("Air Compressor 1")
+    page.get_by_role("option", name="Air Compressor 1").click()
+    # picking the asset fills in its location
+    page.get_by_role("dialog", name="New work order").get_by_text("Compressor Room").wait_for()
+    due = page.get_by_label("Due date")
+    due.fill("2030-01-02T10:00")
+    page.get_by_role("button", name="Clear due date").click()
+    assert due.input_value() == ""
+    page.get_by_role("dialog", name="New work order").get_by_role("button", name="Create").click()
+    page.get_by_role("heading", name="E2E: check compressor oil").wait_for()
+    page.get_by_role("link", name="Air Compressor 1").wait_for()
+    # one-tap create from a template in the Create menu
+    page.get_by_role("button", name="Create", exact=True).click()
+    page.get_by_role("menu").get_by_role("button", name="Replace HVAC filters").click()
+    page.get_by_text("created from “Replace HVAC filters”").wait_for()
+
+
+def test_asset_task_list(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/work-orders?view=todo")
+    page.get_by_role("listitem").filter(has_text="Quarterly HVAC filter and belt check").first.click()
+    page.get_by_role("heading", name="Asset tasks").wait_for()
+    page.get_by_role("radiogroup", name="Status of AHU-2").get_by_role("radio", name="Done").click()
+    page.get_by_text("1 of 4 done").wait_for()

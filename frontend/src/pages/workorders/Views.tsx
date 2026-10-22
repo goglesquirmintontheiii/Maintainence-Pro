@@ -37,6 +37,8 @@ const BASE_COLS: Col[] = [
   { id: "start_at", label: "Start date", sort: "start_at", cell: (w, tz) => w.start_at ? shortDate(w.start_at, tz) : <span className="faint">—</span> },
   { id: "categories", label: "Categories", cell: (w) => <CategoryChips items={w.categories} /> },
   { id: "work_type", label: "Work type", cell: (w) => WORK_TYPE_LABEL[w.work_type] },
+  { id: "asset", label: "Asset", cell: (w) => w.asset ? <span className="row" style={{ gap: 6 }}><span className={"astat-dot " + w.asset.status} />{w.asset.name}</span> : <span className="faint">—</span> },
+  { id: "location", label: "Location", cell: (w) => w.location?.name ?? <span className="faint">—</span> },
   { id: "estimated", label: "Estimated", sort: "estimated_minutes", num: true, cell: (w) => (w.estimated_minutes ? fmtMinutes(w.estimated_minutes) : <span className="faint">—</span>) },
   { id: "created_by", label: "Created by", cell: (w) => w.created_by?.name ?? "—" },
   { id: "created_at", label: "Created", sort: "created_at", cell: (w, tz) => dateTime(w.created_at, tz) },
@@ -201,7 +203,7 @@ export function CalendarView({ query, onOpen }: { query: ListQuery; onOpen: (id:
 }
 
 // ---------------------------------------------------------------- workload
-export function WorkloadView({ onOpen }: { query: ListQuery; onOpen: (id: string) => void }) {
+export function WorkloadView({ query, onOpen }: { query: ListQuery; onOpen: (id: string) => void }) {
   const opts = useWOOptions();
   const [start, setStart] = useState(() => { const d = startOfDay(new Date()); return addDays(d, -((d.getDay() + 6) % 7)); });
   const [days, setDays] = useState(7);
@@ -209,7 +211,8 @@ export function WorkloadView({ onOpen }: { query: ListQuery; onOpen: (id: string
   const [drag, setDrag] = useState<{ id: string; from: string } | null>(null);
   const patch = usePatchWO();
   const qc = useQueryClient();
-  const data = useQuery({ queryKey: ["wo-workload", ymd(start), days, team], queryFn: () => api<Workload>(`/work-orders/workload?start=${ymd(start)}&days=${days}${team ? `&team=${team}` : ""}`), placeholderData: (p) => p });
+  const fq = `&q=${encodeURIComponent(query.q)}${filtersParam(query.filters)}`;
+  const data = useQuery({ queryKey: ["wo-workload", ymd(start), days, team, fq], queryFn: () => api<Workload>(`/work-orders/workload?start=${ymd(start)}&days=${days}${team ? `&team=${team}` : ""}${fq}`), placeholderData: (p) => p });
   const w = data.data;
   const drop = async (toUser: string | null, day: string) => {
     if (!drag) return;
@@ -249,12 +252,14 @@ export function WorkloadView({ onOpen }: { query: ListQuery; onOpen: (id: string
       {!w ? <ListSkeleton rows={5} /> : (
         <div className="table-wrap"><table className="table wl">
           <thead><tr><th style={{ minWidth: 180 }}>Person</th>{w.days.map((d) => { const dd = new Date(`${d}T00:00`); return (
-            <th key={d} className={d === ymd(new Date()) ? "today" : ""}>{dd.toLocaleDateString(undefined, { weekday: "short" })} {dd.getDate()}</th>); })}</tr></thead>
+            <th key={d} className={d === ymd(new Date()) ? "today" : ""}>{dd.toLocaleDateString(undefined, { weekday: "short" })} {dd.getDate()}</th>); })}<th className="num">Total</th></tr></thead>
           <tbody>
             {w.people.map((p) => <tr key={p.id}><td><span className="row"><Avatar name={p.name} initials={p.initials} size="sm" /><span><div style={{ fontWeight: 600 }}>{p.name}</div><div className="small faint">{p.job_title}</div></span></span></td>
-              {w.days.map((d) => cell(p.id, d, w.cells[p.id]?.[d]))}</tr>)}
+              {w.days.map((d) => cell(p.id, d, w.cells[p.id]?.[d]))}
+              <td className="num small"><b>{fmtMinutes(w.totals?.[p.id] ?? 0)}</b><div className="faint">of {fmtMinutes(cap * w.days.length)}</div></td></tr>)}
             {w.unassigned.map((r) => <tr key={r.id} className="wl-unassigned"><td><span className="row"><span className="sw lg" style={{ background: r.color }} /><span><div style={{ fontWeight: 600 }}>{r.name}</div><div className="small faint">{r.id === "none" ? "Nobody assigned" : "Team, no person yet"}</div></span></span></td>
-              {w.days.map((d) => cell(null, d, r.days[d]))}</tr>)}
+              {w.days.map((d) => cell(null, d, r.days[d]))}
+              <td className="num small"><b>{fmtMinutes(Object.values(r.days).reduce((n, c) => n + c.minutes, 0))}</b></td></tr>)}
           </tbody>
         </table></div>)}
       <div className="card-body small faint" style={{ paddingTop: 10, paddingBottom: 10 }}>Hours come from each work order's estimated time on its due date. Capacity is {fmtMinutes(cap)} a day. Drag work to another person or day to reassign or reschedule it.</div>

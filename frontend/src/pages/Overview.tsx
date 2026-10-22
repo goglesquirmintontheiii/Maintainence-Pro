@@ -8,6 +8,10 @@ import { Button, EmptyState, ListSkeleton } from "../components/ui";
 import { WORow } from "./workorders/WorkOrders";
 
 const SHIPPED = [
+  "Assets and locations in trees, with status, downtime, warranty, lifecycle and photo timelines",
+  "Meters with charts, warning and alarm limits, and triggers that create work orders",
+  "QR codes and barcodes: scan to open, tag first and assign later, Avery and thermal labels",
+  "Asset task lists on work orders and one-tap templates",
   "Work orders with MaintainX fields, statuses, sub-statuses and numbering",
   "To Do, Table, Calendar, Workload and Board views with filters and saved views",
   "Comments with @mentions, photos and files, time, timers and costs",
@@ -29,6 +33,13 @@ export function Overview() {
   const nav = useNavigate();
   const stats = useQuery({ queryKey: ["wo-stats"], queryFn: () => api<WOStats>("/work-orders/stats"), enabled: can("wo.view") });
   const mine = useQuery({ queryKey: ["work-orders", "overview-mine"], queryFn: () => api<WOList>("/work-orders?tab=todo&scope=assigned_me&sort=due_at&per_page=6"), enabled: can("wo.view") });
+  const assetStats = useQuery({ queryKey: ["asset-overview"], enabled: can("assets.view"), queryFn: async () => {
+    const [offline, warr] = await Promise.all([
+      api<{ total: number }>("/assets?status=offline&per_page=1"), api<{ items: unknown[] }>("/assets/warranties?days=60")]);
+    const overdue = can("meters.view") ? await api<{ total: number }>("/meters?overdue=1&per_page=1") : { total: 0 };
+    return { offline: offline.total, warranties: warr.items.length, overdue: overdue.total };
+  } });
+  const a = assetStats.data;
   const next = NAV.filter((n) => n.phase).sort((a, b) => a.phase!.localeCompare(b.phase!))[0];
   const tile = (label: string, value: number | undefined, sub: string, filters: unknown[], tone?: string) => (
     <button type="button" className="card tile tile-btn" onClick={() => { setListFilters(filters); nav("/work-orders?view=table"); }}>
@@ -46,6 +57,11 @@ export function Overview() {
         {tile("Overdue", s?.overdue, "Past their due date", [{ field: "due_at", op: "overdue" }], "danger")}
         {tile("High priority", s?.high_priority, "Open and high priority", [{ field: "status", op: "in", value: ["open", "on_hold", "in_progress"] }, { field: "priority", op: "in", value: ["high"] }], "warning")}
         {tile("Completed", s?.completed_7d, "In the last 7 days", [{ field: "status", op: "in", value: ["done"] }])}
+        {can("assets.view") && <button type="button" className="card tile tile-btn" onClick={() => nav("/assets?status=offline")}>
+          <div className="k">Assets offline</div><div className={"v" + (a?.offline ? " danger" : "")}>{a?.offline ?? "–"}</div>
+          <div className="small muted">{a ? `${a.warranties} warrant${a.warranties === 1 ? "y" : "ies"} ending in 60 days` : " "}</div></button>}
+        {can("meters.view") && (a?.overdue ?? 0) > 0 && <button type="button" className="card tile tile-btn" onClick={() => nav("/meters?overdue=1")}>
+          <div className="k">Readings overdue</div><div className="v warning">{a?.overdue}</div><div className="small muted">Meters waiting for a reading</div></button>}
         {(s?.awaiting_approval ?? 0) > 0 && tile("Awaiting approval", s?.awaiting_approval, "Done, waiting for sign-off", [{ field: "approval", op: "in", value: ["pending"] }], "warning")}
       </div>}
       <div className="form-grid" style={{ alignItems: "start" }}>

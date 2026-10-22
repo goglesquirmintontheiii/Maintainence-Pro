@@ -2,6 +2,7 @@
 
 let csrf = "";
 export const setCsrf = (t: string) => { csrf = t; };
+export const getCsrf = () => csrf;
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public detail?: unknown) { super(message); }
@@ -89,7 +90,11 @@ export type WorkOrder = {
   assignees: Assignee[]; categories: CategoryRef[]; parent_id: string | null; created_by: Person | null; created_at: string; updated_at: string;
   completed_at: string | null; approval_status: "none" | "pending" | "approved" | "rejected"; custom: Record<string, unknown>; unread: boolean; deleted: boolean;
   version: number; comment_count?: number; sub_work_orders?: { total: number; closed: number } | null;
+  asset: { id: string; name: string; status: AssetStatus } | null; location: { id: string; name: string } | null; source_type: string;
 };
+export type AssetStatus = "online" | "offline" | "do_not_track";
+export type AssetTask = { id: string; asset: { id: string; name: string; status: AssetStatus; deleted: boolean; location: string | null };
+  status: "open" | "in_progress" | "on_hold" | "done"; note: string; updated_at: string; status_changed_at: string | null };
 export type MiniWO = { id: string; number: number; title: string; status: WOStatus; priority: WOPriority; due_at: string | null; assignees: Assignee[] };
 export type TimeEntry = { id: string; user: Person; minutes: number; time_type: string; rate_cents: number | null; effective_rate_cents: number | null;
   cost_cents: number | null; note: string; started_at: string | null; created_at: string };
@@ -101,6 +106,7 @@ export type WODetail = WorkOrder & {
   signature: { file: FileItem; name: string; signed_at: string } | null; approved_by: Person | null; approved_at: string | null; status_changed_at: string;
   parent: MiniWO | null; sub_work_orders: MiniWO[]; links: { id: string; relation: "blocks" | "blocked_by" | "related"; work_order: MiniWO }[];
   attachments: FileItem[]; time_in_status: Record<string, number>; costs: Costs; sub_statuses: Record<string, string[]>;
+  asset_tasks: AssetTask[];
 };
 export type WOList = { items: WorkOrder[]; total: number; page: number; per_page: number };
 export type CustomFieldDef = { id: string; name: string; type: "text" | "textarea" | "number" | "select" | "date" | "datetime" | "link" | "checkbox";
@@ -115,19 +121,21 @@ export type WOOptions = {
   statuses: { id: WOStatus; label: string }[]; priorities: { id: WOPriority; label: string }[]; work_types: { id: string; label: string }[];
   categories: CategoryRef[]; teams: { id: string; name: string; color: string }[];
   people: { id: string; name: string; initials: string; role: string; assignable: boolean }[]; custom_fields: CustomFieldDef[];
+  assets?: { id: string; name: string; path: string }[]; locations?: { id: string; name: string; path: string }[];
   settings: Pick<WOSettings, "required_fields" | "completion_summary" | "comment_on_hold" | "comment_on_cancel" | "require_signature" | "require_approval" | "time_types" | "cost_types" | "sub_statuses" | "default_start_time" | "default_due_time" | "workday_minutes" | "mention_assigns">;
   next_number: number;
 };
 export type Filter = { field: string; op: string; value?: unknown };
 export type SavedView = { id: string; name: string; shared: boolean; filters: Filter[]; sort: string; columns: string[]; pinned: boolean };
-export type Template = { id: string; name: string; description: string; data: Record<string, unknown>; updated_at: string };
+export type Template = { id: string; name: string; description: string; data: Record<string, unknown>; pinned: boolean; use_count: number;
+  last_used_at: string | null; updated_at: string };
 export type Category = CategoryRef & { description: string; work_order_count?: number };
 export type ActivityItem = ({ kind: "comment" } & CommentItem & { at: string }) | ({ kind: "event"; at: string } & AuditEvent);
 export type CommentItem = { id: string; body: string; deleted: boolean; author: Person | null; mentions: { users: string[]; teams: string[] };
   reactions: Record<string, string[]>; files: FileItem[]; created_at: string; edited_at: string | null };
 export type ExportItem = { id: string; kind: string; title: string; status: "queued" | "ready" | "failed"; error: string; file: FileItem | null;
   created_at: string; finished_at: string | null; expires_at: string };
-export type Workload = { start: string; days: string[]; capacity_minutes: number; people: (Person & { job_title: string })[];
+export type Workload = { start: string; days: string[]; capacity_minutes: number; people: (Person & { job_title: string })[]; totals?: Record<string, number>;
   cells: Record<string, Record<string, { minutes: number; items: WLItem[] }>>;
   unassigned: { id: string; name: string; color: string; days: Record<string, { minutes: number; items: WLItem[] }> }[] };
 export type WLItem = { id: string; number: number; title: string; priority: WOPriority; minutes: number };

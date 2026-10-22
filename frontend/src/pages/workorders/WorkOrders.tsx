@@ -41,7 +41,19 @@ export function WorkOrdersPage() {
   useEffect(() => { keep("wo.filters", filters); }, [filters]);
   useEffect(() => { keep("wo.savedview", activeView); }, [activeView]);
   useEffect(() => { keep("wo.view", view); }, [view]);
-  useEffect(() => { if (params.get("new") === "1") { setCreating(true); params.delete("new"); setParams(params, { replace: true }); } }, [params, setParams]);
+  // ?new=1 opens the form; &asset= / &location= / &template= prefill it (links from asset, location and scan pages)
+  const readPrefill = () => {
+    const a = params.get("asset"), l = params.get("location"), t = params.get("template");
+    return a || l || t ? { ...(a ? { asset_id: a } : {}), ...(l ? { location_id: l } : {}), ...(t ? { template_id: t } : {}) } : undefined;
+  };
+  const [prefill, setPrefill] = useState<{ asset_id?: string; location_id?: string; template_id?: string } | undefined>(readPrefill);
+  useEffect(() => {
+    if (params.get("new") === "1") {
+      const p = readPrefill();
+      if (p) setPrefill(p);
+      setCreating(true); ["new", "asset", "location", "template"].forEach((k) => params.delete(k)); setParams(params, { replace: true });
+    }
+  }, [params, setParams]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -100,7 +112,7 @@ export function WorkOrdersPage() {
           <aside className="drawer" style={{ width: "min(760px, 100%)" }} role="dialog" aria-label="Work order"><div className="drawer-body" style={{ padding: 0 }}>
             <WorkOrderDetail id={openId} inDrawer onClose={closeDrawer} /></div></aside>
         </div>)}
-      {creating && <WorkOrderForm onClose={() => setCreating(false)} onSaved={view === "todo" ? undefined : (wo) => openWO(wo.id)} />}
+      {creating && <WorkOrderForm init={prefill} onClose={() => { setCreating(false); setPrefill(undefined); }} onSaved={view === "todo" ? undefined : (wo) => openWO(wo.id)} />}
       {exporting && <ExportDialog query={query} onClose={() => setExporting(false)} />}
     </div>
   );

@@ -5,10 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Ban, CheckCircle2, Clock, Copy, CopyPlus, Download, ExternalLink, FileText, ImagePlus, Link2, ListTree,
-  Mail, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Printer, RotateCcw, Send, SmilePlus, Square, Timer, Trash2, Undo2, X,
+  Mail, MapPin, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Printer, RotateCcw, Send, SmilePlus, Square, Timer, Trash2, Undo2, X,
 } from "lucide-react";
 import {
-  api, ApiError, upload, type ActivityItem, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
+  api, ApiError, upload, type ActivityItem, type AssetTask, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
 } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { dateTime, timeAgo } from "../../lib/format";
@@ -17,6 +17,7 @@ import { useToast } from "../../components/Toast";
 import { Avatar, Button, Dropdown, EmptyState, Field, Input, ListSkeleton, Modal, Pill, PriorityBadge, Select, StatusPill } from "../../components/ui";
 import { AssigneeChips, CategoryChips, MentionBox, RichText, SignaturePad } from "../../components/pickers";
 import { fromDetail, WorkOrderForm } from "./Form";
+import { ASSET_STATUS_LABEL } from "../../lib/assets";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -111,7 +112,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
   const changeStatus = (st: WOStatus) => {
     if (st === wo.status) return;
     const rule = st === "on_hold" ? s?.comment_on_hold : st === "canceled" ? s?.comment_on_cancel : "none";
-    const needsDialog = st === "done" ? !!(s?.require_signature || s?.completion_summary !== "none") : rule === "mandatory" || (rule === "optional" && st === "canceled");
+    const assetDown = !!wo.asset && wo.asset.status !== "online" && can("assets.status");
+    const needsDialog = st === "done" ? !!(s?.require_signature || s?.completion_summary !== "none" || assetDown) : rule === "mandatory" || (rule === "optional" && st === "canceled");
     if (needsDialog) setStatusAsk(st); else statusM.mutate({ status: st });
   };
 
@@ -178,6 +180,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
         <div><dt>Work type</dt><dd>{WORK_TYPE_LABEL[wo.work_type]}</dd></div>
         <div><dt>Estimated time</dt><dd>{wo.estimated_minutes ? fmtMinutes(wo.estimated_minutes) : <span className="faint">None</span>}</dd></div>
         <div><dt>Categories</dt><dd>{wo.categories.length ? <CategoryChips items={wo.categories} /> : <span className="faint">None</span>}</dd></div>
+        {wo.asset && <div><dt>Asset</dt><dd><Link to={`/assets/${wo.asset.id}`} className="row" style={{ gap: 6 }}><span className={"astat-dot " + wo.asset.status} title={ASSET_STATUS_LABEL[wo.asset.status]} />{wo.asset.name}</Link></dd></div>}
+        {wo.location && <div><dt>Location</dt><dd><Link to={`/locations/${wo.location.id}`} className="row" style={{ gap: 6 }}><MapPin size={14} className="faint" />{wo.location.name}</Link></dd></div>}
         <div><dt>Created</dt><dd title={dateTime(wo.created_at, tz)}>{timeAgo(wo.created_at)}{wo.created_by && ` by ${wo.created_by.name}`}</dd></div>
         {wo.completed_at && <div><dt>Completed</dt><dd title={dateTime(wo.completed_at, tz)}>{timeAgo(wo.completed_at)}{wo.completed_by && ` by ${wo.completed_by.name}`}</dd></div>}
         <div className="span2"><dt>Time in status</dt><dd className="small">{(["open", "in_progress", "on_hold"] as const).filter((k) => wo.time_in_status[k] > 0).map((k) => `${STATUS_LABEL[k]} ${fmtDuration(wo.time_in_status[k])}`).join(" · ") || "—"}</dd></div>
@@ -190,6 +194,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
       {wo.description && <section><h3 className="sec-h">Description</h3><p className="prewrap">{wo.description}</p></section>}
 
       <Attachments wo={wo} editable={editable} onChange={() => refresh()} />
+      {wo.asset_tasks.length > 0 && <AssetTasks wo={wo} editable={editable && !["done", "canceled"].includes(wo.status)} onChange={(w) => refresh(w)} />}
 
       {(wo.completion_summary || wo.signature) && (
         <section className="card card-pad stack">
@@ -243,9 +248,11 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
   const [signedBy, setSignedBy] = useState("");
   const [sub, setSub] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
-  const { session } = useSession();
+  const { session, can } = useSession();
+  const [bringOnline, setBringOnline] = useState(true);
   const { toast } = useToast();
   const done = target === "done";
+  const assetDown = done && !!wo.asset && wo.asset.status !== "online" && can("assets.status");
   const rule = target === "on_hold" ? s?.comment_on_hold : target === "canceled" ? s?.comment_on_cancel : "none";
   const needSig = done && s?.require_signature && !wo.signature;
   const sumRule = done ? s?.completion_summary : "none";
@@ -256,7 +263,8 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
   return (
     <Modal title={title} onClose={onClose} width={560}
       footer={<><Button onClick={onClose}>Back</Button><Button variant={target === "canceled" ? "danger" : "primary"} className={target === "canceled" ? "solid" : ""} disabled={!ok || busy}
-        onClick={() => onConfirm({ comment, summary: summary || undefined, signature: sig ?? undefined, signed_by: signedBy || undefined, sub_status: sub, file_ids: files.map((f) => f.id) })}>
+        onClick={() => onConfirm({ comment, summary: summary || undefined, signature: sig ?? undefined, signed_by: signedBy || undefined, sub_status: sub, file_ids: files.map((f) => f.id),
+          ...(assetDown && bringOnline ? { asset_status: { status: "online" } } : {}) })}>
         {done ? "Mark as Done" : target === "canceled" ? "Cancel work order" : `Mark ${STATUS_LABEL[target]}`}</Button></>}>
       {wo.sub_work_orders.some((x) => x.status !== "done" && x.status !== "canceled") && done && <div className="banner warning"><AlertTriangle size={16} />Some sub-work orders are still open.</div>}
       {subs.length > 0 && <Field label="Sub-status">{(id) => <Select id={id} value={sub} onChange={(e) => setSub(e.target.value)}><option value="">None</option>{subs.map((x) => <option key={x}>{x}</option>)}</Select>}</Field>}
@@ -271,6 +279,8 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
         ? <p className="small muted">Already signed by {wo.signature.name}.</p>
         : <div className="field"><span className="label">Signature{needSig ? " *" : ""}</span><SignaturePad onChange={setSig} />
             <Input aria-label="Signed by" placeholder={`Signed by (default ${session.user?.name})`} value={signedBy} onChange={(e) => setSignedBy(e.target.value)} /></div>)}
+      {assetDown && <label className="check banner info" style={{ alignItems: "center" }}><input type="checkbox" checked={bringOnline} onChange={(e) => setBringOnline(e.target.checked)} />
+        <span><b>{wo.asset!.name}</b> is {ASSET_STATUS_LABEL[wo.asset!.status]}. Mark it Online when this work order is done.</span></label>}
       {done && s?.require_approval && <p className="small muted">An administrator will review and approve this before it's final.</p>}
     </Modal>
   );
@@ -570,3 +580,46 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
 }
 
 function lower(s: string) { return s ? s[0].toLowerCase() + s.slice(1) : s; }
+
+const TASK_STATUSES: { id: AssetTask["status"]; label: string }[] = [
+  { id: "open", label: "Open" }, { id: "on_hold", label: "On Hold" }, { id: "in_progress", label: "In Progress" }, { id: "done", label: "Done" }];
+
+/** Asset task list (MP-099): each asset on the work order has its own status and notes, without sub-work orders. */
+function AssetTasks({ wo, editable, onChange }: { wo: WODetail; editable: boolean; onChange: (w: WODetail) => void }) {
+  const { toast } = useToast();
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const m = useMutation({
+    mutationFn: ({ task, body }: { task: AssetTask; body: Record<string, unknown> }) =>
+      api<WODetail>(`/work-orders/${wo.id}/asset-tasks/${task.id}`, { method: "PATCH", body }),
+    onSuccess: (w) => onChange(w), onError: (e) => toast((e as ApiError).message, { kind: "error" }),
+  });
+  const done = wo.asset_tasks.filter((t) => t.status === "done").length;
+  return (
+    <section className="card">
+      <div className="card-head"><h3><ListTree size={16} /> Asset tasks</h3><span className="small muted">{done} of {wo.asset_tasks.length} done</span></div>
+      <div className="card-body" style={{ paddingTop: 0 }}><div className="progress" aria-hidden="true"><span style={{ width: `${(done / wo.asset_tasks.length) * 100}%` }} /></div></div>
+      <ul className="asset-tasks">
+        {wo.asset_tasks.map((t) => (
+          <li key={t.id} className={"asset-task " + t.status}>
+            <div className="row wrap" style={{ gap: 8 }}>
+              <Link to={`/assets/${t.asset.id}`} className="grow row" style={{ gap: 6, minWidth: 160 }}>
+                <span className={"astat-dot " + t.asset.status} title={ASSET_STATUS_LABEL[t.asset.status]} />
+                <span className={t.status === "done" ? "strike" : ""}>{t.asset.name}</span>
+                {t.asset.location && <span className="small faint">{t.asset.location}</span>}
+              </Link>
+              {editable
+                ? <div className="seg sm" role="radiogroup" aria-label={`Status of ${t.asset.name}`}>{TASK_STATUSES.map((x) => (
+                    <button key={x.id} type="button" role="radio" aria-checked={t.status === x.id} className={"seg-btn task-" + x.id + (t.status === x.id ? " on" : "")}
+                      disabled={m.isPending} onClick={() => m.mutate({ task: t, body: { status: x.id } })}>{x.label}</button>))}</div>
+                : <StatusPill status={t.status} />}
+            </div>
+            {editable
+              ? <textarea className="textarea small" rows={1} aria-label={`Notes for ${t.asset.name}`} placeholder="Notes" value={notes[t.id] ?? t.note}
+                  onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))}
+                  onBlur={() => { const v = notes[t.id]; if (v !== undefined && v !== t.note) m.mutate({ task: t, body: { note: v } }); }} />
+              : t.note && <p className="small prewrap" style={{ margin: "4px 0 0" }}>{t.note}</p>}
+          </li>))}
+      </ul>
+    </section>
+  );
+}

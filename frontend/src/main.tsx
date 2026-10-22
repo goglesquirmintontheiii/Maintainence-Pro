@@ -17,6 +17,13 @@ import { Downloads } from "./pages/Downloads";
 import { WorkOrderSettings } from "./pages/WorkOrderSettings";
 import { AuditLog, DesignSystem, EmailOutbox, Jobs, OrganizationSettings, Profile, SettingsIndex, SettingsLayout } from "./pages/Settings";
 import { LogoMark } from "./components/Logo";
+import { AssetsPage } from "./pages/assets/Assets";
+import { LocationsPage } from "./pages/assets/Locations";
+import { AssetSettingsPage } from "./pages/assets/AssetSettings";
+import { MetersPage } from "./pages/meters/Meters";
+import { ScanPage } from "./pages/scan/Scan";
+import { QrResolve } from "./pages/scan/QrResolve";
+import { QrCodesPage } from "./pages/scan/QrCodes";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
 
@@ -51,12 +58,24 @@ function Gate() {
         <Route path="people/:tab/:id" element={<People />} />
         <Route path="work-orders" element={<WorkOrdersPage />} />
         <Route path="work-orders/:id" element={<WorkOrdersPage />} />
+        <Route path="assets" element={<AssetsPage />} />
+        <Route path="assets/:id" element={<AssetsPage />} />
+        <Route path="assets/:id/:tab" element={<AssetsPage />} />
+        <Route path="locations" element={<LocationsPage />} />
+        <Route path="locations/:id" element={<LocationsPage />} />
+        <Route path="locations/:id/:tab" element={<LocationsPage />} />
+        <Route path="meters" element={<MetersPage />} />
+        <Route path="meters/:id" element={<MetersPage />} />
+        <Route path="scan" element={<ScanPage />} />
+        <Route path="q/:code" element={<QrResolve />} />
         <Route path="categories" element={<Categories />} />
         <Route path="downloads" element={<Downloads />} />
         <Route path="settings" element={<SettingsLayout />}>
           <Route index element={<SettingsIndex />} />
           <Route path="organization" element={<OrganizationSettings />} />
           <Route path="work-orders" element={<WorkOrderSettings />} />
+          <Route path="assets" element={<AssetSettingsPage />} />
+          <Route path="qr-codes" element={<QrCodesPage />} />
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="email" element={<EmailOutbox />} />

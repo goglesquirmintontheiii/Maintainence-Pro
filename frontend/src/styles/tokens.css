@@ -18,16 +18,28 @@
   --c-primary-soft: #e6eefc;
   --c-on-primary: #ffffff;
   --c-focus: #4d8bff;
-  --c-sidebar: #0f1b33;
-  --c-sidebar-text: #c6d0e2;
-  --c-sidebar-muted: #7e8ba5;
-  --c-sidebar-active: #1f3460;
-  --c-sidebar-hover: #182746;
-  /* semantic: work-order statuses (as MaintainX) */
-  --c-open: #2f6fe4;      --c-open-soft: #e5eefd;
+  /* light sidebar in the light theme (0.3.0, requested in the 0.2.0 review) */
+  --c-sidebar: #ffffff;
+  --c-sidebar-border: #e3e7ee;
+  --c-sidebar-text: #3a465c;
+  --c-sidebar-strong: #172033;
+  --c-sidebar-muted: #8a94a8;
+  --c-sidebar-active: #e6eefc;
+  --c-sidebar-active-text: #1b5bd4;
+  --c-sidebar-hover: #f2f5fa;
+  --c-sidebar-hover-text: #172033;
+  --c-sidebar-chip: #f4f6fa;
+  --c-sidebar-chip-border: #e3e7ee;
+  /* semantic: work-order statuses. In Progress is blue (as MaintainX); Open is teal so the two never look alike */
+  --c-open: #0b7a8f;      --c-open-soft: #def3f6;
   --c-hold: #b8670a;      --c-hold-soft: #fcefdc;
-  --c-progress: #13805a;  --c-progress-soft: #dcf2e8;
-  --c-done: #5d6880;      --c-done-soft: #eceff4;
+  --c-progress: #1b5bd4;  --c-progress-soft: #e3ecfd;
+  --c-done: #13805a;      --c-done-soft: #dcf2e8;
+  --c-canceled: #8a94a8;  --c-canceled-soft: #eef1f5;
+  /* semantic: asset statuses */
+  --c-online: #13805a;    --c-online-soft: #dcf2e8;
+  --c-offline: #c4302b;   --c-offline-soft: #fbe5e4;
+  --c-dnt: #6b7489;       --c-dnt-soft: #eceff4;
   /* semantic: priority */
   --c-high: #c4302b; --c-medium: #c37a06; --c-low: #3d6fb6; --c-none: #8a94a8;
   /* feedback */
@@ -72,14 +84,24 @@
   --c-primary-soft: #18294a;
   --c-on-primary: #0b1220;
   --c-sidebar: #0a0f19;
+  --c-sidebar-border: #1a2232;
   --c-sidebar-text: #c2cbdb;
+  --c-sidebar-strong: #ffffff;
   --c-sidebar-muted: #6c7890;
   --c-sidebar-active: #18294a;
+  --c-sidebar-active-text: #ffffff;
   --c-sidebar-hover: #121a2a;
-  --c-open: #6a9cf7;      --c-open-soft: #172a4a;
+  --c-sidebar-hover-text: #ffffff;
+  --c-sidebar-chip: rgba(255, 255, 255, .05);
+  --c-sidebar-chip-border: rgba(255, 255, 255, .08);
+  --c-open: #4cc3d6;      --c-open-soft: #0f2d33;
   --c-hold: #e6a24b;      --c-hold-soft: #35260f;
-  --c-progress: #3fc28e;  --c-progress-soft: #12301f;
-  --c-done: #98a3b8;      --c-done-soft: #1e2636;
+  --c-progress: #6a9cf7;  --c-progress-soft: #172a4a;
+  --c-done: #3fc28e;      --c-done-soft: #12301f;
+  --c-canceled: #7d889c;  --c-canceled-soft: #1a2130;
+  --c-online: #3fc28e;    --c-online-soft: #12301f;
+  --c-offline: #f07a73;   --c-offline-soft: #3a1817;
+  --c-dnt: #98a3b8;       --c-dnt-soft: #1e2636;
   --c-high: #f07a73; --c-medium: #e6a24b; --c-low: #86a8dc;
   --c-success: #3fc28e; --c-success-soft: #12301f;
   --c-warning: #e6a24b; --c-warning-soft: #35260f;

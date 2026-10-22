@@ -1,13 +1,14 @@
 // Settings → Work orders: rules, required fields, time and cost types, sub-statuses, custom fields, templates and numbering.
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Pin, PinOff, Plus, Trash2, X } from "lucide-react";
 import { api, ApiError, type CustomFieldDef, type Template, type WOSettings } from "../lib/api";
 import { useSession } from "../lib/session";
 import { money, useWOOptions } from "../lib/wo";
 import { useToast } from "../components/Toast";
 import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select, Toggle } from "../components/ui";
 import { AssigneePicker, CategoryPicker } from "../components/pickers";
+import { AssetPicker, LocationPicker } from "../components/assetPickers";
 
 const REQUIRABLE: [string, string][] = [["description", "Description"], ["due_date", "Due date"], ["priority", "Priority"], ["categories", "Categories"],
   ["assignees", "Assignees"], ["attachment", "A picture or file"], ["estimated_time", "Estimated time"]];
@@ -168,14 +169,19 @@ function Templates() {
   const del = useMutation({ mutationFn: (t: Template) => api(`/work-order-templates/${t.id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["wo-templates"] }); toast("Template deleted"); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
   const manage = can("templates.manage");
+  const pin = useMutation({ mutationFn: (t: Template) => api(`/work-order-templates/${t.id}`, { method: "PATCH", body: { pinned: !t.pinned } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["wo-templates"] }); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
   return (
     <section className="card">
       <div className="card-head"><h2>Work order templates</h2>{manage && <Button size="sm" onClick={() => setEdit("new")}><Plus size={14} />New template</Button>}</div>
       {!data.data ? <ListSkeleton rows={2} /> : data.data.items.length === 0 ? <EmptyState title="No templates yet">Templates pre-fill the title, priority, assignees and more for work you create often, like “Replace filter”.</EmptyState>
         : data.data.items.map((t) => (
           <div key={t.id} className="list-row" style={{ borderLeft: 0 }}>
-            <div className="grow"><div className="t">{t.name}</div><div className="s">{String(t.data.title ?? "")}{t.description ? ` · ${t.description}` : ""}</div></div>
-            {manage && <><Button size="sm" variant="ghost" icon aria-label={`Edit ${t.name}`} onClick={() => setEdit(t)}><Pencil size={14} /></Button>
+            <div className="grow"><div className="t">{t.pinned && <Pin size={13} className="faint" aria-label="Pinned" />} {t.name}</div>
+              <div className="s">{String(t.data.title ?? "")}{t.description ? ` · ${t.description}` : ""}{t.use_count ? ` · used ${t.use_count} time${t.use_count === 1 ? "" : "s"}` : ""}</div></div>
+            {manage && <><Button size="sm" variant="ghost" icon aria-label={t.pinned ? `Unpin ${t.name}` : `Pin ${t.name} to the Create menu`} title={t.pinned ? "Unpin" : "Pin to the Create menu"}
+                onClick={() => pin.mutate(t)}>{t.pinned ? <PinOff size={14} /> : <Pin size={14} />}</Button>
+              <Button size="sm" variant="ghost" icon aria-label={`Edit ${t.name}`} onClick={() => setEdit(t)}><Pencil size={14} /></Button>
               <Button size="sm" variant="ghost" icon aria-label={`Delete ${t.name}`} onClick={() => del.mutate(t)}><Trash2 size={14} /></Button></>}
           </div>))}
       {edit && <TemplateModal tpl={edit === "new" ? undefined : edit} onClose={() => setEdit(null)} />}
@@ -185,14 +191,17 @@ function Templates() {
 
 function TemplateModal({ tpl, onClose }: { tpl?: Template; onClose: () => void }) {
   const opts = useWOOptions();
+  const { can } = useSession();
   const qc = useQueryClient();
   const d = (tpl?.data ?? {}) as Record<string, unknown>;
   const [f, setF] = useState({ name: tpl?.name ?? "", description: tpl?.description ?? "", title: (d.title as string) ?? "", body: (d.description as string) ?? "",
     priority: (d.priority as string) ?? "none", work_type: (d.work_type as string) ?? "reactive", estimated_minutes: (d.estimated_minutes as number | null) ?? null,
-    assignees: (d.assignees as string[]) ?? [], categories: (d.categories as string[]) ?? [] });
+    assignees: (d.assignees as string[]) ?? [], categories: (d.categories as string[]) ?? [], asset_id: (d.asset_id as string | null) ?? null,
+    location_id: (d.location_id as string | null) ?? null, due_in_days: (d.due_in_days as number | null) ?? null, pinned: tpl?.pinned ?? false });
   const [err, setErr] = useState("");
-  const payload = { name: f.name, description: f.description, data: { title: f.title, description: f.body, priority: f.priority, work_type: f.work_type,
-    estimated_minutes: f.estimated_minutes, assignees: f.assignees, categories: f.categories } };
+  const payload = { name: f.name, description: f.description, pinned: f.pinned, data: { title: f.title, description: f.body, priority: f.priority, work_type: f.work_type,
+    estimated_minutes: f.estimated_minutes, assignees: f.assignees, categories: f.categories,
+    ...(f.asset_id ? { asset_id: f.asset_id } : {}), ...(f.location_id ? { location_id: f.location_id } : {}), ...(f.due_in_days !== null ? { due_in_days: f.due_in_days } : {}) } };
   const m = useMutation({ mutationFn: () => tpl ? api(`/work-order-templates/${tpl.id}`, { method: "PATCH", body: payload }) : api("/work-order-templates", { method: "POST", body: payload }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["wo-templates"] }); onClose(); }, onError: (e) => setErr((e as ApiError).message) });
   return (
@@ -207,6 +216,12 @@ function TemplateModal({ tpl, onClose }: { tpl?: Template; onClose: () => void }
         <Field label="Estimated minutes">{(id) => <Input id={id} type="number" min={0} value={f.estimated_minutes ?? ""} onChange={(e) => setF({ ...f, estimated_minutes: e.target.value ? Number(e.target.value) : null })} />}</Field>
         <Field label="Categories">{(id) => <CategoryPicker id={id} options={opts.data} value={f.categories} onChange={(v) => setF({ ...f, categories: v })} />}</Field>
         <Field label="Assign to" className="full">{(id) => <AssigneePicker id={id} options={opts.data} value={f.assignees} onChange={(v) => setF({ ...f, assignees: v })} />}</Field>
+        {can("assets.view") && <Field label="Asset">{(id) => <AssetPicker id={id} value={f.asset_id ? [f.asset_id] : []} onChange={(v) => setF({ ...f, asset_id: v[0] ?? null })} />}</Field>}
+        {can("locations.view") && <Field label="Location">{(id) => <LocationPicker id={id} value={f.location_id} onChange={(v) => setF({ ...f, location_id: v })} />}</Field>}
+        <Field label="Due" hint="Days after the work order is created (0 = same day). Leave empty for no due date.">{(id) => (
+          <Input id={id} type="number" min={0} max={3650} value={f.due_in_days ?? ""} onChange={(e) => setF({ ...f, due_in_days: e.target.value === "" ? null : Number(e.target.value) })} />)}</Field>
+        <div className="field" style={{ justifyContent: "flex-end" }}><Toggle checked={f.pinned} onChange={(v) => setF({ ...f, pinned: v })} label="Pin to the Create menu"
+          hint="One tap creates a work order from it." /></div>
       </div>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>

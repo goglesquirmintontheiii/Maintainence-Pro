@@ -20,7 +20,7 @@ from sqlalchemy import func, select, update
 from mpro.core.events import emit
 from mpro.core.files import FileObject, attach, save_file
 from mpro.core.ids import uuid7
-from mpro.core.models import utcnow
+from mpro.core.models import iso, utcnow
 from mpro.core.permissions import can
 from mpro.core.settings import get_settings, register_defaults, save_settings
 from mpro.extensions import db
@@ -44,6 +44,7 @@ from mpro.workorders.models import (
     Template,
     TimeEntry,
     WorkOrder,
+    WorkOrderAssetTask,
     WorkOrderAssignee,
     WorkOrderCategory,
     WorkOrderLink,
@@ -173,6 +174,14 @@ def visibility_clause(m: Membership) -> Any:
         (WorkOrderAssignee.user_id == m.user_id) | (WorkOrderAssignee.team_id.in_(teams or [uuid.uuid4()]))
     )
     return (WorkOrder.created_by_id == m.user_id) | WorkOrder.id.in_(assigned)
+
+
+def visibility_filter(m: Membership) -> Any:
+    """Like visibility_clause, but always usable in .where() (true when the member sees everything)."""
+    from sqlalchemy import true
+
+    clause = visibility_clause(m)
+    return true() if clause is None else clause
 
 
 def can_see(m: Membership | None, wo: WorkOrder) -> bool:
@@ -424,8 +433,13 @@ def custom_fields(org_id: uuid.UUID, entity_type: str = "work_order") -> list[Cu
     )
 
 
-def _clean_custom(org_id: uuid.UUID, values: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
-    fields = {str(f.id): f for f in custom_fields(org_id)}
+def _clean_custom(
+    org_id: uuid.UUID,
+    values: dict[str, Any],
+    existing: dict[str, Any] | None = None,
+    entity_type: str = "work_order",
+) -> dict[str, Any]:
+    fields = {str(f.id): f for f in custom_fields(org_id, entity_type)}
     out = {k: v for k, v in (existing or {}).items() if k in fields}
     for fid, v in (values or {}).items():
         f = fields.get(str(fid))
@@ -579,6 +593,169 @@ def _set_parent(wo: WorkOrder, parent_id: Any, m: Membership | None = None) -> N
     wo.parent_id = parent.id
 
 
+ASSET_TASK_STATUSES = ("open", "in_progress", "on_hold", "done")
+
+
+def _set_asset_location(wo: WorkOrder, data: dict[str, Any], m: Membership | None = None) -> None:
+    """Asset and location. Picking an asset fills in its location unless one was chosen too (MP-098)."""
+    from mpro.assets.services import get_asset, get_location
+
+    if "asset_id" in data:
+        if data["asset_id"]:
+            a = get_asset(wo.org_id, data["asset_id"])
+            if m is not None and not can(m, "assets.view"):
+                raise RuleError("You can't pick assets.", 403)
+            changed = a.id != wo.asset_id
+            wo.asset_id = a.id
+            if changed and "location_id" not in data and a.location_id:
+                wo.location_id = a.location_id
+        else:
+            wo.asset_id = None
+    if "location_id" in data:
+        wo.location_id = get_location(wo.org_id, data["location_id"]).id if data["location_id"] else None
+
+
+def asset_task_ids(wo: WorkOrder) -> list[str]:
+    return [
+        str(t.asset_id)
+        for t in db.session.scalars(
+            select(WorkOrderAssetTask)
+            .where(WorkOrderAssetTask.work_order_id == wo.id)
+            .order_by(WorkOrderAssetTask.sort)
+        ).all()
+    ]
+
+
+def _set_asset_tasks(wo: WorkOrder, ids: list[Any], m: Membership) -> None:
+    """The work order's asset task list (MP-099): one row per asset, kept in the order given."""
+    from mpro.assets.services import get_asset
+
+    if not isinstance(ids, list) or len(ids) > 500:
+        raise RuleError("Asset task lists can have up to 500 assets.", 422)
+    want: list[uuid.UUID] = []
+    for raw in ids:
+        aid = get_asset(wo.org_id, raw).id
+        if aid not in want:
+            want.append(aid)
+    have = {
+        t.asset_id: t
+        for t in db.session.scalars(select(WorkOrderAssetTask).where(WorkOrderAssetTask.work_order_id == wo.id)).all()
+    }
+    for aid, t in have.items():
+        if aid not in want:
+            db.session.delete(t)
+    for n, aid in enumerate(want):
+        task = have.get(aid)
+        if task is None:
+            db.session.add(
+                WorkOrderAssetTask(
+                    org_id=wo.org_id,
+                    work_order_id=wo.id,
+                    asset_id=aid,
+                    status="open",
+                    note="",
+                    sort=n,
+                    updated_by_id=m.user_id,
+                )
+            )
+        else:
+            task.sort = n
+
+
+def asset_tasks(wo: WorkOrder) -> list[dict[str, Any]]:
+    from mpro.assets.models import Asset
+
+    rows = db.session.execute(
+        select(WorkOrderAssetTask, Asset)
+        .join(Asset, Asset.id == WorkOrderAssetTask.asset_id)
+        .where(WorkOrderAssetTask.work_order_id == wo.id)
+        .order_by(WorkOrderAssetTask.sort)
+    ).all()
+    return [
+        {
+            "id": str(t.id),
+            "asset": {
+                "id": str(a.id),
+                "name": a.name,
+                "status": a.status,
+                "deleted": a.deleted_at is not None,
+                "location": a.location.name if a.location else None,
+            },
+            "status": t.status,
+            "note": t.note,
+            "updated_at": iso(t.updated_at),
+            "status_changed_at": iso(t.status_changed_at),
+        }
+        for t, a in rows
+    ]
+
+
+def update_asset_task(
+    org: Organization, m: Membership, wo: WorkOrder, task_id: Any, data: dict[str, Any]
+) -> WorkOrderAssetTask:
+    t = db.session.get(WorkOrderAssetTask, _uuid(task_id, "task"))
+    if t is None or t.work_order_id != wo.id:
+        raise RuleError("That task isn't on this work order.", 404)
+    if wo.status in ("done", "canceled"):
+        raise RuleError("Reopen the work order to change its tasks.", 409)
+    from mpro.assets.models import Asset
+
+    a = db.session.get(Asset, t.asset_id)
+    parts = []
+    if "status" in data and data["status"] != t.status:
+        if data["status"] not in ASSET_TASK_STATUSES:
+            raise RuleError("Task status is Open, In Progress, On Hold or Done.", 422)
+        parts.append(f"{a.name if a else 'asset'} to {STATUS_LABELS[data['status']]}")
+        t.status, t.status_changed_at = data["status"], utcnow()
+    if "note" in data:
+        note = str(data["note"] or "")
+        if len(note) > 4096:
+            raise RuleError("Notes can be up to 4,096 characters.", 422)
+        if note != t.note:
+            parts.append(f"notes for {a.name if a else 'asset'}")
+            t.note = note
+    if parts:
+        t.updated_by_id = m.user_id
+        touch(wo, m.user_id)
+        emit(
+            "wo.asset_task_updated",
+            entity_type="work_order",
+            entity_id=wo.id,
+            entity_label=label(wo),
+            summary="Changed " + ", ".join(parts),
+            data={"task_id": t.id, "asset_id": t.asset_id, "status": t.status},
+        )
+        db.session.commit()
+    return t
+
+
+def _asset_status_from_wo(org: Organization, m: Membership, wo: WorkOrder, data: Any) -> None:
+    """Change the asset's status from the work order (MaintainX asks when you create or close one)."""
+    from mpro.assets.models import Asset
+    from mpro.assets.services import set_status as set_asset_status
+
+    if not data:
+        return
+    if not isinstance(data, dict) or not wo.asset_id:
+        raise RuleError("Pick an asset before changing its status.", 422)
+    if not can(m, "assets.status"):
+        raise RuleError("You can't change asset statuses.", 403)
+    a = db.session.get(Asset, wo.asset_id)
+    if a is None:
+        return
+    set_asset_status(
+        org,
+        m,
+        a,
+        str(data.get("status") or ""),
+        reason=str(data.get("reason") or ""),
+        downtime_type=str(data.get("downtime_type") or ""),
+        note=str(data.get("note") or ""),
+        work_order_id=wo.id,
+        commit=False,
+    )
+
+
 def _snapshot(wo: WorkOrder) -> dict[str, Any]:
     return {
         "title": wo.title,
@@ -593,6 +770,9 @@ def _snapshot(wo: WorkOrder) -> dict[str, Any]:
         "assignees": sorted(f"user:{a.user_id}" if a.user_id else f"team:{a.team_id}" for a in wo.assignees),
         "categories": sorted(str(c.category_id) for c in wo.category_links),
         "custom": dict(wo.custom or {}),
+        "asset_id": wo.asset_id,
+        "location_id": wo.location_id,
+        "asset_tasks": asset_task_ids(wo) if wo.id else [],
     }
 
 
@@ -604,6 +784,7 @@ def create_work_order(
     _apply_fields(wo, {"title": data.get("title", ""), **{k: data[k] for k in EDITABLE if k in data and k != "title"}})
     if data.get("parent_id"):
         _set_parent(wo, data["parent_id"], m)
+    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "location_id") if k in data}, m)
     wo.custom = _clean_custom(org.id, data.get("custom") or {})
     if data.get("template_id"):
         wo.template_id = _uuid(data["template_id"], "template")
@@ -621,6 +802,9 @@ def create_work_order(
     db.session.flush()
     for fid in data.get("file_ids") or []:
         _attach_existing(wo, fid, "file", m)
+    if data.get("asset_tasks"):
+        _set_asset_tasks(wo, data["asset_tasks"], m)
+    _asset_status_from_wo(org, m, wo, data.get("asset_status"))
     touch(wo, m.user_id)
     emit(
         "wo.created",
@@ -687,9 +871,16 @@ def update_work_order(
         _set_categories(wo, data["categories"])
     if "custom" in data:
         wo.custom = _clean_custom(org.id, data["custom"] or {}, wo.custom)
+    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "location_id") if k in data}, m)
+    if "asset_tasks" in data:
+        _set_asset_tasks(wo, data["asset_tasks"] or [], m)
+        db.session.flush()
+    _asset_status_from_wo(org, m, wo, data.get("asset_status"))
     after = _snapshot(wo)
     changes = {k: (before[k], after[k]) for k in after if before[k] != after[k]}
     if not changes:
+        if data.get("asset_status"):
+            db.session.commit()
         return wo
     _check_required(org.id, wo)
     wo.version += 1
@@ -737,6 +928,9 @@ _FIELD_NAMES = {
     "assignees": "assignees",
     "categories": "categories",
     "custom": "custom fields",
+    "asset_id": "asset",
+    "location_id": "location",
+    "asset_tasks": "asset tasks",
 }
 
 
@@ -1135,10 +1329,20 @@ def custom_field_dict(f: CustomField) -> dict[str, Any]:
         "copy_on_repeat": f.copy_on_repeat,
         "on_request_form": f.on_request_form,
         "sort": f.sort,
+        "entity_type": f.entity_type,
+        "scope_id": str(f.scope_id) if f.scope_id else None,
     }
 
 
-def save_custom_field(org: Organization, data: dict[str, Any], f: CustomField | None = None) -> CustomField:
+ENTITY_LABELS = {"work_order": "work order", "asset": "asset", "location": "location"}
+
+
+def save_custom_field(
+    org: Organization, data: dict[str, Any], f: CustomField | None = None, entity_type: str = "work_order"
+) -> CustomField:
+    entity_type = f.entity_type if f is not None else entity_type
+    if entity_type not in ENTITY_LABELS:
+        raise RuleError("Custom fields belong to work orders, assets or locations.", 422)
     name = str(data.get("name", f.name if f else "")).strip()
     if not name:
         raise RuleError("The field needs a name.", 422)
@@ -1161,6 +1365,7 @@ def save_custom_field(org: Organization, data: dict[str, Any], f: CustomField | 
     dup = db.session.scalar(
         select(CustomField.id).where(
             CustomField.org_id == org.id,
+            CustomField.entity_type == entity_type,
             CustomField.deleted_at.is_(None),
             func.lower(CustomField.name) == name.lower(),
             CustomField.id != (f.id if f else uuid.uuid4()),
@@ -1170,10 +1375,25 @@ def save_custom_field(org: Organization, data: dict[str, Any], f: CustomField | 
         raise RuleError(f"There's already a field called {name}.", 409)
     created = f is None
     if f is None:
-        n = len(custom_fields(org.id))
-        f = CustomField(org_id=org.id, entity_type="work_order", type=ftype, sort=n)
+        n = len(custom_fields(org.id, entity_type))
+        f = CustomField(org_id=org.id, entity_type=entity_type, type=ftype, sort=n)
         db.session.add(f)
     f.name, f.options = name[:120], options
+    if "scope_id" in data:
+        if entity_type != "asset":
+            raise RuleError("Only asset fields can be limited to an asset type.", 422)
+        sid = data.get("scope_id")
+        if sid:
+            from mpro.assets.models import AssetType
+
+            sid = _uuid(sid, "asset type")
+            if not db.session.scalar(
+                select(AssetType.id).where(
+                    AssetType.org_id == org.id, AssetType.id == sid, AssetType.deleted_at.is_(None)
+                )
+            ):
+                raise RuleError("That asset type doesn't exist.", 422)
+        f.scope_id = sid or None
     for k in ("required", "copy_on_repeat", "on_request_form"):
         if k in data:
             setattr(f, k, bool(data[k]))
@@ -1183,20 +1403,20 @@ def save_custom_field(org: Organization, data: dict[str, Any], f: CustomField | 
         entity_type="custom_field",
         entity_id=f.id,
         entity_label=f.name,
-        summary=("Created" if created else "Changed") + f" work order field {f.name}",
+        summary=("Created" if created else "Changed") + f" {ENTITY_LABELS[entity_type]} field {f.name}",
     )
     db.session.commit()
     return f
 
 
-def reorder_custom_fields(org: Organization, ids: list[str]) -> list[CustomField]:
-    fields = {str(f.id): f for f in custom_fields(org.id)}
+def reorder_custom_fields(org: Organization, ids: list[str], entity_type: str = "work_order") -> list[CustomField]:
+    fields = {str(f.id): f for f in custom_fields(org.id, entity_type)}
     if set(ids) != set(fields):
         raise RuleError("Send every field once to reorder.", 422)
     for i, fid in enumerate(ids):
         fields[fid].sort = i
     db.session.commit()
-    return custom_fields(org.id)
+    return custom_fields(org.id, entity_type)
 
 
 def delete_custom_field(org: Organization, f: CustomField) -> None:
@@ -1206,7 +1426,7 @@ def delete_custom_field(org: Organization, f: CustomField) -> None:
         entity_type="custom_field",
         entity_id=f.id,
         entity_label=f.name,
-        summary=f"Deleted work order field {f.name}",
+        summary=f"Deleted {ENTITY_LABELS.get(f.entity_type, 'record')} field {f.name}",
     )
     db.session.commit()
 
@@ -1221,6 +1441,9 @@ TEMPLATE_KEYS = (
     "assignees",
     "categories",
     "custom",
+    "asset_id",
+    "location_id",
+    "due_in_days",
 )
 
 
@@ -1230,6 +1453,9 @@ def template_dict(t: Template) -> dict[str, Any]:
         "name": t.name,
         "description": t.description,
         "data": t.data,
+        "pinned": t.pinned,
+        "use_count": t.use_count,
+        "last_used_at": iso(t.last_used_at),
         "updated_at": t.updated_at.isoformat(),
     }
 
@@ -1251,11 +1477,21 @@ def save_template(org: Organization, m: Membership, data: dict[str, Any], t: Tem
     for cid in content.get("categories") or []:
         _uuid(cid, "category")
     content["custom"] = _clean_custom(org.id, content.get("custom") or {})
+    _set_asset_location(probe, {k: content[k] for k in ("asset_id", "location_id") if k in content})
+    if content.get("due_in_days") not in (None, ""):
+        try:
+            content["due_in_days"] = int(content["due_in_days"])
+        except (TypeError, ValueError) as e:
+            raise RuleError("Due in days must be a whole number.", 422) from e
+        if not 0 <= content["due_in_days"] <= 3650:
+            raise RuleError("Due in days must be between 0 and 3,650.", 422)
     created = t is None
     if t is None:
         t = Template(org_id=org.id, created_by_id=m.user_id)
         db.session.add(t)
     t.name, t.description, t.data = name[:120], str(data.get("description", t.description or "")).strip()[:500], content
+    if "pinned" in data:
+        t.pinned = bool(data["pinned"])
     db.session.flush()
     emit(
         "template.created" if created else "template.updated",
@@ -1266,6 +1502,45 @@ def save_template(org: Organization, m: Membership, data: dict[str, Any], t: Tem
     )
     db.session.commit()
     return t
+
+
+def create_from_template(org: Organization, m: Membership, t: Template, overrides: dict[str, Any]) -> WorkOrder:
+    """One-tap create (MP-101): a work order straight from a template; overrides win (e.g. the scanned asset)."""
+    from datetime import timedelta
+
+    allowed = {
+        "title",
+        "description",
+        "priority",
+        "assignees",
+        "asset_id",
+        "location_id",
+        "due_at",
+        "start_at",
+        "asset_tasks",
+    }
+    bad = set(overrides) - allowed
+    if bad:
+        raise RuleError("Can't override " + ", ".join(sorted(bad)) + ".", 422)
+    data: dict[str, Any] = {k: v for k, v in (t.data or {}).items() if k != "due_in_days"}
+    data.setdefault("title", t.name)
+    if (t.data or {}).get("due_in_days") is not None and "due_at" not in overrides:
+        due = utcnow().replace(hour=17, minute=0, second=0, microsecond=0) + timedelta(days=int(t.data["due_in_days"]))
+        data["due_at"] = due.isoformat()
+    if "asset_id" in overrides and "location_id" not in overrides:
+        data.pop("location_id", None)  # the asset's own location follows it
+    data.update(overrides)
+    data["template_id"] = str(t.id)
+    try:
+        wo = create_work_order(org, m, data, commit=False)
+    except RuleError as e:
+        if e.status == 422 and "required" in e.message.lower():
+            raise RuleError(e.message + " Open the full form to fill it in.", 422) from e
+        raise
+    t.use_count = (t.use_count or 0) + 1
+    t.last_used_at = utcnow()
+    db.session.commit()
+    return wo
 
 
 def delete_template(org: Organization, t: Template) -> None:

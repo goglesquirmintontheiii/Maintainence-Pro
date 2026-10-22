@@ -6,7 +6,8 @@ import { api, ApiError, type WorkOrder } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { atTime, useWOOptions } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
-import { Button, Dropdown, Field, Input, Modal } from "../../components/ui";
+import { Button, Dropdown, Field, Modal } from "../../components/ui";
+import { ClearableDate } from "../../components/assetPickers";
 import { AssigneePicker, CategoryPicker } from "../../components/pickers";
 import { ExportDialog } from "./WorkOrders";
 
@@ -81,7 +82,7 @@ export function BulkBar({ ids, items, onDone }: { ids: string[]; items: WorkOrde
         <CategoryPicker options={opts.data} value={val} onChange={setVal} /></Modal>}
       {dialog === "due" && <Modal title="Change due date" onClose={() => setDialog(null)}
         footer={<><Button onClick={() => setDialog(null)}>Cancel</Button><Button variant="primary" disabled={!text} onClick={() => run.mutate({ action: "set_due", value: atTime(text, opts.data?.settings.default_due_time ?? "12:00") })}>Apply to {ids.length}</Button></>}>
-        <Field label="Due date">{(id) => <Input id={id} type="date" value={text} onChange={(e) => setText(e.target.value)} autoFocus />}</Field></Modal>}
+        <Field label="Due date">{(id) => <ClearableDate id={id} label="due date" type="date" value={text} onChange={setText} autoFocus />}</Field></Modal>}
       {dialog === "cancel" && <Modal title={`Cancel ${ids.length} work order${ids.length === 1 ? "" : "s"}`} onClose={() => setDialog(null)}
         footer={<><Button onClick={() => setDialog(null)}>Back</Button><Button variant="danger" className="solid" disabled={opts.data?.settings.comment_on_cancel === "mandatory" && !text.trim()} onClick={() => run.mutate({ action: "cancel", comment: text })}>Cancel work orders</Button></>}>
         <Field label={"Reason" + (opts.data?.settings.comment_on_cancel === "mandatory" ? " *" : " (optional)")}>{(id) => <textarea id={id} className="textarea" value={text} onChange={(e) => setText(e.target.value)} autoFocus />}</Field>

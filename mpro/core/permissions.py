@@ -63,6 +63,21 @@ ACTIONS: dict[str, set[str]] = {
     "templates.manage": {"admin", "limited_admin"},
     "views.share": {"admin"},
     "exports.use": {"admin", "limited_admin", "technician", "viewer"},
+    # locations, assets, meters, QR codes (0.3.0). Requesters pick assets on requests in 0.6.0.
+    "locations.view": {"admin", "limited_admin", "technician", "viewer"},
+    "locations.manage": {"admin", "limited_admin", "technician"},
+    "locations.delete": {"admin", "limited_admin"},
+    "assets.view": {"admin", "limited_admin", "technician", "viewer"},
+    "assets.manage": {"admin", "limited_admin", "technician"},
+    "assets.status": {"admin", "limited_admin", "technician"},
+    "assets.delete": {"admin", "limited_admin"},
+    "assets.financials": {"admin", "limited_admin"},
+    "assets.settings": {"admin"},
+    "meters.view": {"admin", "limited_admin", "technician", "viewer"},
+    "meters.read": {"admin", "limited_admin", "technician"},
+    "meters.manage": {"admin", "limited_admin", "technician"},
+    "meters.delete": {"admin", "limited_admin"},
+    "qr.manage": {"admin", "limited_admin", "technician"},
 }
 
 

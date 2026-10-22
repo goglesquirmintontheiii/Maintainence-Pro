@@ -168,7 +168,7 @@ def workload() -> dict[str, Any]:
     except ValueError:
         abort(422, message="start must be YYYY-MM-DD and days a number.")
     team = request.args.get("team")
-    return qry.workload(g.membership, g.org, start, days, _uuid(team) if team else None)
+    return guard(qry.workload, g.membership, g.org, start, days, _uuid(team) if team else None, _params())
 
 
 @bp.post("/work-orders/bulk")
@@ -268,11 +268,18 @@ def restore_work_order(wo_id: str) -> dict[str, Any]:
 @bp.post("/work-orders/<wo_id>/status")
 @require("wo.edit")
 def change_status(wo_id: str) -> dict[str, Any]:
-    """{status, comment, sub_status, summary, signature (PNG data URL), signed_by, file_ids, version}"""
+    """{status, comment, sub_status, summary, signature (PNG data URL), signed_by, file_ids, version,
+    asset_status: {status, reason, downtime_type, note}} — asset_status also changes the linked asset's status."""
     wo = _wo(wo_id)
     b = body()
+
+    def run(*a: Any, **k: Any) -> None:
+        svc.set_status(*a, **k, commit=False)
+        svc._asset_status_from_wo(g.org, g.membership, wo, b.get("asset_status"))
+        db.session.commit()
+
     guard(
-        svc.set_status,
+        run,
         g.org,
         g.membership,
         wo,
@@ -286,6 +293,15 @@ def change_status(wo_id: str) -> dict[str, Any]:
         expected_version=_version(b),
         undo=bool(b.get("undo")),
     )
+    return _detail(wo)
+
+
+@bp.patch("/work-orders/<wo_id>/asset-tasks/<task_id>")
+@require("wo.edit")
+def patch_asset_task(wo_id: str, task_id: str) -> dict[str, Any]:
+    """Set one asset's task status (open, in_progress, on_hold, done) and/or notes on a work order."""
+    wo = _wo(wo_id)
+    guard(svc.update_asset_task, g.org, g.membership, wo, task_id, body())
     return _detail(wo)
 
 
@@ -523,35 +539,65 @@ def delete_category(cid: str) -> tuple[str, int]:
 
 
 # ---- custom fields ---------------------------------------------------------------------------
+CF_PERMS = {
+    "work_order": ("wo.view", "wo.settings"),
+    "asset": ("assets.view", "assets.settings"),
+    "location": ("locations.view", "assets.settings"),
+}
+
+
+def _cf_entity(manage: bool, entity: str | None = None) -> str:
+    entity = (
+        entity or request.args.get("entity") or (body().get("entity_type") if request.is_json else None) or "work_order"
+    )
+    if entity not in CF_PERMS:
+        abort(422, message="Custom fields belong to work orders, assets or locations.")
+    if not can(g.membership, CF_PERMS[entity][1 if manage else 0]):
+        abort(403, message="You don't have permission to do that.")
+    return entity
+
+
 @bp.get("/custom-fields")
-@require("wo.view")
+@require("org.view")
 def list_custom_fields() -> dict[str, Any]:
-    return {"items": [svc.custom_field_dict(f) for f in svc.custom_fields(g.org.id)]}
+    """Query `entity` = work_order (default) | asset | location."""
+    entity = _cf_entity(False)
+    return {"items": [svc.custom_field_dict(f) for f in svc.custom_fields(g.org.id, entity)]}
 
 
 @bp.post("/custom-fields")
-@require("wo.settings")
+@require("org.view")
 def create_custom_field() -> tuple[dict[str, Any], int]:
-    return svc.custom_field_dict(guard(svc.save_custom_field, g.org, body())), 201
+    entity = _cf_entity(True)
+    return svc.custom_field_dict(guard(svc.save_custom_field, g.org, body(), None, entity)), 201
 
 
 @bp.post("/custom-fields/reorder")
-@require("wo.settings")
+@require("org.view")
 def reorder_custom_fields() -> dict[str, Any]:
+    entity = _cf_entity(True)
     ids = body().get("ids") or []
-    return {"items": [svc.custom_field_dict(f) for f in guard(svc.reorder_custom_fields, g.org, [str(i) for i in ids])]}
+    return {
+        "items": [
+            svc.custom_field_dict(f) for f in guard(svc.reorder_custom_fields, g.org, [str(i) for i in ids], entity)
+        ]
+    }
 
 
 @bp.patch("/custom-fields/<fid>")
-@require("wo.settings")
+@require("org.view")
 def patch_custom_field(fid: str) -> dict[str, Any]:
-    return svc.custom_field_dict(guard(svc.save_custom_field, g.org, body(), get_scoped(CustomField, fid)))
+    f = get_scoped(CustomField, fid)
+    _cf_entity(True, f.entity_type)
+    return svc.custom_field_dict(guard(svc.save_custom_field, g.org, body(), f))
 
 
 @bp.delete("/custom-fields/<fid>")
-@require("wo.settings")
+@require("org.view")
 def delete_custom_field(fid: str) -> tuple[str, int]:
-    svc.delete_custom_field(g.org, get_scoped(CustomField, fid))
+    f = get_scoped(CustomField, fid)
+    _cf_entity(True, f.entity_type)
+    svc.delete_custom_field(g.org, f)
     return "", 204
 
 
@@ -559,8 +605,21 @@ def delete_custom_field(fid: str) -> tuple[str, int]:
 @bp.get("/work-order-templates")
 @require("wo.view")
 def list_templates() -> dict[str, Any]:
-    ts = db.session.scalars(scoped(Template).order_by(func.lower(Template.name))).all()
-    return {"items": [svc.template_dict(t) for t in ts]}
+    order = request.args.get("sort") or "name"
+    q = scoped(Template)
+    if order == "popular":  # pinned first, then most used (the Create menu's quick list)
+        q = q.order_by(Template.pinned.desc(), Template.use_count.desc(), func.lower(Template.name))
+    else:
+        q = q.order_by(func.lower(Template.name))
+    return {"items": [svc.template_dict(t) for t in db.session.scalars(q).all()]}
+
+
+@bp.post("/work-order-templates/<tid>/create")
+@require("wo.create")
+def create_from_template(tid: str) -> tuple[dict[str, Any], int]:
+    """One-tap create from a template. Optional overrides: asset_id, location_id, assignees, due_at, title…"""
+    wo = guard(svc.create_from_template, g.org, g.membership, get_scoped(Template, tid), body())
+    return _detail(wo), 201
 
 
 @bp.post("/work-order-templates")

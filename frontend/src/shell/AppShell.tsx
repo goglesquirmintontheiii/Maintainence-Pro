@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Bell, Boxes, Building2, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Home, Keyboard, LogOut, Menu, MessageSquare, Monitor, Moon,
-  MoreHorizontal, Plus, Search, Sun, Tags, UserRound } from "lucide-react";
-import { api, type Session } from "../lib/api";
+import { Bell, Boxes, Building2, Gauge, MapPin, ScanLine, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Home, Keyboard, LogOut, Menu, MessageSquare, Monitor, Moon,
+  MoreHorizontal, Pin, Plus, Search, Sun, Tags, UserRound, Zap } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, ApiError, type Session, type Template } from "../lib/api";
 import { applyTheme, useSession } from "../lib/session";
 import { useToast } from "../components/Toast";
 import { Avatar, Button, Dropdown, Modal } from "../components/ui";
@@ -105,15 +106,19 @@ export function AppShell() {
             <Search size={16} /><span className="label-text">Search work orders, people, pages…</span><span className="kbd">Ctrl K</span>
           </button>
           <span className="grow" />
+          <Button variant="ghost" icon aria-label="Scan a QR code or barcode" title="Scan a code" onClick={() => nav("/scan")}><ScanLine size={18} /></Button>
           <Dropdown trigger={(_, toggle) => <Button variant="primary" onClick={toggle} aria-label="Create"><Plus size={16} /><span className="desktop-only">Create</span></Button>}>
             {(close) => <>
               <div className="menu-label">Create</div>
               {can("wo.create") && <button className="menu-item" onClick={() => { close(); nav("/work-orders?new=1"); }}><ClipboardList size={15} />Work order<span className="r kbd">C</span></button>}
+              {can("wo.create") && <QuickTemplates close={close} />}
               {can("categories.manage") && <button className="menu-item" onClick={() => { close(); nav("/categories"); }}><Tags size={15} />Category</button>}
               <div className="menu-sep" />
               {can("users.manage") && <button className="menu-item" onClick={() => { close(); nav("/people/users?invite=1"); }}><UserRound size={15} />Invite a person</button>}
               {can("teams.manage") && <button className="menu-item" onClick={() => { close(); nav("/people/teams?new=1"); }}><Building2 size={15} />Team</button>}
-              <button className="menu-item" disabled><Boxes size={15} />Asset<span className="r small">0.3.0</span></button>
+              {can("assets.manage") && <button className="menu-item" onClick={() => { close(); nav("/assets?new=1"); }}><Boxes size={15} />Asset</button>}
+              {can("locations.manage") && <button className="menu-item" onClick={() => { close(); nav("/locations?new=1"); }}><MapPin size={15} />Location</button>}
+              {can("meters.manage") && <button className="menu-item" onClick={() => { close(); nav("/meters?new=1"); }}><Gauge size={15} />Meter</button>}
             </>}
           </Dropdown>
           <Dropdown trigger={(_, toggle) => <Button variant="ghost" icon aria-label="Notifications" onClick={toggle}><Bell size={18} /></Button>}>
@@ -162,4 +167,37 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
         <tr key={k}><td style={{ width: 150 }}>{k.split(" ").map((x, i) => x === "or" || x === "then" ? <span key={i} className="small faint"> {x} </span> : <span key={i} className="kbd">{x}</span>)}</td><td>{d}</td></tr>))}</tbody></table>
     </Modal>
   );
+}
+
+/** One-tap create from pinned and most-used templates (MP-101, roadmap r587). */
+function QuickTemplates({ close }: { close: () => void }) {
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const t = useQuery({ queryKey: ["wo-templates", "popular"], queryFn: () => api<{ items: Template[] }>("/work-order-templates?sort=popular"), staleTime: 30_000 });
+  const items = (t.data?.items ?? []).filter((x) => x.pinned || x.use_count > 0).slice(0, 5);
+  const fallback = (t.data?.items ?? []).slice(0, 3);
+  const list = items.length ? items : fallback;
+  if (!list.length) return null;
+  const go = async (tpl: Template) => {
+    close();
+    try {
+      const wo = await api<{ id: string; number: number }>(`/work-order-templates/${tpl.id}/create`, { method: "POST", body: {} });
+      qc.invalidateQueries({ queryKey: ["work-orders"] }); qc.invalidateQueries({ queryKey: ["wo-templates"] }); qc.invalidateQueries({ queryKey: ["wo-stats"] });
+      toast(`Work order #${wo.number} created from “${tpl.name}”`);
+      nav(`/work-orders/${wo.id}`);
+    } catch (e) {
+      // a required field the template doesn't fill: open the full form prefilled instead
+      toast((e as ApiError).message, { kind: "error" });
+      nav(`/work-orders?new=1&template=${tpl.id}`);
+    }
+  };
+  return <>
+    <div className="menu-label">From a template</div>
+    {list.map((x) => (
+      <button key={x.id} className="menu-item" onClick={() => void go(x)} title={`Create a work order from “${x.name}” in one tap`}>
+        {x.pinned ? <Pin size={15} /> : <Zap size={15} />}<span className="grow" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name}</span>
+      </button>))}
+    <div className="menu-sep" />
+  </>;
 }

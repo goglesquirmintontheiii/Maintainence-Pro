@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from flask import current_app, g, has_request_context, request
@@ -64,6 +65,12 @@ def _jsonable(v: Any) -> Any:
         return str(v)
     if isinstance(v, datetime):
         return iso(v)
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return format(v.normalize(), "f")
+    if isinstance(v, list | tuple):
+        return [_jsonable(x) for x in v]
     return v
 
 

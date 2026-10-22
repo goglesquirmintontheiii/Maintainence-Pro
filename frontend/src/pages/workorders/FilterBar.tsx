@@ -7,10 +7,11 @@ import { useSession } from "../../lib/session";
 import { useToast } from "../../components/Toast";
 import { Avatar, Button, Checkbox, Dropdown, Field, Input, Modal, Select } from "../../components/ui";
 
-type FieldDef = { id: string; label: string; kind: "list" | "date" | "cdate" | "num" | "text" | "bool" | "parent"; options?: (o: WOOptions) => { id: string; label: string; color?: string; initials?: string }[] };
+type FieldDef = { id: string; label: string; kind: "list" | "tree" | "date" | "cdate" | "num" | "text" | "bool" | "parent"; options?: (o: WOOptions) => { id: string; label: string; color?: string; initials?: string; sub?: string }[] };
 
 const OPS: Record<string, { id: string; label: string }[]> = {
   list: [{ id: "in", label: "One of" }, { id: "not_in", label: "None of" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
+  tree: [{ id: "within", label: "In or under" }, { id: "in", label: "One of" }, { id: "not_in", label: "None of" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   date: [{ id: "between", label: "Between" }, { id: "before", label: "Before" }, { id: "after", label: "After" }, { id: "overdue", label: "Overdue" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   text: [{ id: "contains", label: "Contains" }, { id: "not_contains", label: "Does not contain" }, { id: "empty", label: "Is empty" }, { id: "not_empty", label: "Is not empty" }],
   bool: [{ id: "is", label: "Is" }],
@@ -39,6 +40,8 @@ export function fieldDefs(o: WOOptions | undefined): FieldDef[] {
     { id: "description", label: "Description", kind: "text" },
     { id: "parent", label: "Sub-work orders", kind: "parent" },
     { id: "unread", label: "Unread", kind: "bool" },
+    ...(o?.assets?.length ? [{ id: "asset", label: "Asset", kind: "tree" as const, options: (x: WOOptions) => (x.assets ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
+    ...(o?.locations?.length ? [{ id: "location", label: "Location", kind: "tree" as const, options: (x: WOOptions) => (x.locations ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
   ];
   const custom: FieldDef[] = (o?.custom_fields ?? []).map((f) => ({
     id: `custom.${f.id}`, label: f.name,
@@ -53,7 +56,7 @@ function describe(f: Filter, def: FieldDef | undefined, o: WOOptions | undefined
   const op = (OPS[def.kind] ?? []).find((x) => x.id === f.op)?.label ?? f.op;
   if (["empty", "not_empty", "overdue"].includes(f.op) || def.kind === "parent") return `${def.label}: ${op}`;
   if (def.kind === "bool") return f.value ? "Unread" : "Read";
-  if (def.kind === "list" && o && def.options) {
+  if ((def.kind === "list" || def.kind === "tree") && o && def.options) {
     const opts = def.options(o);
     const names = ((f.value as string[]) ?? []).map((v) => opts.find((x) => x.id === v)?.label ?? v);
     return `${def.label}: ${f.op === "not_in" ? "not " : ""}${names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(", ") || "—"}`;
@@ -77,13 +80,13 @@ function FilterEditor({ filter, def, options, onChange, onRemove, close }: { fil
   return (
     <div style={{ padding: 8, width: 290 }} className="stack">
       <div className="row"><b className="grow">{def.label}</b><Button size="sm" variant="ghost" icon aria-label="Remove filter" onClick={() => { onRemove(); close(); }}><Trash2 size={14} /></Button></div>
-      {def.kind !== "bool" && <Select value={f.op} aria-label="Condition" onChange={(e) => setF({ ...f, op: e.target.value, value: def.kind === "list" ? vals : f.value })}>
+      {def.kind !== "bool" && <Select value={f.op} aria-label="Condition" onChange={(e) => setF({ ...f, op: e.target.value, value: def.kind === "list" || def.kind === "tree" ? vals : f.value })}>
         {ops.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</Select>}
-      {!noValue && def.kind === "list" && (<>
+      {!noValue && (def.kind === "list" || def.kind === "tree") && (<>
         {opts.length > 7 && <Input placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search options" />}
         <div className="filter-opts">{opts.map((x) => (
           <Checkbox key={x.id} checked={vals.includes(x.id)} onChange={(c) => setF({ ...f, value: c ? [...vals, x.id] : vals.filter((v) => v !== x.id) })}
-            label={<span className="row" style={{ gap: 6 }}>{x.color && <span className="sw lg" style={{ background: x.color }} />}{x.initials && <Avatar name={x.label} initials={x.initials} size="sm" />}{x.label}</span>} />))}</div>
+            label={<span className="row" style={{ gap: 6 }}>{x.color && <span className="sw lg" style={{ background: x.color }} />}{x.initials && <Avatar name={x.label} initials={x.initials} size="sm" />}{x.label}{x.sub && <span className="small faint">{x.sub}</span>}</span>} />))}</div>
       </>)}
       {!noValue && def.kind === "num" && <div className="row"><Input type="number" aria-label="From" value={((f.value as string[]) ?? [])[0] ?? ""} onChange={(e) => setF({ ...f, value: [e.target.value, ((f.value as string[]) ?? [])[1] ?? ""] })} />
         <Input type="number" aria-label="To" value={((f.value as string[]) ?? [])[1] ?? ""} onChange={(e) => setF({ ...f, value: [((f.value as string[]) ?? [])[0] ?? "", e.target.value] })} /></div>}

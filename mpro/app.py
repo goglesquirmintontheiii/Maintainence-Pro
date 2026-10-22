@@ -37,19 +37,26 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     login_manager.init_app(app)
 
     # Import models so metadata is complete, and modules so job/search/event registries fill.
+    from mpro.assets import models as _asset_models  # noqa: F401
+    from mpro.assets.api import bp as assets_bp
     from mpro.auth import models as _auth_models  # noqa: F401
     from mpro.auth.api import CSRF_EXEMPT
     from mpro.auth.api import bp as auth_bp
     from mpro.auth.models import User
     from mpro.core import files as _files  # noqa: F401
+    from mpro.core import hierarchy as _hierarchy  # noqa: F401
     from mpro.core import jobs as _jobs  # noqa: F401
     from mpro.core import mail as _mail  # noqa: F401
     from mpro.core import settings as _settings  # noqa: F401
     from mpro.core.admin_api import bp as admin_bp
     from mpro.core.admin_api import health_bp
     from mpro.core.files_api import bp as files_bp
+    from mpro.meters import models as _meter_models  # noqa: F401
+    from mpro.meters.api import bp as meters_bp
     from mpro.orgs import models as _org_models  # noqa: F401
     from mpro.orgs.api import bp as orgs_bp
+    from mpro.qr import models as _qr_models  # noqa: F401
+    from mpro.qr.api import bp as qr_bp
     from mpro.workorders import exports as _wo_exports  # noqa: F401
     from mpro.workorders import models as _wo_models  # noqa: F401
     from mpro.workorders.api import bp as wo_bp
@@ -100,11 +107,12 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
             resp.headers.setdefault(
                 "Content-Security-Policy",
                 "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
-                "script-src 'self'; connect-src 'self'; frame-ancestors 'self'",
+                "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data:; "
+                "frame-ancestors 'self'",
             )
         return resp
 
-    for bp in (auth_bp, orgs_bp, wo_bp, files_bp, admin_bp, health_bp):
+    for bp in (auth_bp, orgs_bp, wo_bp, assets_bp, meters_bp, qr_bp, files_bp, admin_bp, health_bp):
         app.register_blueprint(bp)
 
     @app.get("/", defaults={"path": ""})
