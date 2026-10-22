@@ -21,7 +21,7 @@ export type Plan = {
   id: string; kind: "plan" | "repeat"; name: string; description: string; active: boolean;
   asset: { id: string; name: string; status: string } | null; location: { id: string; name: string } | null;
   schedule_kind: ScheduleKind; interval_mode: "fixed" | "floating"; timezone: string; horizon_days: number; start_offset_days: number;
-  defaults: Defaults; calendar: Calendar; frequency: string; next_due_at: string | null; task_count: number; version: number; deleted: boolean;
+  defaults: Defaults; calendar: Calendar; frequency: string; next_due_at: string | null; task_count: number; version: number; deleted: boolean; last_problem?: string;
   source_work_order_id: string | null; created_at: string; updated_at: string; tasks?: Task[]; compliance?: Compliance | null;
 };
 export type OccStatus = "upcoming" | "planned" | "generated" | "skipped" | "completed" | "canceled";

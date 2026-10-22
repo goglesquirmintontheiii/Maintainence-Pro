@@ -153,8 +153,10 @@ def duplicate_role(rid: str) -> tuple[dict[str, Any], int]:
 @bp.delete("/roles/<rid>")
 @require("roles.manage")
 def delete_role(rid: str) -> dict[str, Any]:
-    moved = guard(rl.delete_role, g.org, g.membership, guard(rl.get_role, g.org.id, rid))
-    return {"moved": moved}
+    r = guard(rl.get_role, g.org.id, rid)
+    to = rl.fallback_role(r)
+    moved = guard(rl.delete_role, g.org, g.membership, r)
+    return {"moved": moved, "moved_to": to, "moved_to_label": rl.ROLES[to]["label"]}
 
 
 @bp.post("/roles/<rid>/restore")

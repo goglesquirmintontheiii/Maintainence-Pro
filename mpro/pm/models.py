@@ -26,7 +26,7 @@ from mpro.extensions import db
 PLAN_KINDS = ("plan", "repeat")
 SCHEDULE_KINDS = ("time", "usage", "time_or_usage")
 INTERVAL_MODES = ("fixed", "floating")  # fixed = original schedule; floating = from last completion (r197)
-OCCURRENCE_STATUSES = ("planned", "generated", "skipped", "completed", "canceled")
+OCCURRENCE_STATUSES = ("planned", "generating", "generated", "skipped", "completed", "canceled")
 
 
 class MaintenancePlan(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
@@ -51,6 +51,8 @@ class MaintenancePlan(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, 
     source_work_order_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # repeat: the first WO
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    # the latest generation problem, shown on the plan (e.g. a procedure was unpublished) (#9)
+    last_problem: Mapped[str] = mapped_column(Text, default="")
 
 
 class PMTask(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

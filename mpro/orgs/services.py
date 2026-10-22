@@ -226,6 +226,8 @@ def update_member(
     from mpro.orgs.roles import may_assign, may_manage, resolve_role
 
     before = {"name": m.user.name, "role": _role_label(m), "job_title": m.job_title}
+    if not self_edit and m.id != actor_m.id and not may_manage(actor_m, m):  # e.g. administrators (#16)
+        raise RuleError("You can't change this person.", 403)
     if "role" in data:
         new, custom = resolve_role(org.id, data["role"])
         new_id = custom.id if custom is not None else None

@@ -132,9 +132,9 @@ function RoleEditor({ role, cat, manage, onSelect, onStartFrom }: { role: Role; 
     onSuccess: (r) => { invalidate(); onSelect(r.key); toast(`Created ${r.name}`); }, onError: (e) => toast(err(e), { kind: "error" }),
   });
   const remove = useMutation({
-    mutationFn: () => api<{ moved: number }>(`/roles/${role.id}`, { method: "DELETE" }),
+    mutationFn: () => api<{ moved: number; moved_to?: string; moved_to_label?: string }>(`/roles/${role.id}`, { method: "DELETE" }),
     onSuccess: (x) => { setConfirmDelete(false); invalidate(); onSelect(""); qc.invalidateQueries({ queryKey: ["users"] });
-      toast(x.moved ? `Role deleted. ${x.moved} ${x.moved === 1 ? "person moved" : "people moved"} to ${role.base_label}.` : "Role deleted"); },
+      toast(x.moved ? `Role deleted. ${x.moved} ${x.moved === 1 ? "person moved" : "people moved"} to ${x.moved_to_label ?? role.fallback_label ?? role.base_label}.` : "Role deleted"); },
     onError: (e) => toast(err(e), { kind: "error" }),
   });
   const restore = useMutation({
@@ -223,7 +223,7 @@ function RoleEditor({ role, cat, manage, onSelect, onStartFrom }: { role: Role; 
         <Modal title={`Delete ${role.name}?`} onClose={() => setConfirmDelete(false)} width={440}
           footer={<><Button onClick={() => setConfirmDelete(false)}>Cancel</Button><Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>Delete role</Button></>}>
           <p style={{ marginTop: 0 }}>{role.members > 0
-            ? `${role.members} ${role.members === 1 ? "person has" : "people have"} this role. They'll move to ${role.base_label}.`
+            ? `${role.members} ${role.members === 1 ? "person has" : "people have"} this role. They'll move to ${role.fallback_label ?? "View-only"}, the most limited built-in role that has all of this role's permissions.`
             : "Nobody has this role."} You can restore it later from “Show deleted roles”.</p>
         </Modal>)}
       {preview && <ViewAsPanel roleKey={role.key} onClose={() => setPreview(false)} />}

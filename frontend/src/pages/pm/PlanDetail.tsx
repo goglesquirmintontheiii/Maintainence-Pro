@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarClock, CalendarPlus, Gauge, MapPin, MoreHorizontal, Package, Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarClock, CalendarPlus, Gauge, MapPin, MoreHorizontal, Package, Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { dateTime } from "../../lib/format";
@@ -77,6 +77,8 @@ export function PlanDetail({ id }: { id: string }) {
       {repeat && p.source_work_order_id && <div className="banner info small"><Repeat size={16} /><div className="grow">
         This repeats a work order. Change how often it repeats from the work order's <b>Edit</b> panel.</div>
         <Link to={`/work-orders/${p.source_work_order_id}`} className="linkbtn small">Open work order</Link></div>}
+      {p.last_problem && <div className="banner warning small" role="status"><AlertTriangle size={16} /><div className="grow">
+        <b>Problem with this plan:</b> {p.last_problem.replace(/\.$/, "")}. Check its details in <b>Edit</b>.</div></div>}
       {p.description && <p className="prewrap">{p.description}</p>}
 
       <div className="tiles pm-tiles">

@@ -46,8 +46,13 @@ class OutboundEmail(IdMixin, db.Model):  # type: ignore[name-defined]
         }
 
 
+def clean_subject(subject: str) -> str:
+    """One line: CR/LF (header injection) and other control characters become spaces (#16)."""
+    return " ".join("".join(" " if ord(c) < 32 or c == "\x7f" else c for c in subject).split())[:255]
+
+
 def send_email(to: str, subject: str, body: str, org_id: uuid.UUID | None = None) -> OutboundEmail:
-    m = OutboundEmail(to=to, subject=subject, body=body, org_id=org_id)
+    m = OutboundEmail(to=to, subject=clean_subject(subject), body=body, org_id=org_id)
     db.session.add(m)
     db.session.flush()
     enqueue("send_email", {"id": str(m.id)}, org_id=org_id)
@@ -65,7 +70,7 @@ def _send(payload: dict[str, Any]) -> None:
         db.session.commit()
         return
     msg = EmailMessage()
-    msg["From"], msg["To"], msg["Subject"] = cfg["MAIL_FROM"], m.to, m.subject
+    msg["From"], msg["To"], msg["Subject"] = cfg["MAIL_FROM"], m.to, clean_subject(m.subject)
     msg.set_content(m.body)
     with smtplib.SMTP(cfg["MAIL_SERVER"], cfg["MAIL_PORT"], timeout=20) as s:
         if cfg.get("MAIL_USE_TLS"):

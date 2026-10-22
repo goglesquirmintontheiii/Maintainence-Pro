@@ -6,6 +6,7 @@ import contextlib
 import copy
 import csv
 import io
+import logging
 import math
 import re
 import uuid
@@ -45,6 +46,8 @@ register_defaults(
     },
 )
 MAX_RUNS_PER_WO = 20
+
+log = logging.getLogger(__name__)
 
 
 def proc_settings(org_id: uuid.UUID) -> dict[str, Any]:
@@ -636,12 +639,59 @@ def _answer_values(rows: dict[str, ProcedureAnswer]) -> dict[str, Any]:
     return {k: (a.value if not a.skipped else "__skipped__") for k, a in rows.items()}
 
 
-def progress(schema: dict[str, Any], rows: dict[str, ProcedureAnswer]) -> dict[str, Any]:
+def live_assignees(org_id: uuid.UUID | None, who: list[str]) -> list[str]:
+    """Field assignees still in the organization (#13): removed members and deleted teams are ignored."""
+    if not who or org_id is None:
+        return list(who or [])
+    from mpro.orgs.models import Team
+
+    users: list[uuid.UUID] = []
+    teams: list[uuid.UUID] = []
+    for w in who:
+        kind, _, raw = str(w).partition(":")
+        try:
+            u = uuid.UUID(raw)
+        except ValueError:
+            continue
+        if kind == "user":
+            users.append(u)
+        elif kind == "team":
+            teams.append(u)
+    live_users = (
+        set(
+            db.session.scalars(
+                select(Membership.user_id).where(
+                    Membership.org_id == org_id, Membership.user_id.in_(users), Membership.deleted_at.is_(None)
+                )
+            ).all()
+        )
+        if users
+        else set()
+    )
+    live_teams = (
+        set(
+            db.session.scalars(
+                select(Team.id).where(Team.org_id == org_id, Team.id.in_(teams), Team.deleted_at.is_(None))
+            ).all()
+        )
+        if teams
+        else set()
+    )
+    return [f"user:{u}" for u in users if u in live_users] + [f"team:{t}" for t in teams if t in live_teams]
+
+
+def progress(
+    schema: dict[str, Any], rows: dict[str, ProcedureAnswer], org_id: uuid.UUID | None = None
+) -> dict[str, Any]:
     values = _answer_values(rows)
     vis = sch.visible_ids(schema, values)
     fs = [f for f in sch.fields(schema) if f["id"] in vis]
     done = [f for f in fs if f["id"] in rows and sch.answered(f, rows[f["id"]].value, rows[f["id"]].skipped)]
-    missing = [f for f in fs if (f.get("required") or f.get("assignees")) and f not in done]
+    missing = [
+        f
+        for f in fs
+        if (f.get("required") or (f.get("assignees") and live_assignees(org_id, f["assignees"]))) and f not in done
+    ]
     return {
         "answered": len(done),
         "total": len(fs),
@@ -676,7 +726,7 @@ def run_dict(run: ProcedureRun, m: Membership | None = None) -> dict[str, Any]:
     rows = answers_of(run)
     ids = {a.answered_by_id for a in rows.values() if a.answered_by_id}
     names = dict(db.session.execute(select(User.id, User.name).where(User.id.in_(ids))).all()) if ids else {}
-    prog = progress(schema, rows)
+    prog = progress(schema, rows, run.org_id)
     refs: dict[str, Any] = {}
     for f in sch.walk(schema.get("items") or []):
         for fid in f.get("reference_file_ids") or []:
@@ -717,8 +767,9 @@ def _find_field(schema: dict[str, Any], field_id: str) -> dict[str, Any]:
 
 
 def _is_assignee(m: Membership, f: dict[str, Any]) -> bool:
-    who = f.get("assignees") or []
-    if not who:
+    """Assigned fields are answered by their assignees, or by people who manage procedures (#13)."""
+    who = live_assignees(m.org_id, f.get("assignees") or [])
+    if not who or can(m, "procedures.manage"):
         return True
     if f"user:{m.user_id}" in who:
         return True
@@ -988,7 +1039,7 @@ def answer(
         corrective = _corrective_policy(org, m, wo, run, f, a)
     if corrective is None and run.score is not None:
         goal = (v.schema.get("scoring") or {}).get("goal")
-        prog = progress(v.schema, rows)
+        prog = progress(v.schema, rows, run.org_id)
         scorable_left = [
             x
             for x in sch.fields(v.schema)
@@ -1141,7 +1192,7 @@ def completion_check(org: Organization, m: Membership, wo: WorkOrder) -> str | N
         v = db.session.get(ProcedureVersion, run.version_id)
         if v is None:
             continue
-        prog = progress(v.schema, answers_of(run))
+        prog = progress(v.schema, answers_of(run), run.org_id)
         if prog["missing_required"]:
             p = db.session.get(Procedure, run.procedure_id)
             names = ", ".join(prog["missing_required"][:5]) + (" …" if len(prog["missing_required"]) > 5 else "")
@@ -1202,13 +1253,26 @@ def _range(params: dict[str, Any]) -> tuple[datetime | None, datetime | None]:
     )
 
 
-def wo_history(org_id: uuid.UUID, p: Procedure, params: dict[str, Any]) -> dict[str, Any]:
+def can_see_procedure(m: Membership, p: Procedure) -> bool:
+    """Library procedures are visible to anyone with procedures.view; one-off procedures built inside a work
+    order (r210) only to people who can see that work order."""
+    if p.work_order_id is None:
+        return True
+    from mpro.workorders.services import can_see
+
+    wo = db.session.get(WorkOrder, p.work_order_id)
+    return wo is not None and wo.org_id == p.org_id and can_see(m, wo)
+
+
+def wo_history(m: Membership, p: Procedure, params: dict[str, Any]) -> dict[str, Any]:
     """Work orders created and completed with this procedure in a date range (r207)."""
+    from mpro.workorders.services import visibility_filter
+
     lo, hi = _range(params)
     q = (
         select(ProcedureRun, WorkOrder)
         .join(WorkOrder, WorkOrder.id == ProcedureRun.work_order_id)
-        .where(ProcedureRun.procedure_id == p.id, WorkOrder.deleted_at.is_(None))
+        .where(ProcedureRun.procedure_id == p.id, WorkOrder.deleted_at.is_(None), visibility_filter(m))
     )
     rows = db.session.execute(q.order_by(WorkOrder.created_at.desc())).all()
     created = [w for _, w in rows if (lo is None or w.created_at >= lo) and (hi is None or w.created_at <= hi)]
@@ -1234,13 +1298,15 @@ def wo_history(org_id: uuid.UUID, p: Procedure, params: dict[str, Any]) -> dict[
     }
 
 
-def analytics(org_id: uuid.UUID, p: Procedure, params: dict[str, Any]) -> dict[str, Any]:
-    """Step fail/flag rates (r596) and numeric answers over time (MP-037)."""
+def analytics(m: Membership, p: Procedure, params: dict[str, Any]) -> dict[str, Any]:
+    """Step fail/flag rates (r596) and numeric answers over time (MP-037), over work orders the member can see."""
+    from mpro.workorders.services import visibility_filter
+
     lo, hi = _range(params)
     q = (
         select(ProcedureAnswer, WorkOrder.number)
         .join(WorkOrder, WorkOrder.id == ProcedureAnswer.work_order_id)
-        .where(ProcedureAnswer.procedure_id == p.id, WorkOrder.deleted_at.is_(None))
+        .where(ProcedureAnswer.procedure_id == p.id, WorkOrder.deleted_at.is_(None), visibility_filter(m))
     )
     if lo:
         q = q.where(ProcedureAnswer.answered_at >= lo)
@@ -1275,8 +1341,13 @@ def analytics(org_id: uuid.UUID, p: Procedure, params: dict[str, Any]) -> dict[s
     out_steps.sort(key=lambda s: (-s["problem_rate"], -s["total"]))
     scores = db.session.execute(
         select(ProcedureRun.score, ProcedureRun.completed_at)
+        .join(WorkOrder, WorkOrder.id == ProcedureRun.work_order_id)
         .where(
-            ProcedureRun.procedure_id == p.id, ProcedureRun.score.is_not(None), ProcedureRun.completed_at.is_not(None)
+            ProcedureRun.procedure_id == p.id,
+            ProcedureRun.score.is_not(None),
+            ProcedureRun.completed_at.is_not(None),
+            WorkOrder.deleted_at.is_(None),
+            visibility_filter(m),
         )
         .order_by(ProcedureRun.completed_at)
     ).all()
@@ -1374,7 +1445,12 @@ def import_pdf(data: bytes) -> dict[str, Any]:
         lines: list[str] = []
         for page in reader.pages[:50]:
             lines.extend((page.extract_text() or "").splitlines())
-    except (PdfReadError, ValueError, KeyError, TypeError) as e:
+    except RuleError:
+        raise
+    except PdfReadError as e:
+        raise RuleError("This PDF couldn't be read.", 422) from e
+    except Exception as e:  # pypdf raises many kinds of errors on damaged or hostile files (#16)
+        log.warning("PDF import failed: %s", e.__class__.__name__)
         raise RuleError("This PDF couldn't be read.", 422) from e
     items: list[dict[str, Any]] = []
     inspect_words = re.compile(r"\b(inspect|check|verify|ensure|confirm|examine|test)\b", re.I)

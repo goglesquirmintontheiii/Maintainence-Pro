@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -77,6 +78,15 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
         UniqueConstraint("org_id", "number", name="uq_work_orders_org_number"),
         Index("ix_work_orders_org_status_due", "org_id", "status", "due_at"),
         CheckConstraint("estimated_minutes IS NULL OR estimated_minutes >= 0", name="estimate_nonneg"),
+        # one live work order per PM occurrence (#4)
+        Index(
+            "uq_work_orders_pm_occurrence",
+            "source_type",
+            "source_id",
+            unique=True,
+            postgresql_where=text("source_type = 'pm_occurrence' AND deleted_at IS NULL"),
+            sqlite_where=text("source_type = 'pm_occurrence' AND deleted_at IS NULL"),
+        ),
     )
 
     number: Mapped[int] = mapped_column(BigInteger)

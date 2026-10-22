@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from mpro.core.events import emit
 from mpro.core.models import iso, utcnow
@@ -165,8 +165,10 @@ def _clean_defaults(org: Organization, raw: Any) -> dict[str, Any]:
     if raw.get("due_in_days") not in (None, ""):
         try:
             out["due_in_days"] = int(raw["due_in_days"])
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError, OverflowError) as e:
             raise RuleError("Due in days must be a whole number.", 422) from e
+        if not 0 <= out["due_in_days"] <= 3650:
+            raise RuleError("Due in days must be between 0 and 3,650.", 422)
     return out
 
 
@@ -181,8 +183,10 @@ def _clean_procedures(org_id: uuid.UUID, ids: Any) -> list[str]:
     for raw in ids:
         pid = _uuid(raw, "procedure")
         p = db.session.get(Procedure, pid)
-        if p is None or p.org_id != org_id or p.deleted_at is not None:
+        if p is None or p.org_id != org_id or p.deleted_at is not None or p.work_order_id is not None:
             raise RuleError("One of the procedures doesn't exist.", 422)
+        if p.status != "published" or p.current_version_id is None:
+            raise RuleError(f"Publish “{p.name}” before using it in a plan.", 422)
         if str(pid) not in out:
             out.append(str(pid))
     return out
@@ -222,7 +226,8 @@ def _apply_task(org: Organization, plan: MaintenancePlan, t: PMTask, data: dict[
             t.spec = dict(data["spec"])
             t.rrule = sch.build_rrule(t.spec, sch.to_local(anchor, tz))
         elif data.get("rrule"):
-            t.rrule, t.spec = sch.validate_rrule(str(data["rrule"])), {}
+            assert anchor is not None
+            t.rrule, t.spec = sch.validate_rrule(str(data["rrule"]), sch.to_local(anchor, tz)), {}
         elif "spec" in data or "rrule" in data:
             t.rrule, t.spec = "", {}
     if "meter_id" in data:
@@ -460,20 +465,50 @@ def delete_plan(org: Organization, m: Membership, plan: MaintenancePlan, commit:
 
 
 # ---- schedule computation ---------------------------------------------------------------------
+def _floating_bases(plan: MaintenancePlan) -> dict[str, datetime]:
+    """Floating intervals (#5): each task counts from its latest completed, skipped or canceled occurrence."""
+    out: dict[str, datetime] = {}
+    for o in db.session.scalars(
+        select(PMOccurrence).where(
+            PMOccurrence.plan_id == plan.id, PMOccurrence.status.in_(("completed", "skipped", "canceled"))
+        )
+    ).all():
+        at = o.completed_at if o.status == "completed" else (o.due_at or o.completed_at or o.updated_at)
+        if at is None:
+            continue
+        for tid in o.task_ids or []:
+            if tid not in out or at > out[tid]:
+                out[tid] = at
+    return out
+
+
 def _time_dues(
-    org_id: uuid.UUID, plan: MaintenancePlan, tasks: list[PMTask], start: datetime, end: datetime, hol: set[date]
+    org_id: uuid.UUID,
+    plan: MaintenancePlan,
+    tasks: list[PMTask],
+    start: datetime,
+    end: datetime,
+    hol: set[date],
+    now: datetime | None = None,
 ) -> dict[str, tuple[datetime, list[PMTask]]]:
     """Time-based due dates in [start, end), merged by local day (nested PMs: one visit does everything due)."""
     tz = _tz(plan)
     groups: dict[str, tuple[datetime, list[PMTask]]] = {}
     floating = plan.interval_mode == "floating"
+    bases = _floating_bases(plan) if floating else {}
     for t in tasks:
         if not t.rrule or t.anchor is None:
             continue
         if floating:
-            base = t.last_completed_at
-            dues = [t.anchor] if base is None else [d for d in [sch.next_after(t.rrule, base, t.anchor, tz)] if d]
-            dues = [d for d in dues if start <= d < end]
+            cands = [b for b in (t.last_completed_at, bases.get(str(t.id))) if b is not None]
+            base = max(cands) if cands else None
+            if base is None:
+                nxt: datetime | None = t.anchor if t.anchor >= start else max(start, now or utcnow())  # due now
+            else:
+                nxt = sch.next_after(t.rrule, base, t.anchor, tz)
+                if nxt is not None and nxt < start:
+                    nxt = max(start, now or utcnow())  # overdue since the last one: due now
+            dues = [d for d in [nxt] if d is not None and start <= d < end]
         else:
             dues = sch.expand(t.rrule, t.anchor, tz, max(start, t.anchor), end)
         for d in dues:
@@ -497,6 +532,8 @@ def generate_plan(org: Organization, plan: MaintenancePlan, now: datetime | None
     """Create occurrences and work orders due within the plan's horizon. Safe to run again (idempotent)."""
     if not plan.active or plan.deleted_at is not None:
         return []
+    # one generator per plan at a time (#4); SQLite has no row locks but serialises writers anyway
+    db.session.execute(select(MaintenancePlan.id).where(MaintenancePlan.id == plan.id).with_for_update())
     now = now or utcnow()
     tz = _tz(plan)
     tasks = tasks_of(plan)
@@ -507,7 +544,7 @@ def generate_plan(org: Organization, plan: MaintenancePlan, now: datetime | None
     else:
         day_start = sch.to_utc(sch.to_local(now, tz).replace(hour=0, minute=0, second=0, microsecond=0), tz)
         end = now + timedelta(days=plan.horizon_days, seconds=1)
-        for key, (due, ts) in sorted(_time_dues(org.id, plan, tasks, day_start, end, holidays(org.id)).items()):
+        for key, (due, ts) in sorted(_time_dues(org.id, plan, tasks, day_start, end, holidays(org.id), now).items()):
             if key in have:
                 continue
             occ = PMOccurrence(
@@ -604,11 +641,23 @@ def _generate_wo(org: Organization, plan: MaintenancePlan, occ: PMOccurrence, ta
     from mpro.workorders.services import ensure_default_categories
 
     ensure_default_categories(org.id)  # may commit, so before the savepoint
+    # claim the occurrence atomically (#4): only one generator turns it into a work order
+    claimed = db.session.execute(
+        update(PMOccurrence)
+        .where(PMOccurrence.id == occ.id, PMOccurrence.status == "planned")
+        .values(status="generating")
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:  # type: ignore[attr-defined]
+        db.session.refresh(occ)
+        return False
+    occ.status = "generating"
+    procs, problems = _usable_procedures(org.id, det["procedure_ids"])
     try:
         with db.session.begin_nested():
             wo = create_work_order(org, actor, data, commit=False, check_required=False)
             wo.source_type, wo.source_id = "pm_occurrence", occ.id
-            _attach_procedures(org, actor, wo, det["procedure_ids"])
+            _attach_procedures(org, actor, wo, procs)
             for sub in det["sub_work_orders"]:
                 sd = {
                     **{
@@ -625,7 +674,12 @@ def _generate_wo(org: Organization, plan: MaintenancePlan, occ: PMOccurrence, ta
                 create_work_order(org, actor, sd, commit=False, check_required=False)
     except RuleError as e:
         log.warning("PM %s: couldn't create the work order for %s: %s", plan.id, occ.key, e.message)
+        occ.status = "planned"
+        plan.last_problem = f"Couldn't create the work order due {sch.to_local(due, _tz(plan)):%Y-%m-%d}: {e.message}"
         return False
+    plan.last_problem = (f"Work order #{wo.number} was created without: " + "; ".join(problems) if problems else "")[
+        :1000
+    ]
     occ.status, occ.work_order_id, occ.generated_at = "generated", wo.id, utcnow()
     _reset_other_schedule(plan, tasks, occ, via="time" if occ.key.startswith("t:") else "usage")
     emit(
@@ -638,6 +692,25 @@ def _generate_wo(org: Organization, plan: MaintenancePlan, occ: PMOccurrence, ta
         data={"occurrence_id": occ.id, "work_order_id": wo.id},
     )
     return True
+
+
+def _usable_procedures(org_id: uuid.UUID, ids: list[str]) -> tuple[list[str], list[str]]:
+    """Procedures a generated work order can use (#9): missing or unpublished ones are left out and reported."""
+    from mpro.procedures.models import Procedure
+
+    ok, problems = [], []
+    for raw in ids or []:
+        try:
+            p = db.session.get(Procedure, uuid.UUID(str(raw)))
+        except (TypeError, ValueError):
+            p = None
+        if p is None or p.org_id != org_id or p.deleted_at is not None:
+            problems.append("a procedure that was deleted")
+        elif p.status != "published" or p.current_version_id is None:
+            problems.append(f"“{p.name}” (not published)")
+        else:
+            ok.append(str(p.id))
+    return ok, problems
 
 
 def _attach_procedures(org: Organization, m: Membership, wo: WorkOrder, ids: list[str]) -> None:
@@ -705,7 +778,9 @@ def on_meter_reading(org: Organization, mt: Any, prev: Decimal | None, v: Decima
         key = f"u:{t.id}:{_num(t.next_units)}"
         if db.session.scalar(select(PMOccurrence.id).where(PMOccurrence.plan_id == plan.id, PMOccurrence.key == key)):
             continue
-        due_days = int((plan.defaults or {}).get("due_in_days") or 0)
+        from mpro.workorders.services import due_days as _due_days
+
+        due_days = _due_days((plan.defaults or {}).get("due_in_days"))
         occ = PMOccurrence(
             org_id=org.id,
             plan_id=plan.id,
@@ -1237,9 +1312,13 @@ def set_repeat(org: Organization, m: Membership, wo: WorkOrder, data: dict[str, 
 
 
 def stop_repeat(org: Organization, m: Membership, wo: WorkOrder) -> None:
+    from mpro.workorders.services import can_see, label
+
     plan, _occ = plan_of(wo)
     if plan is None or plan.kind != "repeat":
         raise RuleError("This work order doesn't repeat.", 404)
+    if not (can(m, "wo.delete") or can(m, "pm.delete")):  # it deletes the series and its future copies (#10)
+        raise RuleError("You can't stop a repeating work order.", 403)
     for o in db.session.scalars(
         select(PMOccurrence).where(PMOccurrence.plan_id == plan.id, PMOccurrence.status == "generated")
     ).all():
@@ -1247,17 +1326,28 @@ def stop_repeat(org: Organization, m: Membership, wo: WorkOrder) -> None:
         if (
             other is not None
             and other.id != wo.id
+            and other.deleted_at is None
             and other.status == "open"
             and other.due_at
             and other.due_at > utcnow()
+            and can_see(m, other)
         ):
             other.deleted_at = utcnow()  # future copies that nobody started go away with the series
+            emit(
+                "wo.deleted",
+                entity_type="work_order",
+                entity_id=other.id,
+                entity_label=label(other),
+                summary=f"Deleted work order #{other.number} (repeat stopped)",
+                org_id=org.id,
+            )
     emit(
         "wo.repeat_stopped",
         entity_type="work_order",
         entity_id=wo.id,
         entity_label=f"#{wo.number} {wo.title}",
         summary="Stopped repeating",
+        org_id=org.id,
     )
     delete_plan(org, m, plan, commit=False)
     db.session.commit()
@@ -1385,6 +1475,20 @@ def add_holiday(org: Organization, day: Any, name: str) -> Holiday:
     return h
 
 
+def delete_holiday(org: Organization, h: Holiday) -> None:
+    emit(
+        "pm.holiday_deleted",
+        entity_type="org",
+        entity_id=org.id,
+        entity_label=org.name,
+        summary=f"Removed holiday {h.day} {h.name}".strip(),
+        data={"day": h.day.isoformat(), "name": h.name},
+        org_id=org.id,
+    )
+    db.session.delete(h)
+    db.session.commit()
+
+
 # ---- plan serialization --------------------------------------------------------------------------------
 def task_dict(plan: MaintenancePlan, t: PMTask) -> dict[str, Any]:
     tz = _tz(plan)
@@ -1459,6 +1563,7 @@ def plan_dict(plan: MaintenancePlan, extra: dict[str, Any] | None = None, with_t
         "next_due_at": next_due,
         "task_count": len(tasks),
         "version": plan.version,
+        "last_problem": plan.last_problem or "",
         "deleted": plan.deleted_at is not None,
         "source_work_order_id": str(plan.source_work_order_id) if plan.source_work_order_id else None,
         "created_at": iso(plan.created_at),

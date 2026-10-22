@@ -6,6 +6,7 @@ Due dates are computed on the wall clock of the plan's time zone and converted t
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -106,21 +107,106 @@ def describe_rrule(rule: str) -> str:
     return f"Every {unit}" if n == 1 else f"Every {n} {unit}s"
 
 
-def validate_rrule(rule: str) -> str:
-    rule = (rule or "").strip().removeprefix("RRULE:")
+# Raw RRULEs from API clients (#2): a small whitelist of parts, bounded values, and a first due date within
+# MAX_FIRST_YEARS of the anchor, so a crafted rule can't make dateutil scan for thousands of years.
+RULE_PARTS = ("FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "BYMONTH", "BYSETPOS", "COUNT", "UNTIL")
+RULE_FREQS = ("DAILY", "WEEKLY", "MONTHLY", "YEARLY")
+MAX_FIRST_YEARS = 10  # a rule must produce a due date within this many years of its anchor
+MAX_SCAN_YEARS = 10  # one expansion never looks further ahead than this
+MAX_OCCURRENCES = 1000  # nor returns more due dates than this
+_BYDAY = re.compile(r"^(?:(\+?[1-4]|-1))?(MO|TU|WE|TH|FR|SA|SU)$")
+
+
+def _bad(msg: str = "That repeat rule isn't valid.") -> RuleError:
+    return RuleError(msg, 422)
+
+
+def _ints(v: str, lo: int, hi: int, label: str, nonzero: bool = True) -> list[int]:
+    out = []
+    for x in v.split(","):
+        try:
+            n = int(x)
+        except ValueError as e:
+            raise _bad(f"{label} must be whole numbers.") from e
+        if not lo <= n <= hi or (nonzero and n == 0):
+            raise _bad(f"{label} must be between {lo} and {hi}.")
+        out.append(n)
+    if not out or len(out) > 31:
+        raise _bad(f"{label} has too many values.")
+    return out
+
+
+def validate_rrule(rule: str, anchor_local: datetime | None = None) -> str:
+    """Check a raw RRULE against the whitelist and return it in a canonical form."""
+    rule = (rule or "").strip()
+    if rule.upper().startswith("RRULE:"):
+        rule = rule[6:]
     if not rule:
-        raise RuleError("A time-based schedule needs a repeat rule.", 422)
-    if len(rule) > 500 or "DTSTART" in rule.upper():
-        raise RuleError("That repeat rule isn't valid.", 422)
+        raise _bad("A time-based schedule needs a repeat rule.")
+    if len(rule) > 500 or any(c in rule for c in "\r\n"):
+        raise _bad()
+    parts: dict[str, str] = {}
+    for tok in rule.split(";"):
+        if not tok.strip():
+            continue
+        if "=" not in tok:
+            raise _bad()
+        k, v = (x.strip().upper() for x in tok.split("=", 1))
+        if k not in RULE_PARTS:
+            raise _bad(f"Repeat rules can't use {k[:20]}. Use FREQ, INTERVAL, BYDAY, BYMONTHDAY, BYMONTH, BYSETPOS, "
+                       "COUNT or UNTIL.")  # fmt: skip
+        if k in parts or not v:
+            raise _bad()
+        parts[k] = v
+    freq = parts.get("FREQ")
+    if freq not in RULE_FREQS:
+        raise _bad("Schedules repeat daily, weekly, monthly or yearly.")
+    if "INTERVAL" in parts:
+        _ints(parts["INTERVAL"], 1, 1000, "The interval")
+        if "," in parts["INTERVAL"]:
+            raise _bad()
+    if "COUNT" in parts and "UNTIL" in parts:
+        raise _bad("Use COUNT or UNTIL, not both.")
+    if "COUNT" in parts:
+        _ints(parts["COUNT"], 1, 10000, "COUNT")
+        if "," in parts["COUNT"]:
+            raise _bad()
+    # Daily and weekly rules only filter by weekday and month; the day-of-month and position filters belong to
+    # monthly and yearly rules (they could otherwise never match and make the scan run to year 9999).
+    if freq in ("DAILY", "WEEKLY") and ({"BYMONTHDAY", "BYSETPOS"} & parts.keys()):
+        raise _bad("BYMONTHDAY and BYSETPOS only work with monthly or yearly rules.")
+    if "BYDAY" in parts:
+        days = parts["BYDAY"].split(",")
+        if len(days) > 7 * 5:
+            raise _bad()
+        for d in days:
+            mt = _BYDAY.match(d)
+            if mt is None:
+                raise _bad("BYDAY takes weekdays (MO–SU), optionally with 1–4 or -1 for monthly rules.")
+            if mt.group(1) and freq not in ("MONTHLY", "YEARLY"):
+                raise _bad("Numbered weekdays (like 2MO) only work with monthly or yearly rules.")
+    if "BYMONTHDAY" in parts:
+        _ints(parts["BYMONTHDAY"], -31, 31, "BYMONTHDAY")
+    if "BYMONTH" in parts:
+        _ints(parts["BYMONTH"], 1, 12, "BYMONTH")
+    if "BYSETPOS" in parts:
+        _ints(parts["BYSETPOS"], -31, 31, "BYSETPOS")
+    canon = ";".join(f"{k}={parts[k]}" for k in RULE_PARTS if k in parts)
+    dtstart = anchor_local or datetime(2026, 1, 1, 8, 0)
     try:
-        rrulestr(rule, dtstart=datetime(2026, 1, 1, 8, 0))
-    except (ValueError, TypeError) as e:
-        raise RuleError("That repeat rule isn't valid.", 422) from e
-    if "COUNT" not in rule.upper() and "UNTIL" not in rule.upper() and "FREQ=SECONDLY" in rule.upper():
-        raise RuleError("Schedules can repeat at most daily.", 422)
-    if any(f in rule.upper() for f in ("FREQ=SECONDLY", "FREQ=MINUTELY", "FREQ=HOURLY")):
-        raise RuleError("Schedules can repeat at most daily.", 422)
-    return rule
+        r = rrulestr(canon, dtstart=dtstart)
+        first = _first(r, dtstart, dtstart + timedelta(days=366 * MAX_FIRST_YEARS))
+    except (ValueError, TypeError, OverflowError) as e:
+        raise _bad() from e
+    if first is None:
+        raise _bad(f"That repeat rule has no due date in the next {MAX_FIRST_YEARS} years.")
+    return canon
+
+
+def _first(r: Any, lo: datetime, hi: datetime) -> datetime | None:
+    for d in r.xafter(lo, inc=True):
+        return d if d <= hi else None
+    return None
 
 
 def to_local(dt: datetime, tz: ZoneInfo) -> datetime:
@@ -138,16 +224,19 @@ def to_utc(local_naive: datetime, tz: ZoneInfo) -> datetime:
 
 def expand(rule: str, anchor: datetime, tz: ZoneInfo, start: datetime, end: datetime) -> list[datetime]:
     """Due dates (UTC) of `rule` anchored at `anchor` (UTC) that fall in [start, end)."""
+    end = min(end, start + timedelta(days=366 * MAX_SCAN_YEARS))
     dtstart = to_local(anchor, tz)
     r = rrulestr(rule, dtstart=dtstart)
     lo, hi = to_local(start, tz), to_local(end, tz)
-    out = []
-    for local in r.between(lo - timedelta(days=1), hi + timedelta(days=1), inc=True):
+    out: list[datetime] = []
+    for local in r.xafter(lo - timedelta(days=1), inc=True):
+        if local > hi + timedelta(days=1):
+            break
         u = to_utc(local, tz)
         if start <= u < end:
             out.append(u)
-        if len(out) > 2000:
-            break
+            if len(out) >= MAX_OCCURRENCES:
+                break
     return out
 
 
@@ -158,7 +247,9 @@ def next_after(rule: str, base: datetime, anchor: datetime, tz: ZoneInfo) -> dat
     dtstart = b.replace(hour=a.hour, minute=a.minute, second=0, microsecond=0)
     r = rrulestr(rule, dtstart=dtstart)
     nxt = r.after(dtstart, inc=False)
-    return to_utc(nxt, tz) if nxt else None
+    if nxt is None or nxt > dtstart + timedelta(days=366 * MAX_SCAN_YEARS):
+        return None
+    return to_utc(nxt, tz)
 
 
 def is_workday(d: date, holidays: set[date], skip_weekends: bool, skip_holidays: bool) -> bool:

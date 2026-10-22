@@ -384,7 +384,7 @@ def save_automation(org: Organization, m: Membership, data: dict[str, Any], a: A
     db.session.flush()
     if trigger_changed:  # start counting again
         for st in db.session.scalars(select(AutomationState).where(AutomationState.automation_id == a.id)).all():
-            st.state = {k: v for k, v in (st.state or {}).items() if k in ("open_wo", "action_at")}
+            st.state = {k: v for k, v in (st.state or {}).items() if k in ("open_wo", "open_wos", "action_at")}
     emit(
         "automation.created" if created else "automation.updated",
         entity_type="automation",
@@ -682,7 +682,17 @@ def _conditions_hold(org: Organization, a: Automation, asset: Any, now: datetime
     return None
 
 
+NOT_RUN_AS_CREATOR = (
+    "Not run: the person who created this automation can no longer manage automations. "
+    "Someone who can should open and save it to take it over."
+)
+
+
 def _actor(org: Organization, a: Automation) -> Membership | None:
+    """Automations act as their creator, and only while the creator may still manage automations (#16).
+    Automations converted from 0.3.0 meter triggers (no real author) fall back to the first Owner/Administrator."""
+    from mpro.core.permissions import can
+
     m = None
     if a.created_by_id:
         m = db.session.scalars(
@@ -690,6 +700,10 @@ def _actor(org: Organization, a: Automation) -> Membership | None:
                 Membership.org_id == org.id, Membership.user_id == a.created_by_id, Membership.deleted_at.is_(None)
             )
         ).first()
+        if m is not None and not can(m, "automations.manage"):
+            m = None
+        if m is None and a.legacy_trigger_id is None:
+            return None
     if m is None:
         m = db.session.scalars(
             select(Membership)
@@ -716,7 +730,8 @@ def _run_actions(
 
     m = _actor(org, a)
     if m is None:
-        return "failed", "No one in the organization can run this automation.", []
+        why = NOT_RUN_AS_CREATOR if a.created_by_id else "No one in the organization can run this automation."
+        return "failed", why, []
     results: list[dict[str, Any]] = []
     action_at = dict(st.state.get("action_at") or {})
     failed = done_any = False
@@ -732,7 +747,9 @@ def _run_actions(
         # raised before anything is written.
         try:
             if act["type"] == "create_work_order":
-                open_id = st.state.get("open_wo")
+                # one open work order per action (#11); "open_wo" is the pre-fix single slot (first action)
+                open_wos = dict(st.state.get("open_wos") or {})
+                open_id = open_wos.get(key) or (st.state.get("open_wo") if key == "0" else None)
                 if open_id:
                     still = db.session.scalar(
                         select(WorkOrder.id).where(
@@ -753,7 +770,8 @@ def _run_actions(
                         )
                         continue
                 wo = _create_wo(org, m, a, act, target_asset, ctx)
-                st.state = {**st.state, "open_wo": str(wo.id)}
+                open_wos[key] = str(wo.id)
+                st.state = {**{k: v for k, v in st.state.items() if k != "open_wo"}, "open_wos": open_wos}
                 results.append(
                     {"action": act["type"], "ok": True, "work_order_id": str(wo.id), "message": f"Created #{wo.number}"}
                 )
@@ -854,7 +872,7 @@ def _create_wo(
         data.setdefault("title", tpl.name)
         data["template_id"] = str(tpl.id)
         if due_in is None and (tpl.data or {}).get("due_in_days") not in (None, ""):
-            due_in = int(tpl.data["due_in_days"])
+            due_in = tpl.data["due_in_days"]
     for k in WO_FIELDS:
         if act.get(k) not in (None, ""):
             data[k] = act[k]
@@ -863,7 +881,9 @@ def _create_wo(
     desc = _fmt(str(data.get("description") or ""), ctx)
     data["description"] = (desc + ("\n\n" if desc else "") + note)[:4096]
     if due_in not in (None, ""):
-        data["due_at"] = (utcnow() + timedelta(days=int(due_in))).isoformat()
+        from mpro.workorders.services import due_days
+
+        data["due_at"] = (utcnow() + timedelta(days=due_days(due_in))).isoformat()
     if asset is not None:
         data["asset_id"] = str(asset.id)
         if asset.location_id:
@@ -1190,7 +1210,9 @@ def legacy_to_doc(t: dict[str, Any]) -> dict[str, Any]:
         if wo.get(k) not in (None, ""):
             action[k] = wo[k]
     if wo.get("due_in_days") not in (None, ""):
-        action["due_in_days"] = int(wo["due_in_days"])
+        from mpro.workorders.services import due_days
+
+        action["due_in_days"] = due_days(wo["due_in_days"])
     action.setdefault("title", t.get("name") or "Meter work")
     if t["kind"] == "every":
         every = Decimal(str(t.get("every_units") or 1))

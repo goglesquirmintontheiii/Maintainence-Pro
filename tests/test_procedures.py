@@ -203,9 +203,12 @@ def test_assigned_fields(app: Any, admin: Api) -> None:
         ]
     }
     p = make(admin, "Approval", schema)
-    w = wo(admin, procedures=[p["id"]], assignees=[f"user:{avery}"])
+    morgan = uid(admin, "morgan.diaz@example.com")
+    assert admin.patch(f"{API}/users/{morgan}", {"role": "operator"}).status_code == 200
+    w = wo(admin, procedures=[p["id"]], assignees=[f"user:{avery}", f"user:{morgan}"])
     run = w["procedures"][0]
-    assert ans(admin, w, run, "sup", value=True).status_code == 403
+    op = login(app, "morgan.diaz@example.com")  # can fill procedures, but the field is Avery's
+    assert ans(op, w, run, "sup", value=True).status_code == 403
     r = admin.post(f"{API}/work-orders/{w['id']}/status", {"status": "done"})
     assert r.status_code == 422 and "Supervisor approval" in r.json["message"]
     tech = login(app, "avery.kim@example.com")

@@ -405,7 +405,7 @@ def _csv(ex: Export) -> tuple[str, bytes, str]:
     w.writerow([_safe_cell(c[0]) for c in CSV_COLUMNS] + [_safe_cell(f.name) for f in fields])
     from mpro.workorders.queries import _parent_map
 
-    parents = _parent_map(list(wos))
+    parents = _parent_map(m, list(wos))
     for wo in wos:
         d = summary_dict(wo, extra={"parent": parents.get(wo.parent_id) if wo.parent_id else None})
         w.writerow(

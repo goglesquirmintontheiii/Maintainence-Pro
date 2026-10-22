@@ -157,7 +157,7 @@ function FilePreview({ file }: { file: ViewerFile }) {
     case "text": return <div className="viewer-doc"><pre className="viewer-text">{p.text}</pre>{p.truncated && <Truncated />}</div>;
     case "table": return <SheetPreview sheets={p.sheets ?? []} truncated={!!p.truncated} />;
     case "html": return <div className="viewer-doc"><article className="viewer-docx">{htmlToReact(p.html ?? "")}</article></div>;
-    case "pending": return <Fallback file={file} reason="Preparing a preview… This takes a few seconds for Photoshop files." busy />;
+    case "pending": return <Fallback file={file} reason={p.reason ?? "Preparing a preview… This takes a few seconds."} busy />;
     default: return <Fallback file={file} reason={p.reason ?? "This kind of file can't be shown in the browser. Download it to open it."} />;
   }
 }

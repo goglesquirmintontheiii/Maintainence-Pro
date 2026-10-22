@@ -206,7 +206,23 @@ def _clean_condition(cond: Any, earlier: dict[str, dict[str, Any]], label: str) 
         out["value"] = cond.get("value")
         if op in ("in", "not_in") and not isinstance(out["value"], list):
             out["value"] = [out["value"]]
+        if op in ("gt", "lt"):  # numeric comparisons need a finite number (#7)
+            n = _finite(out["value"])
+            if n is None:
+                raise RuleError("A greater-than or less-than condition needs a number.", 422)
+            out["value"] = format(n, "f")
     return out
+
+
+def _finite(v: Any) -> Decimal | None:
+    """v as a finite Decimal, or None (bools, NaN, Infinity and non-numbers are rejected)."""
+    if isinstance(v, bool) or v is None or isinstance(v, (list, dict)):
+        return None
+    try:
+        d = Decimal(str(v).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    return d if d.is_finite() else None
 
 
 def walk(items: list[dict[str, Any]], include_structure: bool = False) -> list[dict[str, Any]]:
@@ -238,11 +254,13 @@ def _cond_ok(cond: dict[str, Any] | None, answers: dict[str, Any]) -> bool:
     if v in (None, "", []):
         return op in ("neq", "not_in")
     if op in ("gt", "lt"):
-        try:
-            a, b = Decimal(str(v)), Decimal(str(want))
-        except (InvalidOperation, ValueError):
+        a, b = _finite(v), _finite(want)
+        if a is None or b is None:
             return False
-        return a > b if op == "gt" else a < b
+        try:
+            return a > b if op == "gt" else a < b
+        except (InvalidOperation, ArithmeticError):  # pragma: no cover - finite decimals always compare
+            return False
     vals = want if isinstance(want, list) else [want]
     if isinstance(v, list):
         hit = any(str(x) in [str(w) for w in vals] for x in v)

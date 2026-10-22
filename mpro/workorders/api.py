@@ -706,6 +706,10 @@ def patch_member_work_settings(user_id: str) -> dict[str, Any]:
     m = db.session.scalars(members_query(g.org.id).where(Membership.user_id == _uuid(user_id))).first()
     if m is None:
         abort(404)
+    from mpro.orgs.roles import may_manage
+
+    if m.id != g.membership.id and not may_manage(g.membership, m):  # administrators need users.manage_admins
+        abort(403, message="You can't change this person's settings.")
     b = body()
     if "hourly_rate_cents" in b and not can(g.membership, "wo.rates.view"):
         abort(403, message="You can't set hourly rates.")

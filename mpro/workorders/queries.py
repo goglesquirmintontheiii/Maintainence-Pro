@@ -449,7 +449,7 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
     from mpro.workorders.cover import cover_map
 
     covers = cover_map(list(rows))
-    parents = _parent_map(list(rows))  # sub-work orders show their parent's name in the Table (MP-118)
+    parents = _parent_map(m, list(rows))  # sub-work orders show their parent's name in the Table (MP-118)
     return {
         "items": [
             summary_dict(
@@ -470,12 +470,17 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parent_map(rows: list[WorkOrder]) -> dict[uuid.UUID, dict[str, Any]]:
+def _parent_map(m: Membership, rows: list[WorkOrder]) -> dict[uuid.UUID, dict[str, Any]]:
+    """Parent names for sub-work orders, only for parents the member may see (limited visibility)."""
+    from mpro.workorders.services import visibility_filter
+
     pids = {w.parent_id for w in rows if w.parent_id}
     if not pids:
         return {}
     got = db.session.execute(
-        select(WorkOrder.id, WorkOrder.number, WorkOrder.title).where(WorkOrder.id.in_(pids))
+        select(WorkOrder.id, WorkOrder.number, WorkOrder.title).where(
+            WorkOrder.id.in_(pids), WorkOrder.deleted_at.is_(None), visibility_filter(m)
+        )
     ).all()
     return {i: {"id": str(i), "number": n, "title": t} for i, n, t in got}
 

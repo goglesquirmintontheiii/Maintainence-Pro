@@ -138,7 +138,13 @@ def run_job(j: Job) -> None:
     try:
         if handler is None:
             raise KeyError(f"No handler for job kind {j.kind!r}")
-        handler(dict(j.payload or {}))
+        from mpro.core.events import current_job_org
+
+        token = current_job_org.set(j.org_id)
+        try:
+            handler(dict(j.payload or {}))
+        finally:
+            current_job_org.reset(token)
         j.status, j.finished_at, j.last_error = "done", utcnow(), ""
     except Exception:
         db.session.rollback()

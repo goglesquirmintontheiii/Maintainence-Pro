@@ -398,11 +398,14 @@ def add_reading(
         + (f" ({r.level})" if r.level else "")
         + (" — unusual" if r.anomaly else ""),
         data={"value": str(v), "level": r.level, "anomaly": r.anomaly, "reading_id": r.id},
+        org_id=org.id,
     )
     if mt.last_reading_at == at:
         # 0.3.0 meter triggers (fire_triggers) became automations in 0.4.0; they run through READING_HOOKS now
-        for hook in READING_HOOKS:  # usage-based PM and automations (0.4.0); only for the latest reading
-            hook(org, mt, prev, v, r)
+        from mpro.core.hooks import run_hooks
+
+        # usage-based PM and automations (0.4.0); only for the latest reading
+        run_hooks(READING_HOOKS, org, mt, prev, v, r, what="Meter reading hook")
     if commit:
         db.session.commit()
     return r
@@ -663,10 +666,9 @@ def _create_wo(org: Organization, mt: Meter, t: MeterTrigger, v: Decimal, r: Met
     )
     data["description"] = data["description"][:4096]
     if due_in not in (None, ""):
-        try:
-            data["due_at"] = (utcnow() + timedelta(days=int(due_in))).isoformat()
-        except (TypeError, ValueError, OverflowError):
-            t.last_note = "The trigger's due date setting is invalid; created without a due date."
+        from mpro.workorders.services import due_days
+
+        data["due_at"] = (utcnow() + timedelta(days=due_days(due_in))).isoformat()
     if mt.asset_id:
         data["asset_id"] = str(mt.asset_id)
     if mt.location_id:

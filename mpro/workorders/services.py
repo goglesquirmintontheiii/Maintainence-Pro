@@ -20,6 +20,7 @@ from sqlalchemy import func, select, update
 
 from mpro.core.events import emit
 from mpro.core.files import FileObject, attach, save_file
+from mpro.core.hooks import run_hooks
 from mpro.core.ids import uuid7
 from mpro.core.models import iso, utcnow
 from mpro.core.permissions import can
@@ -208,6 +209,18 @@ def can_see(m: Membership | None, wo: WorkOrder) -> bool:
     return any(a.user_id == m.user_id or (a.team_id in teams) for a in wo.assignees)
 
 
+MAX_DUE_DAYS = 3650
+
+
+def due_days(v: Any) -> int:
+    """A stored "due in N days" setting as a safe number of days (0–3,650); bad values count as 0 (#6)."""
+    try:
+        n = int(v or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return max(0, min(MAX_DUE_DAYS, n))
+
+
 # ---- numbering -------------------------------------------------------------------------------
 def _counter(org_id: uuid.UUID, key: str, lock: bool = True) -> Counter:
     q = select(Counter).where(Counter.org_id == org_id, Counter.key == key)
@@ -276,7 +289,10 @@ def ensure_default_categories(org_id: uuid.UUID) -> None:
         for name, color in DEFAULT_CATEGORIES:
             db.session.add(Category(org_id=org_id, name=name, color=color, is_default=True))
     save_settings(org_id, "work_orders", {"categories_seeded": True})
-    db.session.commit()
+    if db.session().in_nested_transaction():  # inside a hook's savepoint: the caller commits (#6)
+        db.session.flush()
+    else:
+        db.session.commit()
 
 
 def category_dict(c: Category, usage: int | None = None) -> dict[str, Any]:
@@ -844,8 +860,8 @@ def create_work_order(
     if data.get("asset_tasks"):
         _set_asset_tasks(wo, data["asset_tasks"], m)
     _asset_status_from_wo(org, m, wo, data.get("asset_status"))
-    for create_hook in CREATE_HOOKS:  # procedures from templates, sub-work order inheritance, … (0.4.0)
-        create_hook(org, m, wo, data)
+    # procedures from templates, sub-work order inheritance, … (0.4.0); validation errors still reach the user
+    run_hooks(CREATE_HOOKS, org, m, wo, data, what="Work order create hook", reraise=(RuleError,))
     touch(wo, m.user_id)
     emit(
         "wo.created",
@@ -854,6 +870,7 @@ def create_work_order(
         entity_label=label(wo),
         summary=f"Created work order #{wo.number}",
         data={"assignees": [f"{k}:{v}" for k, v in pairs], "priority": wo.priority, "parent_id": wo.parent_id},
+        org_id=org.id,
     )
     if pairs:
         emit(
@@ -863,6 +880,7 @@ def create_work_order(
             entity_label=label(wo),
             summary="Assigned " + _assignee_names(pairs),
             data={"added": [f"{k}:{v}" for k, v in pairs]},
+            org_id=org.id,
         )
     if commit:
         db.session.commit()
@@ -1068,10 +1086,11 @@ def set_status(
         + (f" ({sub_status})" if sub_status else ""),
         changes={"status": (from_status, status)},
         data={"comment": comment, "sub_status": sub_status},
+        org_id=org.id,
     )  # fmt: skip
     if from_status != status:
-        for hook in STATUS_HOOKS:  # PM occurrences, automations, sub-work orders (0.4.0)
-            hook(org, m, wo, from_status, status)
+        # PM occurrences, automations, sub-work orders (0.4.0)
+        run_hooks(STATUS_HOOKS, org, m, wo, from_status, status, what="Work order status hook")
     if commit:
         db.session.commit()
     return wo
@@ -1580,7 +1599,9 @@ def create_from_template(org: Organization, m: Membership, t: Template, override
     data: dict[str, Any] = {k: v for k, v in (t.data or {}).items() if k != "due_in_days"}
     data.setdefault("title", t.name)
     if (t.data or {}).get("due_in_days") not in (None, "") and "due_at" not in overrides:
-        due = utcnow().replace(hour=17, minute=0, second=0, microsecond=0) + timedelta(days=int(t.data["due_in_days"]))
+        due = utcnow().replace(hour=17, minute=0, second=0, microsecond=0) + timedelta(
+            days=due_days(t.data["due_in_days"])
+        )
         data["due_at"] = due.isoformat()
     if "asset_id" in overrides and "location_id" not in overrides:
         data.pop("location_id", None)  # the asset's own location follows it

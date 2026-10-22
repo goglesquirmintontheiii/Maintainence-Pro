@@ -64,9 +64,20 @@ def _member_counts(org_id: uuid.UUID) -> tuple[dict[str, int], dict[uuid.UUID, i
     return builtin, custom
 
 
+def fallback_role(r: Role) -> str:
+    """Where a deleted custom role's people go (#12): the least-privileged built-in role that has every permission
+    the custom role had (never Owner); View-only when none does."""
+    perms = set(r.permissions or []) & set(ACTIONS)
+    for key in sorted((k for k in ROLES if k != "owner"), key=lambda k: ROLES[k]["rank"]):
+        if perms <= builtin_permissions(key):
+            return key
+    return "viewer"
+
+
 def role_dict(r: Role, members: int = 0) -> dict[str, Any]:
     base = builtin_permissions(r.base)
     perms = set(r.permissions or [])
+    fb = fallback_role(r)
     return {
         "id": str(r.id),
         "key": f"custom:{r.id}",
@@ -76,6 +87,8 @@ def role_dict(r: Role, members: int = 0) -> dict[str, Any]:
         "description": r.description,
         "base": r.base,
         "base_label": ROLES.get(r.base, {}).get("label", r.base),
+        "fallback": fb,
+        "fallback_label": ROLES[fb]["label"],
         "permissions": sorted(perms),
         "added": sorted(perms - base),
         "removed": sorted(base - perms),
@@ -281,21 +294,22 @@ def duplicate_role(org: Organization, actor: Membership, r: Role) -> Role:
 
 
 def delete_role(org: Organization, actor: Membership, r: Role) -> int:
-    """Delete a role; its people fall back to the role it was based on."""
+    """Delete a role; its people move to the least-privileged built-in role covering its permissions (#12)."""
     members = db.session.scalars(
         select(Membership).where(
             Membership.org_id == org.id, Membership.role_id == r.id, Membership.deleted_at.is_(None)
         )
     ).all()
+    to = fallback_role(r)
     for m in members:
-        m.role, m.role_id = r.base, None
+        m.role, m.role_id = to, None
         emit(
             "member.updated",
             entity_type="user",
             entity_id=m.user_id,
             entity_label=m.user.name,
-            summary=f"Role {r.name} was deleted; now {ROLES[r.base]['label']}",
-            changes={"role": (r.name, ROLES[r.base]["label"])},
+            summary=f"Role {r.name} was deleted; now {ROLES[to]['label']}",
+            changes={"role": (r.name, ROLES[to]["label"])},
             org_id=org.id,
         )
     r.deleted_at = utcnow()
@@ -305,7 +319,8 @@ def delete_role(org: Organization, actor: Membership, r: Role) -> int:
         entity_id=r.id,
         entity_label=r.name,
         summary=f"Deleted role {r.name}"
-        + (f"; {len(members)} people moved to {ROLES[r.base]['label']}" if members else ""),
+        + (f"; {len(members)} people moved to {ROLES[to]['label']}" if members else ""),
+        org_id=org.id,
     )
     db.session.commit()
     return len(members)
@@ -337,8 +352,8 @@ def may_assign(actor: Membership, role: str, custom: Role | None = None) -> bool
         return False
     if role == "owner":
         return False
-    if role in ("admin", "limited_admin"):
-        return actor.role == "admin"
+    if role in ("admin", "limited_admin"):  # managing administrators needs users.manage_admins (#16)
+        return "users.manage_admins" in mine and target_permissions(role, None) <= mine
     if role == "custom" and custom is None:
         return False
     return target_permissions(role, custom) <= mine

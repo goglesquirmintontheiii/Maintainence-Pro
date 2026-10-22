@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import uuid
+import zipfile
 from typing import Any
 
 from apiflask import abort
 from flask import Response, request
+from sqlalchemy import select
 
 from mpro.core.files import PSD_TYPE, FileError, FileObject, make_thumbnail, save_file, storage
 from mpro.core.files_api import _file, _send, bp
@@ -31,6 +34,40 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_DOC_BYTES = 25 * 1024 * 1024  # bigger documents are download-only
 MAX_TEXT = 200_000
 MAX_ROWS, MAX_COLS, MAX_SHEETS = 300, 40, 5
+# Zip-bomb guard for DOCX/XLSX (both are zip files), checked before any parser touches the data (#3).
+MAX_UNZIPPED = 50 * 1024 * 1024  # total uncompressed size
+MAX_MEMBER = 50 * 1024 * 1024  # any single member
+MAX_RATIO = 100  # uncompressed / compressed, for members bigger than RATIO_FLOOR
+RATIO_FLOOR = 1024 * 1024
+MAX_MEMBERS = 5000
+BACKGROUND_BYTES = 2 * 1024 * 1024  # bigger documents are rendered by a background job
+CACHE_TYPE = "application/vnd.mpro.preview+json"
+
+
+class UnsafeArchive(ValueError):
+    pass
+
+
+def check_zip(data: bytes) -> None:
+    """Refuse archives that would expand to more than we are willing to parse."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as e:
+        raise UnsafeArchive("not a zip file") from e
+    with zf:
+        infos = zf.infolist()
+        if len(infos) > MAX_MEMBERS:
+            raise UnsafeArchive("too many members")
+        total = 0
+        for i in infos:
+            if i.file_size > MAX_MEMBER:
+                raise UnsafeArchive("member too large")
+            if i.file_size > RATIO_FLOOR and i.file_size > MAX_RATIO * max(i.compress_size, 1):
+                raise UnsafeArchive("compression ratio too high")
+            total += i.file_size
+            if total > MAX_UNZIPPED:
+                raise UnsafeArchive("archive too large when unpacked")
+
 
 ALLOWED_TAGS = {
     "p", "br", "strong", "b", "em", "i", "u", "s", "sub", "sup", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -147,6 +184,66 @@ def _docx_html(data: bytes) -> str:
     return sanitize_html(result.value)
 
 
+CANT_PREVIEW = {"kind": "none", "reason": "This file can't be previewed. Download it to open it."}
+TOO_LARGE = {"kind": "none", "reason": "This file is too large to preview. Download it to open it."}
+
+
+def is_office(f: FileObject) -> bool:
+    return f.content_type in (DOCX, XLSX)
+
+
+def office_preview(f: FileObject, data: bytes) -> dict[str, Any]:
+    """Render a DOCX/XLSX to what the viewer shows (zip-bomb checked first). Never raises."""
+    try:
+        check_zip(data)
+    except UnsafeArchive as e:
+        log.warning("Preview refused for %s: %s", f.id, e)
+        return dict(TOO_LARGE)
+    try:
+        if f.content_type == XLSX:
+            return {"kind": "table", **_xlsx_rows(data)}
+        return {"kind": "html", "html": _docx_html(data)}
+    except Exception:  # a damaged document: offer the download instead of failing
+        log.warning("Preview failed for %s", f.id, exc_info=True)
+        return dict(CANT_PREVIEW)
+
+
+def cache_office_preview(f: FileObject) -> dict[str, Any]:
+    """Render once and keep the result as the file's preview (like a PSD's PNG). Caller commits."""
+    out = office_preview(f, storage().get(f.storage_key))
+    p = save_file(
+        f.org_id, f.name.rsplit(".", 1)[0] + ".preview.json", json.dumps(out).encode(), f.uploaded_by_id,
+        content_type=CACHE_TYPE,
+    )  # fmt: skip
+    f.preview_id = p.id
+    return out
+
+
+def _cached(f: FileObject) -> dict[str, Any] | None:
+    p = db.session.get(FileObject, f.preview_id) if f.preview_id else None
+    if p is None or p.org_id != f.org_id or p.content_type != CACHE_TYPE:
+        return None
+    try:
+        got = json.loads(storage().get(p.storage_key))
+    except Exception:
+        log.warning("Cached preview unreadable for %s", f.id, exc_info=True)
+        return None
+    return got if isinstance(got, dict) else None
+
+
+def _queue_office_preview(f: FileObject) -> None:
+    """Queue the background render unless one is already waiting for this file."""
+    from mpro.core.jobs import Job, enqueue
+
+    waiting = db.session.scalars(
+        select(Job).where(Job.kind == "files.preview", Job.org_id == f.org_id, Job.status.in_(("queued", "running")))
+    ).all()
+    if any((j.payload or {}).get("file_id") == str(f.id) for j in waiting):
+        return
+    enqueue("files.preview", {"file_id": str(f.id)}, org_id=f.org_id)
+    db.session.commit()
+
+
 def render_preview(f: FileObject) -> dict[str, Any]:
     kind = preview_kind(f)
     base = {"id": str(f.id), "name": f.name, "content_type": f.content_type, "size": f.size, "kind": kind}
@@ -158,31 +255,48 @@ def render_preview(f: FileObject) -> dict[str, Any]:
     if kind in ("none", "pending"):
         return base
     if f.size > MAX_DOC_BYTES:
-        return {**base, "kind": "none", "reason": "This file is too large to preview. Download it to open it."}
+        return {**base, **TOO_LARGE}
+    if is_office(f):
+        cached = _cached(f)
+        if cached is not None:
+            return {**base, **cached}
+        if f.size > BACKGROUND_BYTES:
+            _queue_office_preview(f)
+            cached = _cached(f)  # inline jobs (tests, desktop) finish right away
+            if cached is not None:
+                return {**base, **cached}
+            return {**base, "kind": "pending", "reason": "Preparing a preview… This takes a few seconds."}
+        out = cache_office_preview(f)
+        db.session.commit()
+        return {**base, **out}
     data = storage().get(f.storage_key)
     try:
         if kind == "text":
             text, truncated = _text(data)
             return {**base, "text": text, "truncated": truncated}
         if kind == "table":
-            return {**base, **(_xlsx_rows(data) if f.content_type == XLSX else _csv_rows(data))}
-        if kind == "html":
-            return {**base, "html": _docx_html(data)}
+            return {**base, **_csv_rows(data)}
     except Exception:  # a damaged document: offer the download instead of failing
         log.warning("Preview failed for %s", f.id, exc_info=True)
-    return {**base, "kind": "none", "reason": "This file can't be previewed. Download it to open it."}
+    return {**base, **CANT_PREVIEW}
+
+
+MAX_PSD_PIXELS = 60_000_000
 
 
 def make_psd_preview(f: FileObject) -> None:
     """Flatten a PSD to PNG (Pillow reads the merged image), store it as the file's preview and thumbnail."""
     from PIL import Image
 
-    Image.MAX_IMAGE_PIXELS = 60_000_000
+    Image.MAX_IMAGE_PIXELS = MAX_PSD_PIXELS
     with Image.open(io.BytesIO(storage().get(f.storage_key))) as im:
+        w, h = im.size
+        if w * h > MAX_PSD_PIXELS:  # refuse before decoding (Pillow only warns up to 2x the limit)
+            raise ValueError(f"PSD too large to preview: {w}x{h}")
         im.load()
-        f.width, f.height = im.size
+        f.width, f.height = w, h
         out = io.BytesIO()
-        im.convert("RGBA" if "A" in im.mode else "RGB").save(out, "PNG", optimize=True)
+        im.convert("RGBA" if "A" in im.mode else "RGB").save(out, "PNG")  # optimize=True is very slow
     p = save_file(
         f.org_id, f.name.rsplit(".", 1)[0] + ".png", out.getvalue(), f.uploaded_by_id, content_type="image/png"
     )
@@ -218,12 +332,15 @@ def _register_jobs() -> None:
     @job("files.preview")
     def _preview(payload: dict[str, Any]) -> None:
         f = db.session.get(FileObject, uuid.UUID(payload["file_id"]))
-        if f is None or f.deleted_at is not None or f.content_type != PSD_TYPE or f.preview_id:
+        if f is None or f.deleted_at is not None or f.preview_id:
             return
-        try:
-            make_psd_preview(f)
-        except Exception:  # an unreadable PSD keeps working as a download
-            log.warning("PSD preview failed for %s", f.id, exc_info=True)
+        if is_office(f):
+            cache_office_preview(f)  # never raises; failures are cached as "can't preview"
+        elif f.content_type == PSD_TYPE:
+            try:
+                make_psd_preview(f)
+            except Exception:  # an unreadable PSD keeps working as a download
+                log.warning("PSD preview failed for %s", f.id, exc_info=True)
         db.session.commit()
 
 

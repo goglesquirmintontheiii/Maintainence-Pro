@@ -54,7 +54,7 @@ export type Member = {
 export type Team = { id: string; name: string; description: string; color: string; member_count: number; created_at: string;
   members: { id: string; name: string; email: string; initials: string }[] };
 export type Role = { id: string; key: string; label: string; name: string; rank?: number; description: string; custom: boolean; members: number;
-  permissions: string[]; base?: string; base_label?: string; added?: string[]; removed?: string[]; settings?: { wo_visibility?: "all" | "limited" };
+  permissions: string[]; base?: string; base_label?: string; fallback?: string; fallback_label?: string; added?: string[]; removed?: string[]; settings?: { wo_visibility?: "all" | "limited" };
   deleted: boolean };
 export type AuditEvent = { id: string; type: string; entity_type: string; entity_id: string; entity_label: string; actor_id: string | null;
   actor_label: string; summary: string; changes: Record<string, [unknown, unknown]>; data: Record<string, unknown>; ip: string; created_at: string };

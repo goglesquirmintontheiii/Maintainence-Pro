@@ -42,7 +42,10 @@ def body() -> dict[str, Any]:
 
 
 def _proc(pid: str, include_deleted: bool = False) -> Procedure:
-    return guard(svc.get_procedure, g.org.id, pid, include_deleted)
+    p = guard(svc.get_procedure, g.org.id, pid, include_deleted)
+    if not svc.can_see_procedure(g.membership, p):  # one-off procedures follow their work order's visibility
+        abort(404)
+    return p
 
 
 def _wo(wo_id: str) -> WorkOrder:
@@ -200,13 +203,13 @@ def versions(pid: str) -> dict[str, Any]:
 @require("procedures.view")
 def history(pid: str) -> dict[str, Any]:
     """Work orders created/completed with this procedure. Query: from, to (ISO dates)."""
-    return guard(svc.wo_history, g.org.id, _proc(pid, include_deleted=True), dict(request.args.items()))
+    return guard(svc.wo_history, g.membership, _proc(pid, include_deleted=True), dict(request.args.items()))
 
 
 @bp.get("/procedures/<pid>/analytics")
 @require("procedures.view")
 def analytics(pid: str) -> dict[str, Any]:
-    return guard(svc.analytics, g.org.id, _proc(pid, include_deleted=True), dict(request.args.items()))
+    return guard(svc.analytics, g.membership, _proc(pid, include_deleted=True), dict(request.args.items()))
 
 
 # ---- on work orders ------------------------------------------------------------------------------
@@ -303,7 +306,7 @@ def _search(q: str, limit: int) -> list[dict[str, Any]]:
 
 def _proc_visible(pid: uuid.UUID, perm: str) -> bool:
     p = db.session.get(Procedure, pid)
-    return p is not None and p.org_id == g.org.id and can(g.membership, perm)
+    return p is not None and p.org_id == g.org.id and can(g.membership, perm) and svc.can_see_procedure(g.membership, p)
 
 
 register_entity(

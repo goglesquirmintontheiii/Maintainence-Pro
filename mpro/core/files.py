@@ -280,13 +280,19 @@ def save_file(
     return f
 
 
+OFFICE_PREVIEW_TYPES = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+
+
 def queue_processing(f: FileObject) -> None:
     """Background work after an upload: thumbnails for images, a flattened preview for PSD files (MP-107)."""
     from mpro.core.jobs import enqueue
 
     if f.is_image:
         enqueue("files.thumbnail", {"file_id": str(f.id)}, org_id=f.org_id)
-    elif f.content_type == PSD_TYPE:
+    elif f.content_type == PSD_TYPE or f.content_type in OFFICE_PREVIEW_TYPES and f.size > 2 * 1024 * 1024:
         enqueue("files.preview", {"file_id": str(f.id)}, org_id=f.org_id)
 
 

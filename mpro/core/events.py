@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Iterable
+from contextvars import ContextVar
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -79,6 +80,11 @@ def diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, list[Any]]:
     return {k: [_jsonable(before.get(k)), _jsonable(after.get(k))] for k in after if before.get(k) != after.get(k)}
 
 
+# The organization of the background job being run (set by mpro.core.jobs.run_job), so events written by code
+# that forgets to pass org_id still land in the right organization's audit log.
+current_job_org: ContextVar[uuid.UUID | None] = ContextVar("current_job_org", default=None)
+
+
 def emit(
     type: str,
     *,
@@ -94,6 +100,8 @@ def emit(
     """Record a domain event in the current transaction (caller commits)."""
     if org_id is None and has_request_context() and getattr(g, "org", None) is not None:
         org_id = g.org.id
+    if org_id is None:  # background jobs: the job's organization (#8)
+        org_id = current_job_org.get()
     if actor is None and has_request_context():
         actor = getattr(g, "user", None)
     ev = DomainEvent(

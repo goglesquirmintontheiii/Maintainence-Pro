@@ -296,9 +296,7 @@ def add_holiday() -> tuple[dict[str, Any], int]:
 def delete_holiday(hid: str) -> tuple[str, int]:
     from mpro.core.tenancy import get_scoped
 
-    h = get_scoped(Holiday, hid)
-    db.session.delete(h)
-    db.session.commit()
+    svc.delete_holiday(g.org, get_scoped(Holiday, hid))
     return "", 204
 
 

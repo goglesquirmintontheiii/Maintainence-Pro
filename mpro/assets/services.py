@@ -889,9 +889,11 @@ def set_status(
             + (f", {downtime_type} downtime" if downtime_type else ""),
             changes={"status": (prev, status)},
             data={"reason": reason, "downtime_type": downtime_type, "note": note, "work_order_id": work_order_id},
+            org_id=org.id,
         )
-        for hook in ASSET_STATUS_HOOKS:  # automations (0.4.0)
-            hook(org, m, t, prev, status)
+        from mpro.core.hooks import run_hooks
+
+        run_hooks(ASSET_STATUS_HOOKS, org, m, t, prev, status, what="Asset status hook")  # automations (0.4.0)
     if commit:
         db.session.commit()
     return a
