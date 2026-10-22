@@ -242,6 +242,15 @@ def delete_pin(lid: str, pid: str, pin_id: str) -> tuple[str, int]:
     pin = get_scoped(FloorPlanPin, pin_id)
     if pin.floor_plan_id != fp.id:
         abort(404)
+    from mpro.core.events import emit
+
+    emit(
+        "location.pin_removed",
+        entity_type="location",
+        entity_id=fp.location_id,
+        entity_label=fp.name,
+        summary=f"Removed pin {pin.label or ''} from {fp.name}".replace("  ", " "),
+    )
     db.session.delete(pin)
     db.session.commit()
     return "", 204

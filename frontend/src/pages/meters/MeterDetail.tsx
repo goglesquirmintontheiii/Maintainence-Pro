@@ -15,7 +15,7 @@ import { LabelDialog } from "../../components/LabelDialog";
 import { MeterChart, fmtNum } from "./MeterChart";
 import { CopyMeterDialog, MeterForm, TriggerForm } from "./MeterForms";
 
-const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"]] as const;
+const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 yr"]] as const;
 const FREQ: Record<string, string> = { hour: "hour", day: "day", week: "week", month: "month", year: "year" };
 
 function limitText(lo: number | null, hi: number | null, unit: string): string {
@@ -103,7 +103,7 @@ export function MeterDetail({ id }: { id: string }) {
 
       <section className="card">
         <div className="card-head"><h2>Readings</h2>
-          <div className="seg" role="radiogroup" aria-label="Range">{RANGES.map(([d, l]) => (
+          <div className="seg range-seg" role="radiogroup" aria-label="Range">{RANGES.map(([d, l]) => (
             <button key={d} type="button" role="radio" aria-checked={days === d} className={"seg-btn" + (days === d ? " on" : "")} onClick={() => setDays(d)}>{l}</button>))}</div>
         </div>
         <div className="card-body stack">

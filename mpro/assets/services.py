@@ -435,10 +435,20 @@ def set_pin(org: Organization, fp: FloorPlan, data: dict[str, Any], pin: FloorPl
     label = _str(data.get("label", pin.label if pin else ""), 120)
     if not asset_id and not label:
         raise RuleError("Pick an asset or type a label for the pin.", 422)
+    created = pin is None
     if pin is None:
         pin = FloorPlanPin(org_id=org.id, floor_plan_id=fp.id, x=x, y=y)
         db.session.add(pin)
     pin.x, pin.y, pin.asset_id, pin.label = x, y, asset_id, label
+    db.session.flush()
+    what = label or (db.session.get(Asset, asset_id).name if asset_id else "")  # type: ignore[union-attr]
+    emit(
+        "location.pin_saved",
+        entity_type="location",
+        entity_id=fp.location_id,
+        entity_label=fp.name,
+        summary=("Added" if created else "Moved") + f" pin {what} on {fp.name}",
+    )
     db.session.commit()
     return pin
 

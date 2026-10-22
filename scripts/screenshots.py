@@ -41,10 +41,90 @@ def api(page: Page, method: str, path: str, body: Any = None) -> Any:
     )
 
 
+def capture_030(ctx: Any, shot: Any, url: str) -> None:
+    """0.3.0: assets, locations, meters, QR codes and labels, work-order changes and the light theme."""
+    c, pg = ctx()
+    login(pg, url)
+    shot(pg, "01-overview-light", 1200)
+    pg.goto(url + "/assets")
+    shot(pg, "02-assets-tree", 1200)
+    asset = api(pg, "GET", "/assets?q=Air%20Compressor%202")["items"][0]
+    pg.goto(url + f"/assets/{asset['id']}")
+    shot(pg, "03-asset-detail", 1200)
+    for tab, name in (("insights", "04-asset-insights"), ("downtime", "05-asset-downtime"), ("lifecycle", "06-asset-lifecycle")):
+        pg.goto(url + f"/assets/{asset['id']}/{tab}")
+        shot(pg, name, 1200)
+    pg.goto(url + "/assets?view=table")
+    pg.wait_for_timeout(800)
+    if pg.get_by_role("tab", name="Table").count():
+        pg.get_by_role("tab", name="Table").first.click()
+    shot(pg, "07-assets-table", 1200)
+    pg.goto(url + "/assets?new=1")
+    shot(pg, "08-asset-create", 1000)
+    pg.keyboard.press("Escape")
+    pg.goto(url + f"/assets/{asset['id']}")
+    pg.wait_for_timeout(800)
+    pg.get_by_role("button", name="Change status").first.click()
+    shot(pg, "09-asset-change-status", 500)
+    pg.keyboard.press("Escape")
+    loc = api(pg, "GET", "/locations?q=Dayton%20Plant")["items"][0]
+    pg.goto(url + f"/locations/{loc['id']}")
+    shot(pg, "10-location", 1200)
+    meter = api(pg, "GET", "/meters?q=Bearing")["items"][0]
+    pg.goto(url + f"/meters/{meter['id']}")
+    shot(pg, "11-meter-chart", 1500)
+    pg.goto(url + "/meters")
+    shot(pg, "12-meters", 1000)
+    pg.goto(url + "/settings/qr-codes")
+    shot(pg, "13-qr-codes", 1000)
+    pg.goto(url + "/assets")
+    pg.wait_for_timeout(800)
+    ids = [x["id"] for x in api(pg, "GET", "/assets?per_page=6")["items"]]
+    _ = ids
+    pg.goto(url + "/scan")
+    shot(pg, "14-scan", 1200)
+    wo = api(pg, "GET", "/work-orders?tab=all&q=Quarterly%20HVAC")["items"][0]
+    pg.goto(url + f"/work-orders/{wo['id']}")
+    shot(pg, "15-wo-asset-tasks", 1200)
+    pg.goto(url + "/work-orders?view=todo")
+    pg.wait_for_timeout(700)
+    pg.keyboard.press("c")
+    pg.get_by_label("What needs to be done? *").fill("Check oil level on Air Compressor 1")
+    pg.get_by_label("Asset", exact=True).click()
+    pg.get_by_role("listbox", name="Asset").get_by_placeholder("Search assets").fill("Air Compressor 1")
+    pg.get_by_role("option", name="Air Compressor 1").click()
+    pg.get_by_label("Due date").fill("2026-11-02T10:00")
+    shot(pg, "16-wo-form-asset-clear-date", 500)
+    pg.keyboard.press("Escape")
+    pg.keyboard.press("Escape")
+    pg.goto(url + "/work-orders?view=workload")
+    shot(pg, "17-workload-totals", 1200)
+    pg.get_by_role("button", name="Create", exact=True).click()
+    shot(pg, "18-create-menu-templates", 500)
+    pg.keyboard.press("Escape")
+    pg.goto(url + "/settings/assets")
+    shot(pg, "19-asset-settings", 1000)
+    api(pg, "PATCH", "/auth/preferences", {"theme": "dark"})
+    pg.goto(url + f"/assets/{asset['id']}")
+    shot(pg, "20-dark-asset", 1200)
+    api(pg, "PATCH", "/auth/preferences", {"theme": "light"})
+    c.close()
+    c, pg = ctx(mobile=True)
+    login(pg, url)
+    pg.goto(url + "/assets")
+    shot(pg, "21-phone-assets", 1200)
+    pg.goto(url + f"/meters/{meter['id']}")
+    shot(pg, "22-phone-meter-reading", 1200)
+    pg.goto(url + "/scan")
+    shot(pg, "23-phone-scan", 1200)
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
-    ap.add_argument("--out", default="docs/screenshots/0.2.0")
+    ap.add_argument("--out", default="docs/screenshots/0.3.0")
+    ap.add_argument("--release", default="0.3.0", choices=("0.2.0", "0.3.0"))
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -65,6 +145,14 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
+        if a.release == "0.3.0":
+            capture_030(ctx, shot, url)
+            b.close()
+            if errors:
+                print("Console errors:\n" + "\n".join(errors))
+                return 1
+            print(f"Screenshots written to {out}")
+            return 0
         c, pg = ctx()
         login(pg, url)
         shot(pg, "01-overview")

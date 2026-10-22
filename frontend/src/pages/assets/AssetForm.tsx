@@ -1,7 +1,9 @@
 // Create / edit asset side panel.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type FileItem } from "../../lib/api";
+import { ScanText } from "lucide-react";
+import { api, ApiError, upload, type FileItem } from "../../lib/api";
+import { NameplateScan, type NameplateResult } from "../../components/Nameplate";
 import { useAssetOptions, type AssetDetail } from "../../lib/assets";
 import { useToast } from "../../components/Toast";
 import { Button, Drawer, Field, Input, Select } from "../../components/ui";
@@ -44,7 +46,18 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
   const [custom, setCustom] = useState<Record<string, unknown>>(edit?.custom ?? {});
   const [files, setFiles] = useState<FileItem[]>([]);
   const [err, setErr] = useState("");
+  const [plate, setPlate] = useState(false);
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
+  const fromPlate = async (r: NameplateResult) => {
+    // r594: create an asset from a nameplate photo; filled fields are only suggestions until saved
+    setPlate(false);
+    setF((x) => ({ ...x, manufacturer: r.manufacturer || x.manufacturer, model: r.model || x.model, serial_number: r.serial_number || x.serial_number,
+      year: r.year ? String(r.year) : x.year, name: x.name || [r.manufacturer, r.model].filter(Boolean).join(" ") }));
+    if (!edit) {
+      try { const up = await upload(r.file); setFiles((fs) => [...fs, up]); } catch (e) { toast((e as ApiError).message, { kind: "error" }); }
+    }
+    toast("Filled in from the nameplate. Check the details before saving.");
+  };
   const fin = !!opts.data?.can.financials;
   const makers = useQuery({ queryKey: ["asset-catalog"], queryFn: () => api<{ manufacturers: string[] }>("/asset-catalog"), staleTime: 300_000 });
   const models = useQuery({ queryKey: ["asset-catalog", f.manufacturer], enabled: !!f.manufacturer.trim(), staleTime: 300_000,
@@ -87,6 +100,8 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
       <form className="form-grid" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <Field label="Asset name *" className="full">{(id) => <Input id={id} value={f.name} maxLength={255} autoFocus onChange={(e) => set("name", e.target.value)} placeholder="e.g. Air Compressor 2" />}</Field>
         <Field label="Description" className="full">{(id) => <textarea id={id} className="textarea" rows={3} value={f.description} onChange={(e) => set("description", e.target.value)} />}</Field>
+        <div className="full row wrap"><Button size="sm" onClick={() => setPlate(true)}><ScanText size={14} />Read a nameplate photo</Button>
+          <span className="small faint">Fills in manufacturer, model, serial number and year. Text is read on this device.</span></div>
         {!edit && <PhotoPicker files={files} setFiles={setFiles} label="Add photos (nameplate, overview) or documents" />}
         <Field label="Parent asset" hint="Sub-assets show under their parent in the tree.">{(id) => <AssetPicker id={id} value={parent} onChange={setParent} exclude={edit ? [edit.id] : []} placeholder="None (top level)" />}</Field>
         <Field label="Location">{(id) => <LocationPicker id={id} value={location} onChange={setLocation} placeholder={parent.length ? "Same as parent" : "None"} />}</Field>
@@ -125,6 +140,7 @@ export function AssetForm({ edit, parentId, onClose, onSaved }: { edit?: AssetDe
         </div>
         {err && <div className="banner warning full" role="alert">{err}</div>}
       </form>
+      {plate && <NameplateScan onResult={(r) => void fromPlate(r)} onClose={() => setPlate(false)} />}
     </Drawer>
   );
 }

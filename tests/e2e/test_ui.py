@@ -195,3 +195,33 @@ def test_asset_task_list(page: Any, server: str) -> None:
     page.get_by_role("heading", name="Asset tasks").wait_for()
     page.get_by_role("radiogroup", name="Status of AHU-2").get_by_role("radio", name="Done").click()
     page.get_by_text("1 of 4 done").wait_for()
+
+
+def test_assets_locations_and_meters(page: Any, server: str) -> None:
+    _login(page, server)
+    page.goto(server + "/assets")
+    page.get_by_text("Air Compressor 2").first.click()
+    page.get_by_role("heading", name="Air Compressor 2").wait_for()
+    page.get_by_role("tab", name="Insights").click()
+    page.get_by_text("Availability").first.wait_for()
+    page.goto(server + "/assets?status=offline")
+    page.get_by_text("Forklift 3").first.wait_for()
+    page.goto(server + "/locations")
+    page.get_by_text("Dayton Plant").first.click()
+    page.get_by_role("heading", name="Dayton Plant").wait_for()
+    page.goto(server + "/meters")
+    page.get_by_text("Discharge pressure").first.click()
+    page.get_by_role("heading", name="Discharge pressure").wait_for()
+    page.get_by_placeholder("New reading").fill("104")
+    page.get_by_role("button", name="Record", exact=True).click()
+    page.get_by_text("104").first.wait_for()
+
+
+def test_scan_resolves_a_typed_code(page: Any, server: str) -> None:
+    _login(page, server)
+    code = page.evaluate(
+        """async () => (await (await fetch('/api/v1/qr-codes?state=assigned&per_page=1')).json()).items[0]"""
+    )
+    page.goto(server + "/q/" + code["value"])
+    page.wait_for_url("**/assets/*")
+    page.get_by_role("heading", name=code["target"]["label"]).wait_for()
