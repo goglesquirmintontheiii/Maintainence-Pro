@@ -1,9 +1,17 @@
-# MPro 0.3.0 — Assets, locations & meters
+# MPro 0.3.0 — Assets, locations & meters (and hotfix 0.3.1)
 
 **Status: released** · Checklist milestone 0.3.0 · Started 2026-10-22 · Released 2026-10-22
 
 The things being maintained: asset and location hierarchies, asset status and downtime, meters and readings,
 QR codes and labels, and assets and locations on work orders. Also the changes requested in the 0.2.0 review.
+
+## 0.3.1 hotfix (2026-10-22)
+
+- **Linux AppImage didn't open when double-clicked** (it only worked with "Run in Konsole"). Started without a
+  terminal, the server ran invisibly and the browser it launched inherited the bundle's libraries, so nothing
+  appeared. The launcher now re-opens itself in your terminal app (Konsole, GNOME Terminal, Xfce, kitty, …),
+  always starts the browser with a clean environment, and if MPro is already running it just opens the browser
+  again instead of starting a second copy. Closing the terminal window stops MPro cleanly.
 
 ## Task list
 
