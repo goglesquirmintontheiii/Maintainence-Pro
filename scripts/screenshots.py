@@ -304,7 +304,9 @@ def capture_042(ctx: Any, shot: Any, url: str) -> None:
     shot(pg, "04-drag-area", 200)
     pg.mouse.up()
     pg.wait_for_timeout(2500)
-    pg.get_by_label("What's the bug, feature, change or note?").fill("List rows feel cramped\n\nA bit more padding between rows.")
+    pg.get_by_label("What's the bug, feature, change or note?").fill(
+        "List rows feel cramped\n\nA bit more padding between rows."
+    )
     shot(pg, "05-area-note", 300)
     pg.keyboard.press("Escape")
     c.close()
