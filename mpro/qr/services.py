@@ -224,6 +224,11 @@ def assign(org: Organization, m: Membership, c: QrCode, entity_type: str, entity
         raise RuleError("This code was retired. Print a new one.", 409)
     rec = _target(org.id, entity_type, entity_id)
     if c.entity_id and not move:
+        t_old = _targets.get(c.entity_type or "")
+        old = db.session.get(t_old.model, c.entity_id) if t_old else None
+        if old is None or getattr(old, "deleted_at", None) is not None:
+            move = True  # the record it was on is gone: treat the code as free
+    if c.entity_id and not move:
         if c.entity_id == rec.id:
             return c
         raise RuleError("This code is already on another record. Move it instead.", 409)

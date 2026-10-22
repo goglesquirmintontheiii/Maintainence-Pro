@@ -677,3 +677,70 @@ def test_workload_respects_filters(admin: Api) -> None:
     titles = [i["title"] for r in w["unassigned"] for c in r["days"].values() for i in c["items"]]
     assert titles == ["On the asset"]
     assert admin.get(f"{API}/work-orders/options").json["assets"][0]["name"] == "Conveyor 3"
+
+
+# ---- regressions from the 0.3.0 review -------------------------------------------------------------
+def test_review_fixes(app: Any, admin: Api) -> None:
+    # insights don't leak costs of hidden work orders to limited-visibility users
+    a = asset(admin)
+    wo = admin.post(f"{API}/work-orders", {"title": "Hidden", "asset_id": a["id"]}).json
+    admin.post(f"{API}/work-orders/{wo['id']}/costs", {"amount_cents": 123456, "description": "Part"})
+    with app.app_context():
+        from sqlalchemy import select
+
+        from mpro.auth.models import User
+        from mpro.extensions import db
+        from mpro.orgs.models import Membership
+
+        u = db.session.scalars(select(User).where(User.email == "avery.kim@example.com")).one()
+        db.session.scalars(select(Membership).where(Membership.user_id == u.id)).one().wo_visibility = "limited"
+        db.session.commit()
+    tech = login(app, "avery.kim@example.com")
+    assert tech.get(f"{API}/assets/{a['id']}/insights").json["costs"]["other_cents"] == 0
+    # bad due_in_days on triggers and templates are refused instead of breaking later
+    m = admin.post(f"{API}/meters", {"name": "Hours", "unit": "hours"}).json
+    bad = {"kind": "threshold", "threshold": 10, "work_order": {"title": "x", "due_in_days": "soon"}}
+    assert admin.post(f"{API}/meters/{m['id']}/triggers", bad).status_code == 422
+    t = admin.post(f"{API}/work-order-templates", {"name": "T", "data": {"title": "x", "due_in_days": ""}}).json
+    assert admin.post(f"{API}/work-order-templates/{t['id']}/create", {}).status_code == 201
+    # switching a trigger to "every" needs an interval
+    trig = admin.post(
+        f"{API}/meters/{m['id']}/triggers", {"kind": "threshold", "threshold": 10, "work_order": {"title": "x"}}
+    ).json
+    assert admin.patch(f"{API}/meters/{m['id']}/triggers/{trig['id']}", {"kind": "every"}).status_code == 422
+    # copied "every N" triggers fire
+    every = admin.post(f"{API}/meters", {"name": "Cycles", "unit": "cycles"}).json
+    admin.post(
+        f"{API}/meters/{every['id']}/triggers",
+        {"kind": "every", "every_units": 100, "work_order": {"title": "Copy service"}},
+    )
+    copy = admin.post(f"{API}/meters/{every['id']}/copy", {}).json["items"][0]
+    admin.post(f"{API}/meters/{copy['id']}/readings", {"value": 150})
+    assert admin.get(f"{API}/work-orders?tab=all&q=Copy%20service").json["total"] == 1
+    # huge day ranges are a 422-free clamp, not a crash
+    assert admin.get(f"{API}/meters/{copy['id']}/readings?days=99999999999").status_code == 200
+    # a back-dated status change can't land before the latest change
+    admin.post(f"{API}/assets/{a['id']}/status", {"status": "offline"})
+    earlier = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
+    assert admin.post(f"{API}/assets/{a['id']}/status", {"status": "online", "at": earlier}).status_code == 422
+    # lowering max depth doesn't block renaming a deep asset
+    x = asset(admin, "X")
+    y = asset(admin, "Y", parent_id=x["id"])
+    z = asset(admin, "Z", parent_id=y["id"])
+    admin.patch(f"{API}/assets/settings", {"max_depth": 2})
+    assert admin.patch(f"{API}/assets/{z['id']}", {"name": "Z2", "parent_id": y["id"]}).status_code == 200
+    # a code on a deleted asset can be assigned again
+    gone = asset(admin, "Gone")
+    code = admin.post(f"{API}/qr-codes", {"entity_type": "asset", "entity_id": gone["id"]}).json
+    admin.delete(f"{API}/assets/{gone['id']}")
+    assert admin.get(f"{API}/scan?value={code['value']}").json["status"] == "unassigned"
+    assert (
+        admin.post(f"{API}/qr-codes/{code['id']}/assign", {"entity_type": "asset", "entity_id": x["id"]}).status_code
+        == 200
+    )
+    # type-limited custom fields only keep values on assets of that type
+    pump = admin.post(f"{API}/asset-types", {"name": "Pump"}).json
+    f = admin.post(
+        f"{API}/custom-fields", {"entity_type": "asset", "name": "Flow", "type": "number", "scope_id": pump["id"]}
+    ).json
+    assert f["id"] not in asset(admin, "Fan", custom={f["id"]: 5})["custom"]

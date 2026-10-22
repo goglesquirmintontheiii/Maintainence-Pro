@@ -258,7 +258,7 @@ def zpl(items: list[LabelItem], template: str, copies: int = 1, options: dict[st
         fs = max(18, min(48, H // 6 if not stacked else H // 14))
         z = ["^XA", "^CI28", f"^PW{W}", f"^LL{H}", "^LH0,0"]
         # ^BQ adds ~10 dots of quiet zone at the top; offset y by the field origin
-        z.append(f"^FO{qx},{max(0, qy - 10)}^BQN,2,{mag}^FDMA,{_zpl_text(item.url)}^FS")
+        z.append(f"^FO{qx},{max(0, qy - 10)}^BQN,2,{mag}^FH^FDMA,{_zpl_text(item.url)}^FS")
         lines = []
         if opts["show_name"] and item.title:
             lines.append((item.title, fs))

@@ -397,7 +397,7 @@ def restore_location(org: Organization, loc: Location) -> None:
 # ---- floor plans -----------------------------------------------------------------------------
 def add_floor_plan(org: Organization, m: Membership, loc: Location, name: str, file_id: Any) -> FloorPlan:
     f = db.session.get(FileObject, _uuid(file_id, "file"))
-    if f is None or f.org_id != org.id or f.deleted_at is not None or not f.is_image:
+    if f is None or f.org_id != org.id or f.deleted_at is not None or f.uploaded_by_id != m.user_id or not f.is_image:
         raise RuleError("Upload the floor plan as a PNG, JPG or WebP image.", 422)
     n = (
         db.session.scalar(
@@ -669,6 +669,23 @@ def _set_types(a: Asset, ids: list[Any]) -> None:
             a.type_links.append(AssetTypeLink(org_id=a.org_id, type_id=tid))
 
 
+def _scope_custom(a: Asset) -> None:
+    """Keep only custom values for fields that apply to this asset's types (type-limited fields)."""
+    from mpro.workorders.models import CustomField
+
+    if not a.custom:
+        return
+    scoped = dict(
+        db.session.execute(
+            select(CustomField.id, CustomField.scope_id).where(
+                CustomField.org_id == a.org_id, CustomField.entity_type == "asset", CustomField.scope_id.is_not(None)
+            )
+        ).all()
+    )
+    mine = {link.type_id for link in a.type_links}
+    a.custom = {k: v for k, v in a.custom.items() if scoped.get(uuid.UUID(k)) is None or scoped[uuid.UUID(k)] in mine}
+
+
 def new_asset(org_id: uuid.UUID, **kw: Any) -> Asset:
     base: dict[str, Any] = {
         "id": uuid7(),
@@ -718,6 +735,7 @@ def create_asset(org: Organization, m: Membership, data: dict[str, Any], commit:
     db.session.add(a)
     db.session.flush()
     _set_types(a, data.get("types") or [])
+    _scope_custom(a)
     hierarchy.add_node(org.id, "asset", a.id, a.parent_id)
     db.session.add(
         AssetStatusChange(org_id=org.id, asset_id=a.id, from_status="", to_status=a.status, actor_id=m.user_id)
@@ -759,7 +777,7 @@ def update_asset(
     _apply_asset(org.id, a, {k: data[k] for k in ASSET_FIELDS if k in data})
     if "location_id" in data:
         a.location_id = get_location(org.id, data["location_id"]).id if data["location_id"] else None
-    if "parent_id" in data:
+    if "parent_id" in data and str(data["parent_id"] or "") != str(a.parent_id or ""):
         new_parent = _check_parent(org.id, a, data["parent_id"])
         if new_parent != a.parent_id:
             try:
@@ -771,6 +789,8 @@ def update_asset(
         _set_types(a, data["types"] or [])
     if "custom" in data:
         a.custom = _clean_custom(org.id, data["custom"] or {}, a.custom, entity_type="asset")
+    if "custom" in data or "types" in data:
+        _scope_custom(a)
     teams = None
     if "teams" in data:
         teams = _set_teams(org.id, "asset", a.id, data["teams"] or [])
@@ -823,6 +843,11 @@ def set_status(
     when = at or utcnow()
     if when > utcnow() + timedelta(minutes=5):
         raise RuleError("A status change can't be in the future.", 422)
+    if at is not None:
+        # history must stay in order: a back-dated change can't go before the latest recorded change
+        latest = db.session.scalar(select(func.max(AssetStatusChange.at)).where(AssetStatusChange.asset_id == a.id))
+        if (latest and when < latest) or when < a.created_at:
+            raise RuleError("The time must be after the asset's last status change.", 422)
     targets = [a]
     if apply_to_children:
         ids = db.session.scalars(hierarchy.subtree_ids("asset", a.id)).all()
@@ -1004,7 +1029,7 @@ def depreciation(a: Asset, today: date | None = None) -> dict[str, Any] | None:
     for y in range(a.useful_life_years):
         yr_start = (
             start.replace(year=start.year + y)
-            if not (start.month == 2 and start.day == 29)
+            if y == 0 or not (start.month == 2 and start.day == 29)
             else date(start.year + y, 3, 1)
         )
         acc = round(annual * (y + 1))

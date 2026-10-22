@@ -393,7 +393,7 @@ def _csv(ex: Export) -> tuple[str, bytes, str]:
     fields = custom_fields(org.id)
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow([c[0] for c in CSV_COLUMNS] + [f.name for f in fields])
+    w.writerow([_safe_cell(c[0]) for c in CSV_COLUMNS] + [_safe_cell(f.name) for f in fields])
     for wo in wos:
         d = summary_dict(wo)
         w.writerow(

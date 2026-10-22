@@ -347,13 +347,15 @@ def seed_assets(org: Organization, admin: User) -> None:
             assets[name] = svc.create_asset(org, m, data)
         # status history: a few outages over the last 60 days, for availability
         now = utcnow()
+        for a in assets.values():  # the demo plant has been on MPro for three months
+            a.created_at = now - timedelta(days=90)
+            for first in db.session.scalars(select(AssetStatusChange).where(AssetStatusChange.asset_id == a.id)).all():
+                first.at = now - timedelta(days=90)
+        db.session.flush()
         for name, outages in (("Air Compressor 2", [(50, 6, "Breakdown"), (21, 30, "Waiting on parts"), (3, 4, "Breakdown")]),
                               ("Conveyor 3", [(40, 2, "Breakdown"), (9, 3, "Breakdown")]), ("Chiller 1", [(30, 8, "Preventive maintenance")]),
                               ("Forklift 3", [(12, 48, "Breakdown")]), ("Mixer M-2", [(16, 5, "Breakdown")])):  # fmt: skip
             a = assets[name]
-            first = db.session.scalars(select(AssetStatusChange).where(AssetStatusChange.asset_id == a.id)).first()
-            if first:
-                first.at = now - timedelta(days=90)
             for days_ago, hours, reason in outages:
                 start = now - timedelta(days=days_ago)
                 svc.set_status(

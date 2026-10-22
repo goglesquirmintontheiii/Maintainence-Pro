@@ -98,6 +98,18 @@ def upgrade():
     if postgres:
         # monthly partitions are added ahead of time by the meters.partitions job; this catches anything else
         op.execute("CREATE TABLE meter_readings_default PARTITION OF meter_readings DEFAULT")
+        # this month and the next three, so readings never pile up in the default partition before the job runs
+        import datetime as _dt
+
+        today = _dt.date.today()
+        y, m = today.year, today.month
+        for _ in range(4):
+            ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+            op.execute(
+                f"CREATE TABLE meter_readings_{y:04d}{m:02d} PARTITION OF meter_readings "
+                f"FOR VALUES FROM ('{y:04d}-{m:02d}-01') TO ('{ny:04d}-{nm:02d}-01')"
+            )
+            y, m = ny, nm
     with op.batch_alter_table('meter_readings', schema=None) as batch_op:
         batch_op.create_index('ix_meter_readings_meter_at', ['meter_id', 'recorded_at'], unique=False)
         batch_op.create_index(batch_op.f('ix_meter_readings_org_id'), ['org_id'], unique=False)

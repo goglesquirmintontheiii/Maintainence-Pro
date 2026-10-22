@@ -1,6 +1,6 @@
 # MPro 0.3.0 — Assets, locations & meters
 
-**Status: released** · Checklist milestone 0.3.0 · Started 2026-10-22
+**Status: released** · Checklist milestone 0.3.0 · Started 2026-10-22 · Released 2026-10-22
 
 The things being maintained: asset and location hierarchies, asset status and downtime, meters and readings,
 QR codes and labels, and assets and locations on work orders. Also the changes requested in the 0.2.0 review.
@@ -43,6 +43,7 @@ QR codes and labels, and assets and locations on work orders. Also the changes r
 - The Workload view now applies the search box and filters (it ignored them in 0.2.0) and shows a weekly total per person.
 - Readings overdue show on Overview and in the Meters list; reminder notifications arrive with Notifications in 0.6.0.
 - Nameplate reading runs on the device (tesseract.js, files served by MPro itself), adding about 14 MB to the test builds.
+- Independent review fixes: PostgreSQL reading partitions (months created up front; stray rows moved out of the default partition), asset insights no longer count costs from work orders a limited-visibility user can't see, trigger and template "due in days" validated, copied every-N triggers fire, back-dated status changes can't reorder history, lowering max depth no longer blocks edits, codes left on deleted assets can be reassigned, type-limited custom fields enforced, CSV headers sanitised, missing audit events added.
 - Bug sweep: independent review, `uvx pip-audit` and `npm audit` (0 vulnerabilities), backend tests on SQLite and PostgreSQL, browser tests.
 
 ## Screenshots

@@ -51,10 +51,10 @@ def _range() -> tuple[datetime, datetime]:
         start = (
             guard(_dt, request.args.get("from"), "from")
             if request.args.get("from")
-            else now - timedelta(days=int(request.args.get("days") or 30))
+            else now - timedelta(days=max(1, min(int(request.args.get("days") or 30), 3660)))
         )
         end = guard(_dt, request.args.get("to"), "to") if request.args.get("to") else now + timedelta(minutes=1)
-    except ValueError:
+    except (ValueError, OverflowError):
         abort(422, message="days must be a number.")
     if end <= start or (end - start).days > 3660:
         abort(422, message="Pick a range up to 10 years.")
@@ -350,6 +350,15 @@ def delete_trigger(mid: str, tid: str) -> tuple[str, int]:
     mt = _meter(mid)
     t = _trigger(mt, tid)
     t.deleted_at, t.active = utcnow(), False
+    from mpro.core.events import emit
+
+    emit(
+        "meter.trigger_deleted",
+        entity_type="meter",
+        entity_id=mt.id,
+        entity_label=mt.name,
+        summary=f"Deleted trigger {t.name}",
+    )
     db.session.commit()
     return "", 204
 
@@ -392,6 +401,15 @@ def delete_point(pid: str) -> tuple[str, int]:
 
     p = get_scoped(MonitoringPoint, pid)
     p.deleted_at = utcnow()
+    from mpro.core.events import emit
+
+    emit(
+        "monitoring_point.deleted",
+        entity_type="monitoring_point",
+        entity_id=p.id,
+        entity_label=p.name,
+        summary=f"Deleted monitoring point {p.name}",
+    )
     for mt in db.session.scalars(scoped(Meter).where(Meter.monitoring_point_id == p.id)).all():
         mt.monitoring_point_id = None
     db.session.commit()

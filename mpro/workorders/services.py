@@ -1478,10 +1478,12 @@ def save_template(org: Organization, m: Membership, data: dict[str, Any], t: Tem
         _uuid(cid, "category")
     content["custom"] = _clean_custom(org.id, content.get("custom") or {})
     _set_asset_location(probe, {k: content[k] for k in ("asset_id", "location_id") if k in content})
-    if content.get("due_in_days") not in (None, ""):
+    if content.get("due_in_days") in (None, ""):
+        content.pop("due_in_days", None)
+    else:
         try:
             content["due_in_days"] = int(content["due_in_days"])
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError, OverflowError) as e:
             raise RuleError("Due in days must be a whole number.", 422) from e
         if not 0 <= content["due_in_days"] <= 3650:
             raise RuleError("Due in days must be between 0 and 3,650.", 422)
@@ -1524,7 +1526,7 @@ def create_from_template(org: Organization, m: Membership, t: Template, override
         raise RuleError("Can't override " + ", ".join(sorted(bad)) + ".", 422)
     data: dict[str, Any] = {k: v for k, v in (t.data or {}).items() if k != "due_in_days"}
     data.setdefault("title", t.name)
-    if (t.data or {}).get("due_in_days") is not None and "due_at" not in overrides:
+    if (t.data or {}).get("due_in_days") not in (None, "") and "due_at" not in overrides:
         due = utcnow().replace(hour=17, minute=0, second=0, microsecond=0) + timedelta(days=int(t.data["due_in_days"]))
         data["due_at"] = due.isoformat()
     if "asset_id" in overrides and "location_id" not in overrides:

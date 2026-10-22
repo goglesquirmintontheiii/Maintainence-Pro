@@ -190,6 +190,16 @@ def patch_floor_plan(lid: str, pid: str) -> dict[str, Any]:
         name = str(b["name"] or "").strip()[:120]
         if not name:
             abort(422, message="The floor plan needs a name.")
+        if name != fp.name:
+            from mpro.core.events import emit
+
+            emit(
+                "location.floor_plan_renamed",
+                entity_type="location",
+                entity_id=fp.location_id,
+                entity_label=name,
+                summary=f"Renamed floor plan {fp.name} to {name}",
+            )
         fp.name = name
     if "sort" in b and isinstance(b["sort"], int):
         fp.sort = b["sort"]

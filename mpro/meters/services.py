@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
 from datetime import datetime, timedelta
@@ -20,6 +21,7 @@ from mpro.meters.models import FREQUENCIES, METER_TYPES, Meter, MeterReading, Me
 from mpro.orgs.models import Membership, Organization
 from mpro.orgs.services import RuleError
 
+log = logging.getLogger(__name__)
 PERIOD = {
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
@@ -231,7 +233,9 @@ def copy_meter(org: Organization, m: Membership, mt: Meter, asset_ids: list[Any]
                     comparator=t.comparator,
                     threshold=t.threshold,
                     every_units=t.every_units,
-                    next_at=None,
+                    next_at=((new.last_value or Decimal(0)) + t.every_units)
+                    if t.kind == "every" and t.every_units
+                    else None,
                     work_order=dict(t.work_order or {}),
                     active=t.active,
                     fired_count=0,
@@ -538,11 +542,11 @@ def save_trigger(
             if data["comparator"] not in ("gt", "lt"):
                 raise RuleError("Pick above or below.", 422)
             t.comparator = data["comparator"]
-        if "threshold" in data or created:
+        if "threshold" in data or created or t.threshold is None:
             t.threshold = _dec(data.get("threshold"), "Threshold", allow_none=False)
         t.every_units, t.next_at = None, None
     else:
-        if "every_units" in data or created:
+        if "every_units" in data or created or t.every_units is None:
             every = _dec(data.get("every_units"), "Interval", allow_none=False)
             assert every is not None
             if every <= 0:
@@ -568,6 +572,16 @@ def save_trigger(
             },
         )
         _resolve_assignees(org.id, wo.get("assignees") or [])
+        if wo.get("due_in_days") in ("", None):
+            wo.pop("due_in_days", None)
+        else:
+            try:
+                due = int(wo["due_in_days"])
+            except (TypeError, ValueError, OverflowError) as e:
+                raise RuleError("Due in days must be a whole number.", 422) from e
+            if not 0 <= due <= 3650:
+                raise RuleError("Due in days must be between 0 and 3,650.", 422)
+            wo["due_in_days"] = due
         t.work_order = dict(wo)
     if "active" in data:
         t.active = bool(data["active"])
@@ -596,9 +610,9 @@ def fire_triggers(org: Organization, mt: Meter, prev: Decimal | None, v: Decimal
 
     created: list[uuid.UUID] = []
     triggers = db.session.scalars(
-        select(MeterTrigger).where(
-            MeterTrigger.meter_id == mt.id, MeterTrigger.active.is_(True), MeterTrigger.deleted_at.is_(None)
-        )
+        select(MeterTrigger)
+        .where(MeterTrigger.meter_id == mt.id, MeterTrigger.active.is_(True), MeterTrigger.deleted_at.is_(None))
+        .with_for_update()  # two readings at once must not both open a work order or both advance next_at
     ).all()
     for t in triggers:
         hit = False
@@ -660,7 +674,10 @@ def _create_wo(org: Organization, mt: Meter, t: MeterTrigger, v: Decimal, r: Met
     )
     data["description"] = data["description"][:4096]
     if due_in not in (None, ""):
-        data["due_at"] = (utcnow() + timedelta(days=int(due_in))).isoformat()
+        try:
+            data["due_at"] = (utcnow() + timedelta(days=int(due_in))).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            t.last_note = "The trigger's due date setting is invalid; created without a due date."
     if mt.asset_id:
         data["asset_id"] = str(mt.asset_id)
     if mt.location_id:
@@ -714,32 +731,68 @@ def save_point(org: Organization, data: dict[str, Any], p: MonitoringPoint | Non
 
 
 # ---- jobs ------------------------------------------------------------------------------------
+def _month_bounds(y: int, mo: int) -> tuple[str, str, str]:
+    ny, nmo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    return f"meter_readings_{y:04d}{mo:02d}", f"{y:04d}-{mo:02d}-01", f"{ny:04d}-{nmo:02d}-01"
+
+
 def ensure_partitions(months_ahead: int = 3) -> list[str]:
-    """PostgreSQL: create monthly partitions of meter_readings ahead of time (roadmap r105)."""
+    """PostgreSQL: create monthly partitions of meter_readings ahead of time (roadmap r105).
+
+    Each month is its own transaction. Rows that already landed in the DEFAULT partition for a month (before
+    the job first ran) are moved into the new month: detach default, create the month, move rows, re-attach.
+    """
     from sqlalchemy import text
 
     if db.engine.dialect.name != "postgresql":
         return []
+    db.session.commit()
     is_part = db.session.scalar(text("SELECT relkind = 'p' FROM pg_class WHERE relname = 'meter_readings'"))
     if not is_part:
         return []
     made = []
     now = utcnow()
+    months: list[tuple[int, int]] = []
     y, mo = now.year, now.month
     for _ in range(months_ahead + 1):
-        ny, nmo = (y + 1, 1) if mo == 12 else (y, mo + 1)
-        name = f"meter_readings_{y:04d}{mo:02d}"
-        exists = db.session.scalar(text("SELECT 1 FROM pg_class WHERE relname = :n"), {"n": name})
-        if not exists:
-            db.session.execute(
-                text(
-                    f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF meter_readings "
-                    f"FOR VALUES FROM ('{y:04d}-{mo:02d}-01') TO ('{ny:04d}-{nmo:02d}-01')"
-                )
+        months.append((y, mo))
+        y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    # earlier months that only exist in the default partition (readings back-dated or imported)
+    for (d,) in db.session.execute(
+        text("SELECT DISTINCT date_trunc('month', recorded_at AT TIME ZONE 'UTC') FROM meter_readings_default")
+    ).all():
+        if (d.year, d.month) not in months:
+            months.append((d.year, d.month))
+    for y, mo in months:
+        name, lo, hi = _month_bounds(y, mo)
+        if db.session.scalar(text("SELECT 1 FROM pg_class WHERE relname = :n"), {"n": name}):
+            continue
+        try:
+            stray = db.session.scalar(
+                text("SELECT 1 FROM meter_readings_default WHERE recorded_at >= :lo AND recorded_at < :hi LIMIT 1"),
+                {"lo": lo, "hi": hi},
             )
+            if stray:
+                db.session.execute(text("ALTER TABLE meter_readings DETACH PARTITION meter_readings_default"))
+                db.session.execute(
+                    text(f"CREATE TABLE {name} PARTITION OF meter_readings FOR VALUES FROM ('{lo}') TO ('{hi}')")
+                )
+                db.session.execute(
+                    text(
+                        f"WITH moved AS (DELETE FROM meter_readings_default WHERE recorded_at >= '{lo}' "
+                        f"AND recorded_at < '{hi}' RETURNING *) INSERT INTO meter_readings SELECT * FROM moved"
+                    )
+                )
+                db.session.execute(text("ALTER TABLE meter_readings ATTACH PARTITION meter_readings_default DEFAULT"))
+            else:
+                db.session.execute(
+                    text(f"CREATE TABLE {name} PARTITION OF meter_readings FOR VALUES FROM ('{lo}') TO ('{hi}')")
+                )
+            db.session.commit()
             made.append(name)
-        y, mo = ny, nmo
-    db.session.commit()
+        except Exception:  # keep going with later months; the job logs and retries tomorrow
+            db.session.rollback()
+            log.exception("Couldn't create partition %s", name)
     return made
 
 

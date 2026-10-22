@@ -539,7 +539,9 @@ def insights(m: Membership, a: Asset, days: int = 90, include_children: bool = T
         or 0,
         "downtime": downtime(a.id, start, now),
     }
-    wo_ids = select(WorkOrder.id).where(WorkOrder.asset_id.in_(ids), WorkOrder.deleted_at.is_(None))
+    wo_ids = select(WorkOrder.id).where(
+        WorkOrder.asset_id.in_(ids), WorkOrder.deleted_at.is_(None), visibility_filter(m)
+    )
     other = (
         db.session.scalar(
             select(func.coalesce(func.sum(CostEntry.amount_cents), 0)).where(
@@ -624,17 +626,20 @@ def assets_csv(m: Membership, params: dict[str, Any]) -> bytes:
     cols += [f.name for f in fields]
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(cols)
 
     def money(c: int | None) -> str:
         return f"{c / 100:.2f}" if c is not None else ""
 
     def safe(v: Any) -> str:
         s = "" if v is None else str(v)
+        if isinstance(v, int | float) and not isinstance(v, bool):
+            return s  # numbers (including negatives) are safe
         return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s  # CSV injection guard
 
     def dt(v: date | None) -> str:
         return v.isoformat() if v else ""
+
+    w.writerow([safe(c) for c in cols])
 
     for a in rows:
         r: list[Any] = [
