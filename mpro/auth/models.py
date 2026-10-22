@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mpro.core.models import IdMixin, SoftDeleteMixin, TimestampMixin, UTCDateTime
@@ -28,6 +28,9 @@ class User(IdMixin, TimestampMixin, SoftDeleteMixin, db.Model):  # type: ignore[
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     theme: Mapped[str] = mapped_column(String(16), default="light")  # system | light | dark
+    # profile photo (MP-116): a small square WebP, cropped in the browser; None = initials
+    avatar: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    avatar_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="user", lazy="selectin")
 

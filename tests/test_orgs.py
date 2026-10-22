@@ -44,7 +44,7 @@ def test_role_changes_and_last_admin(admin: Any) -> None:
     assert admin.patch(f"/api/v1/users/{jid}", json={"role": "technician"}).json["role"] == "technician"
     me = admin.session()["user"]["id"]
     r = admin.patch(f"/api/v1/users/{me}", json={"role": "technician"})
-    assert r.status_code == 409 and "at least one Administrator" in r.json["message"]
+    assert r.status_code == 409 and "at least one Owner" in r.json["message"]
     assert admin.delete(f"/api/v1/users/{me}").status_code == 409
 
 

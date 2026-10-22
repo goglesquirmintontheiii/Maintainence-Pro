@@ -1,6 +1,6 @@
 import {
   Activity, BarChart3, Download, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
-  MapPin, MessageSquare, Package, QrCode, ScanLine, Settings, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
+  MapPin, MessageSquare, Package, QrCode, ScanLine, Settings, ShieldCheck, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
 } from "lucide-react";
 
 export type NavItem = { id: string; label: string; path: string; icon: LucideIcon; group: string; phase?: string; blurb?: string; perm?: string; keywords?: string };
@@ -12,10 +12,10 @@ export const NAV: NavItem[] = [
     blurb: "Create, assign and complete work orders with statuses, priorities, time and costs, comments and photos.", keywords: "wo tasks jobs todo calendar workload board" },
   { id: "requests", label: "Requests", path: "/requests", icon: Inbox, group: "Work", phase: "0.6.0",
     blurb: "Anyone can report a problem, including from a QR code; approve requests to turn them into work orders." },
-  { id: "pm", label: "Preventive Maintenance", path: "/preventive-maintenance", icon: CalendarClock, group: "Work", phase: "0.4.0",
-    blurb: "Repeating work orders by calendar or meter readings, with a PM calendar and compliance.", keywords: "pm schedules" },
-  { id: "procedures", label: "Procedures", path: "/procedures", icon: ClipboardCheck, group: "Work", phase: "0.4.0",
-    blurb: "Checklists with every MaintainX field type, conditional logic and a reusable library.", keywords: "library checklists" },
+  { id: "pm", label: "Preventive Maintenance", path: "/preventive-maintenance", icon: CalendarClock, group: "Work", perm: "pm.view",
+    blurb: "Maintenance plans and repeating work orders by calendar or meter readings, with a PM calendar and compliance.", keywords: "pm schedules maintenance plans repeating recurring" },
+  { id: "procedures", label: "Procedures", path: "/procedures", icon: ClipboardCheck, group: "Work", perm: "procedures.view",
+    blurb: "Checklists with every MaintainX field type, conditional logic and a reusable library.", keywords: "library checklists inspections forms" },
   { id: "messages", label: "Messages", path: "/messages", icon: MessageSquare, group: "Work", phase: "0.6.0",
     blurb: "Real-time conversations with people, teams and on every work order." },
   { id: "dashboards", label: "Dashboards", path: "/dashboards", icon: LayoutDashboard, group: "Optimize", phase: "0.7.0",
@@ -24,8 +24,8 @@ export const NAV: NavItem[] = [
     blurb: "MTTR, MTBF, PM compliance, downtime, costs and every export MaintainX offers." },
   { id: "meters", label: "Meters", path: "/meters", icon: Gauge, group: "Optimize", perm: "meters.view",
     blurb: "Hours, miles, cycles and sensor readings that can trigger work automatically.", keywords: "readings sensors thresholds triggers gauges" },
-  { id: "automations", label: "Automations", path: "/automations", icon: Workflow, group: "Optimize", phase: "0.4.0",
-    blurb: "Rules that create or update work when something happens." },
+  { id: "automations", label: "Automations", path: "/automations", icon: Workflow, group: "Optimize", perm: "automations.view",
+    blurb: "Rules that create or update work when something happens.", keywords: "triggers rules meter thresholds" },
   { id: "assets", label: "Assets", path: "/assets", icon: Boxes, group: "Manage", perm: "assets.view",
     blurb: "Equipment hierarchy, downtime, QR codes, documents and full work history.", keywords: "equipment machines downtime warranty qr labels" },
   { id: "locations", label: "Locations", path: "/locations", icon: MapPin, group: "Manage", perm: "locations.view",
@@ -49,6 +49,7 @@ export const SETTINGS_NAV = [
   { path: "/settings/work-orders", label: "Work orders", icon: ClipboardList, perm: "wo.view" },
   { path: "/settings/assets", label: "Assets and locations", icon: Boxes, perm: "assets.view" },
   { path: "/settings/qr-codes", label: "QR codes and labels", icon: QrCode, perm: "qr.manage" },
+  { path: "/settings/roles", label: "Roles and permissions", icon: ShieldCheck, perm: "users.view" },
   { path: "/settings/audit-log", label: "Audit log", icon: Activity, perm: "audit.view" },
   { path: "/settings/jobs", label: "Background jobs", icon: Workflow, perm: "jobs.view" },
   { path: "/settings/email", label: "Email outbox", icon: Inbox, perm: "mail.view" },

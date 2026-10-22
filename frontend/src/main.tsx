@@ -24,6 +24,10 @@ import { MetersPage } from "./pages/meters/Meters";
 import { ScanPage } from "./pages/scan/Scan";
 import { QrResolve } from "./pages/scan/QrResolve";
 import { QrCodesPage } from "./pages/scan/QrCodes";
+import { PMPage } from "./pages/pm/PM";
+import { ProceduresPage } from "./pages/procedures/Procedures";
+import { AutomationsPage } from "./pages/automations/Automations";
+import { RolesPage } from "./pages/roles/Roles";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
 
@@ -66,6 +70,13 @@ function Gate() {
         <Route path="locations/:id/:tab" element={<LocationsPage />} />
         <Route path="meters" element={<MetersPage />} />
         <Route path="meters/:id" element={<MetersPage />} />
+        <Route path="preventive-maintenance" element={<PMPage />} />
+        <Route path="preventive-maintenance/:id" element={<PMPage />} />
+        <Route path="procedures" element={<ProceduresPage />} />
+        <Route path="procedures/:id" element={<ProceduresPage />} />
+        <Route path="procedures/:id/:mode" element={<ProceduresPage />} />
+        <Route path="automations" element={<AutomationsPage />} />
+        <Route path="automations/:id" element={<AutomationsPage />} />
         <Route path="scan" element={<ScanPage />} />
         <Route path="q/:code" element={<QrResolve />} />
         <Route path="categories" element={<Categories />} />
@@ -76,6 +87,7 @@ function Gate() {
           <Route path="work-orders" element={<WorkOrderSettings />} />
           <Route path="assets" element={<AssetSettingsPage />} />
           <Route path="qr-codes" element={<QrCodesPage />} />
+          <Route path="roles" element={<RolesPage />} />
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="jobs" element={<Jobs />} />
           <Route path="email" element={<EmailOutbox />} />

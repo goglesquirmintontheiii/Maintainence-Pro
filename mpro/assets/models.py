@@ -62,6 +62,9 @@ class FloorPlan(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     name: Mapped[str] = mapped_column(String(120))
     file_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("files.id"))
     sort: Mapped[int] = mapped_column(Integer, default=0)
+    # editor layer (MP-110): shapes, lines, text and location bindings, stored apart from the image
+    annotations: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    annotations_version: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class FloorPlanPin(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

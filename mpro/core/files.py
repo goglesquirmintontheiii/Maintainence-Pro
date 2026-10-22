@@ -59,6 +59,8 @@ class FileObject(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mo
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    # a browser-friendly rendering made in the background (PSD -> PNG, DOCX/XLSX -> PDF, …) for the viewer (MP-107)
+    preview_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("files.id"), nullable=True)
 
     @property
     def is_image(self) -> bool:

@@ -15,7 +15,7 @@ def test_session_signed_out(api: Any) -> None:
 def test_login_and_session(admin: Any) -> None:
     s = admin.session()
     assert s["authenticated"] and s["user"]["email"] == "admin@example.com"
-    assert s["role"] == "admin" and "users.manage" in s["permissions"]
+    assert s["role"] == "owner" and "users.manage" in s["permissions"]
     assert s["org"]["name"].startswith("Acme")
 
 

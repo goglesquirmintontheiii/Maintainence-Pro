@@ -27,7 +27,10 @@ def test_every_action_uses_known_roles() -> None:
 @pytest.mark.parametrize(
     ("role", "action", "allowed"),
     [
-        ("admin", "org.manage", True),
+        ("owner", "org.manage", True),
+        ("admin", "org.manage", False),
+        ("operator", "wo.create", False),
+        ("operator", "wo.status", True),
         ("limited_admin", "org.manage", False),
         ("limited_admin", "users.manage", True),
         ("technician", "users.manage", False),

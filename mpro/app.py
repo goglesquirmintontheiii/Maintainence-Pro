@@ -43,6 +43,8 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.auth.api import CSRF_EXEMPT
     from mpro.auth.api import bp as auth_bp
     from mpro.auth.models import User
+    from mpro.automations import models as _automation_models  # noqa: F401
+    from mpro.automations.api import bp as automations_bp
     from mpro.core import files as _files  # noqa: F401
     from mpro.core import hierarchy as _hierarchy  # noqa: F401
     from mpro.core import jobs as _jobs  # noqa: F401
@@ -55,6 +57,10 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.meters.api import bp as meters_bp
     from mpro.orgs import models as _org_models  # noqa: F401
     from mpro.orgs.api import bp as orgs_bp
+    from mpro.pm import models as _pm_models  # noqa: F401
+    from mpro.pm.api import bp as pm_bp
+    from mpro.procedures import models as _procedure_models  # noqa: F401
+    from mpro.procedures.api import bp as procedures_bp
     from mpro.qr import models as _qr_models  # noqa: F401
     from mpro.qr.api import bp as qr_bp
     from mpro.workorders import exports as _wo_exports  # noqa: F401
@@ -112,7 +118,20 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
             )
         return resp
 
-    for bp in (auth_bp, orgs_bp, wo_bp, assets_bp, meters_bp, qr_bp, files_bp, admin_bp, health_bp):
+    for bp in (
+        auth_bp,
+        orgs_bp,
+        wo_bp,
+        assets_bp,
+        meters_bp,
+        qr_bp,
+        procedures_bp,
+        pm_bp,
+        automations_bp,
+        files_bp,
+        admin_bp,
+        health_bp,
+    ):
         app.register_blueprint(bp)
 
     @app.get("/", defaults={"path": ""})

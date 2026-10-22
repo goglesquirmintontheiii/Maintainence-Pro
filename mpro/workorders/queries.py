@@ -572,7 +572,7 @@ def workload(
             Membership.org_id == org.id,
             Membership.deleted_at.is_(None),
             User.deleted_at.is_(None),
-            Membership.role.in_(("admin", "limited_admin", "technician")),
+            Membership.role.in_(("owner", "admin", "limited_admin", "technician", "operator", "custom")),
         )
         .order_by(func.lower(User.name))
     ).all()

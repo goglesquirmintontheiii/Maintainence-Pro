@@ -97,6 +97,7 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     source_type: Mapped[str] = mapped_column(String(30), default="")
     source_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # custom field id -> value
+    cover_file_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("files.id"), nullable=True)  # MP-112
 
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
     status_changed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

@@ -38,7 +38,7 @@ def create_org(name: str, owner: User, **settings: Any) -> Organization:
     org = Organization(name=name.strip(), slug=slugify(name), **settings)
     db.session.add(org)
     db.session.flush()
-    db.session.add(Membership(org_id=org.id, user_id=owner.id, role="admin"))
+    db.session.add(Membership(org_id=org.id, user_id=owner.id, role="owner"))
     emit(
         "org.created",
         entity_type="org",
@@ -140,7 +140,7 @@ def _admin_count(org_id: uuid.UUID) -> int:
         db.session.scalar(
             select(func.count())
             .select_from(Membership)
-            .where(Membership.org_id == org_id, Membership.role == "admin", Membership.deleted_at.is_(None))
+            .where(Membership.org_id == org_id, Membership.role == "owner", Membership.deleted_at.is_(None))
         )
         or 0
     )
@@ -205,8 +205,8 @@ def update_member(org: Organization, actor_m: Membership, m: Membership, data: d
         new = data["role"]
         if not can_assign_role(actor_m.role, new) or not can_assign_role(actor_m.role, m.role):
             raise RuleError("You can't change this person's role.", 403)
-        if m.role == "admin" and new != "admin" and _admin_count(org.id) <= 1:
-            raise RuleError("Every organization needs at least one Administrator.", 409)
+        if m.role == "owner" and new != "owner" and _admin_count(org.id) <= 1:
+            raise RuleError("Every organization needs at least one Owner.", 409)
         m.role = new
     if "job_title" in data:
         m.job_title = str(data["job_title"]).strip()[:120]
@@ -234,8 +234,8 @@ def remove_member(org: Organization, actor_m: Membership, m: Membership) -> None
         raise RuleError("You can't remove yourself. Ask another administrator.", 409)
     if not can_assign_role(actor_m.role, m.role):
         raise RuleError("You can't remove this person.", 403)
-    if m.role == "admin" and _admin_count(org.id) <= 1:
-        raise RuleError("Every organization needs at least one Administrator.", 409)
+    if m.role == "owner" and _admin_count(org.id) <= 1:
+        raise RuleError("Every organization needs at least one Owner.", 409)
     m.deleted_at = utcnow()
     emit(
         "member.removed",

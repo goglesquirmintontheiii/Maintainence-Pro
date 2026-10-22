@@ -655,7 +655,9 @@ def _create_wo(org: Organization, mt: Meter, t: MeterTrigger, v: Decimal, r: Met
     )
     if m is None:
         m = db.session.scalars(
-            select(M).where(M.org_id == org.id, M.role == "admin", M.deleted_at.is_(None)).order_by(M.created_at)
+            select(M)
+            .where(M.org_id == org.id, M.role.in_(("owner", "admin")), M.deleted_at.is_(None))
+            .order_by(M.created_at)
         ).first()
     if m is None:  # pragma: no cover
         return None

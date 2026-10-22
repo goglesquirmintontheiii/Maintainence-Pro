@@ -167,7 +167,13 @@ def team_ids_of(org_id: uuid.UUID, user_id: uuid.UUID) -> list[uuid.UUID]:
 
 def visibility_clause(m: Membership) -> Any:
     """SQL condition for work orders this member may see (None = everything)."""
-    if m.wo_visibility != "limited" or m.role in ("admin", "limited_admin"):
+    from mpro.core.permissions import FORCED_LIMITED_VISIBILITY
+
+    if (m.wo_visibility != "limited" and m.role not in FORCED_LIMITED_VISIBILITY) or m.role in (
+        "owner",
+        "admin",
+        "limited_admin",
+    ):
         return None
     teams = team_ids_of(m.org_id, m.user_id)
     assigned = select(WorkOrderAssignee.work_order_id).where(
@@ -187,7 +193,13 @@ def visibility_filter(m: Membership) -> Any:
 def can_see(m: Membership | None, wo: WorkOrder) -> bool:
     if m is None or not can(m, "wo.view", wo):
         return False
-    if m.wo_visibility != "limited" or m.role in ("admin", "limited_admin"):
+    from mpro.core.permissions import FORCED_LIMITED_VISIBILITY
+
+    if (m.wo_visibility != "limited" and m.role not in FORCED_LIMITED_VISIBILITY) or m.role in (
+        "owner",
+        "admin",
+        "limited_admin",
+    ):
         return True
     if wo.created_by_id == m.user_id:
         return True
