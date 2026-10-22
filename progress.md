@@ -1,9 +1,13 @@
-# MPro 0.4.0 — Preventive maintenance, procedures & automations
+# MPro 0.4.0 — Preventive maintenance, procedures & automations (and hotfix 0.4.1)
 
 **Status: released** · Checklist milestone 0.4.0 · Started 2026-10-22 · Released 2026-10-22
 
 Scheduled and meter-triggered work (repeating work orders and Maintenance Plans with nested PMs), the procedure
 builder with every MaintainX field type, and automations. Also the changes requested in the 0.3.0 review.
+
+## 0.4.1 hotfix (2026-10-22)
+
+- **Security:** pypdf (used to import procedures from PDFs and add procedures to work-order PDFs) updated from 6.1.3 to 6.21.2 to fix known vulnerabilities found by the release's dependency audit (crafted PDFs could use too much memory or CPU). No other changes.
 
 ## Task list
 
@@ -46,7 +50,7 @@ builder with every MaintainX field type, and automations. Also the changes reque
 ## Notes
 
 - Meter triggers from 0.3.0 are now automations (Automations → "When a meter reading…"). Existing triggers were converted by the upgrade and the old `/meters/{id}/triggers` endpoints are gone.
-- Every organization has an Owner; the person who created it was promoted. Only Owners can make other Owners, change organization settings and billing, or edit roles.
+- Every organization has an Owner; the person who created it was promoted. Only Owners can make other Owners, change organization settings and billing, or edit roles. "Own vs any" edit permissions (edit your own work orders but not others') weren't built and moved to 0.5.0 (r654); a role can already be limited to work assigned to it.
 - To Do's list now starts at `min(624px, 55%)` wide and can be dragged up to 64%.
 - Floor plan editor: shapes, labels, pins and measurements save with version history. Parts lists on plans come with Parts in 0.5.0; pinch-to-zoom inside the editor is not in yet.
 - Large DOCX/XLSX previews (over 2 MB) are rendered in the background and cached; archives that expand too much are refused.
