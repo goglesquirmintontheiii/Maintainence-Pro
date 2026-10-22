@@ -25,25 +25,25 @@ export function FieldRow({ item, answer, disabled, preview, tz, refs, onSave }: 
   const withValue = (extra: SaveBody) => save({ value: item.type === "meter_reading" && v && typeof v === "object" ? { value: (v as { value: number }).value } : v, ...extra });
   return (
     <div className={"pr-field" + (answered ? " answered" : "") + (answer?.result ? " r-" + answer.result : "")} data-type={item.type} id={`pf-${item.id}`}>
-      <div className="pr-field-head">
+      {(item.type !== "checkbox" || item.description || item.link || item.reference_file_ids?.length || item.assignees?.length) && <div className="pr-field-head">
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="pr-label">{item.type !== "checkbox" && item.label}{item.required && item.type !== "checkbox" && <span className="pr-req" aria-label="required">*</span>}</div>
           {item.description && <div className="small muted prewrap">{item.description}</div>}
           <FieldExtras item={item} refs={refs} />
         </div>
         {answer?.result && ["pass", "flag", "fail"].includes(answer.result) && <span className={"pr-result " + answer.result}>{RESULT_LABEL[answer.result]}</span>}
-      </div>
+      </div>}
       <FieldInput item={item} answer={answer} disabled={disabled} preview={preview} onSave={save} />
       {(answer?.note || noteOpen) && NOTE_TYPES.includes(item.type) && (
         <NoteBox note={answer?.note ?? ""} disabled={disabled} onSave={(note) => withValue({ note })} />)}
       {!!answer?.files.length && item.type !== "file" && <Thumbs files={answer.files} />}
-      <div className="pr-field-foot">
+      {(answer?.answered_by || (!disabled && !preview && answered && NOTE_TYPES.includes(item.type))) && <div className="pr-field-foot">
         {answer?.answered_by && <span className="small faint">{answer.skipped ? "Skipped" : "Answered"} by {answer.answered_by}{answer.answered_at ? ` · ${dateTime(answer.answered_at, tz)}` : ""}</span>}
         <span className="grow" />
         {!disabled && !preview && answered && NOTE_TYPES.includes(item.type) && !noteOpen && !answer?.note &&
           <button type="button" className="linkbtn small" onClick={() => setNoteOpen(true)}><MessageSquare size={13} />Add note</button>}
         {!disabled && !preview && answered && item.type === "inspection" && <PhotoButton label="Add photo" onUploaded={(f) => withValue({ file_ids: [...(answer?.files ?? []).map((x) => x.id), f.id] })} />}
-      </div>
+      </div>}
     </div>
   );
 }

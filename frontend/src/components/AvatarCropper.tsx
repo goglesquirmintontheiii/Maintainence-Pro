@@ -33,10 +33,11 @@ export function AvatarCropper({ file, onCancel, onSave, busy }: { file: File; on
   useEffect(() => {
     const url = URL.createObjectURL(file);
     const im = new Image();
-    im.onload = () => setImg(im);
-    im.onerror = () => setErr("That file can't be opened as a photo. Try a JPG or PNG.");
+    let live = true; // the effect can be cleaned up (and the URL revoked) before the image loads
+    im.onload = () => { if (live) { setErr(""); setImg(im); } };
+    im.onerror = () => { if (live) setErr("That file can't be opened as a photo. Try a JPG or PNG."); };
     im.src = url;
-    return () => URL.revokeObjectURL(url);
+    return () => { live = false; im.src = ""; URL.revokeObjectURL(url); };
   }, [file]);
 
   // base scale makes the shorter side fill the circle

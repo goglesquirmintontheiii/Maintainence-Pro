@@ -12,6 +12,7 @@ import { AssigneePicker, CategoryPicker } from "../../components/pickers";
 import { AssetPicker, ClearableDate, LocationPicker } from "../../components/assetPickers";
 import { useAssetList, useAssetOptions } from "../../lib/assets";
 import { ProcedurePicker } from "../procedures/Picker";
+import { applyRepeat, repeatFrom, RepeatField, type RepeatValue } from "../pm/WOParts";
 
 export type FormInit = Partial<{
   title: string; description: string; priority: string; work_type: string; start_at: string | null; due_at: string | null; estimated_minutes: number | null;
@@ -40,6 +41,8 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
   const templates = useQuery({ queryKey: ["wo-templates"], queryFn: () => api<{ items: Template[] }>("/work-order-templates"), enabled: !edit });
   const [f, setF] = useState<FormInit>(() => ({ priority: "none", work_type: "reactive", assignees: [], categories: [], custom: {}, ...(edit ? fromDetail(edit) : {}), ...init }));
   const [files, setFiles] = useState<FileItem[]>([]);
+  const repeatBefore = useMemo(() => repeatFrom(edit?.recurrence), [edit]);
+  const [repeat, setRepeat] = useState<RepeatValue>(repeatBefore);
   const [uploading, setUploading] = useState(0);
   const [pct, setPct] = useState(0);
   const [err, setErr] = useState("");
@@ -83,7 +86,8 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     return body;
   };
   const save = useMutation({
-    mutationFn: () => edit ? api<WODetail>(`/work-orders/${edit.id}`, { method: "PATCH", body: payload() }) : api<WODetail>("/work-orders", { method: "POST", body: payload() }),
+    mutationFn: async () => applyRepeat(await (edit ? api<WODetail>(`/work-orders/${edit.id}`, { method: "PATCH", body: payload() }) : api<WODetail>("/work-orders", { method: "POST", body: payload() })),
+      can("wo.edit") ? repeat : undefined, repeatBefore, (m) => toast(m, { kind: "error" })),
     onSuccess: (wo) => {
       qc.invalidateQueries({ queryKey: ["work-orders"] }); qc.invalidateQueries({ queryKey: ["wo-stats"] });
       qc.setQueryData(["work-order", wo.id], wo);
@@ -166,6 +170,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
           <div className="row"><ClearableDate id={id} label="due date" type="datetime-local" value={dueDate} onChange={(v) => set({ due_at: fromLocalInput(v) })} />
             {!f.due_at && <Button size="sm" variant="ghost" onClick={() => set({ due_at: atTime(new Date().toISOString().slice(0, 10), s?.default_due_time ?? "12:00") })}>Today</Button>}</div>)}</Field>
         <Field label="Start date" hint="Hidden from To Do until this date.">{(id) => <ClearableDate id={id} label="start date" type="datetime-local" value={startDate} onChange={(v) => set({ start_at: fromLocalInput(v) })} />}</Field>
+        {can("wo.edit") && <RepeatField value={repeat} onChange={setRepeat} rec={edit?.recurrence} dueAt={f.due_at} isSub={!!f.parent_id} />}
         <Field label={"Estimated time" + req("estimated_time")}>{(id) => (
           <div className="row"><Input id={id} type="number" min={0} step={1} aria-label="Hours" placeholder="0" value={f.estimated_minutes ? Math.floor(f.estimated_minutes / 60) : ""}
             onChange={(e) => set({ estimated_minutes: (Number(e.target.value) || 0) * 60 + ((f.estimated_minutes ?? 0) % 60) || null })} /><span className="small muted">h</span>

@@ -342,7 +342,12 @@ def _save_tasks(org: Organization, plan: MaintenancePlan, items: Any) -> None:
 
 
 def create_plan(
-    org: Organization, m: Membership, data: dict[str, Any], kind: str = "plan", commit: bool = True
+    org: Organization,
+    m: Membership,
+    data: dict[str, Any],
+    kind: str = "plan",
+    commit: bool = True,
+    generate: bool = True,
 ) -> MaintenancePlan:
     plan = MaintenancePlan(
         org_id=org.id,
@@ -376,7 +381,8 @@ def create_plan(
         summary=f"Created {'repeating work order' if kind == 'repeat' else 'maintenance plan'} {plan.name}",
     )
     db.session.flush()
-    generate_plan(org, plan)
+    if generate:
+        generate_plan(org, plan)
     if commit:
         db.session.commit()
     return plan
@@ -538,7 +544,8 @@ def _merged_details(plan: MaintenancePlan, tasks: list[PMTask], occ: PMOccurrenc
         title = f"{plan.name}: {', '.join(names)}"
     desc = [d.get("description") or ""]
     prio = d.get("priority", "none")
-    est = d.get("estimated_minutes") or 0
+    base_est = int(d.get("estimated_minutes") or 0)
+    est = 0
     assignees = list(d.get("assignees") or [])
     cats = list(d.get("categories") or [])
     procs = list(d.get("procedure_ids") or [])
@@ -548,11 +555,12 @@ def _merged_details(plan: MaintenancePlan, tasks: list[PMTask], occ: PMOccurrenc
             desc.append(f"{t.name or 'Task'}: {o['description']}" if len(mine) > 1 else o["description"])
         if PRIORITY_RANK.get(o.get("priority", "none"), 0) > PRIORITY_RANK.get(prio, 0):
             prio = o["priority"]
-        if o.get("estimated_minutes"):
-            est = (est or 0) + int(o["estimated_minutes"])
+        est += int(o.get("estimated_minutes") or base_est)  # each task's own estimate, else the plan's
         assignees += [a for a in o.get("assignees") or [] if a not in assignees]
         cats += [c for c in o.get("categories") or [] if c not in cats]
         procs += [p for p in t.procedure_ids or [] if p not in procs]
+    if not mine:
+        est = base_est
     ov = occ.overrides or {}
     if "assignees" in ov:
         assignees = list(ov["assignees"])
@@ -1169,6 +1177,7 @@ def set_repeat(org: Organization, m: Membership, wo: WorkOrder, data: dict[str, 
             },
             kind="repeat",
             commit=False,
+            generate=False,  # this work order is the first occurrence; generate after it's linked
         )
         plan.source_work_order_id = wo.id
         t = tasks_of(plan)[0]

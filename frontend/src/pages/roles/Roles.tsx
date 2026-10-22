@@ -64,7 +64,7 @@ function RoleRow({ r, active, onClick }: { r: Role; active: boolean; onClick: ()
   return (
     <button type="button" className={"roles-row" + (active ? " active" : "")} aria-current={active ? "true" : undefined} onClick={onClick}>
       <span className="grow">
-        <span className="roles-row-name">{r.label}{r.key === "owner" && <Pill tone="info">Owner</Pill>}{r.deleted && <Pill tone="warning">Deleted</Pill>}</span>
+        <span className="roles-row-name">{r.label}{r.deleted && <Pill tone="warning">Deleted</Pill>}</span>
         {r.custom && r.base_label && <span className="small faint">Based on {r.base_label}</span>}
       </span>
       <span className="small muted" title={`${r.members} ${r.members === 1 ? "person" : "people"}`}>{r.members}</span>

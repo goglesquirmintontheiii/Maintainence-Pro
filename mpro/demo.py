@@ -101,6 +101,9 @@ def _seed_work(org: Organization) -> None:
         from mpro.procedures.demo import seed_procedures
 
         seed_procedures(org, admin)
+        from mpro.pm.demo import seed_pm
+
+        seed_pm(org, admin)
         from mpro.automations.demo import seed_automations
 
         seed_automations(org, admin)

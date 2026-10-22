@@ -110,6 +110,7 @@ export type WorkOrder = {
   version: number; comment_count?: number; sub_work_orders?: { total: number; closed: number } | null;
   asset: { id: string; name: string; status: AssetStatus } | null; location: { id: string; name: string } | null; source_type: string;
   cover_url?: string | null; cover_file_id?: string | null;
+  parent?: { id: string; number: number; title: string } | null; // list rows: the parent's number and title (0.4.0)
 };
 export type AssetStatus = "online" | "offline" | "do_not_track";
 export type AssetTask = { id: string; asset: { id: string; name: string; status: AssetStatus; deleted: boolean; location: string | null };
@@ -127,6 +128,7 @@ export type WODetail = WorkOrder & {
   attachments: FileItem[]; time_in_status: Record<string, number>; costs: Costs; sub_statuses: Record<string, string[]>;
   asset_tasks: AssetTask[];
   procedures?: unknown[]; // procedure runs (pages/procedures/types.ts Run)
+  recurrence?: import("../pages/pm/types").Recurrence | null; // repeating work / maintenance plan it came from (0.4.0)
 };
 export type WOList = { items: WorkOrder[]; total: number; page: number; per_page: number };
 export type CustomFieldDef = { id: string; name: string; type: "text" | "textarea" | "number" | "select" | "date" | "datetime" | "link" | "checkbox" | "currency";

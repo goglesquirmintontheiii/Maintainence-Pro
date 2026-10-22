@@ -33,6 +33,7 @@ const BASE_COLS: Col[] = [
   { id: "cover", label: "Picture", cell: (w) => (w.cover_url ? <img className="wo-cover sm" src={w.cover_url} alt="" loading="lazy" decoding="async" /> : <span className="wo-cover sm" aria-hidden />) },
   { id: "number", label: "ID", sort: "number", cell: (w) => <span className="mono">#{w.number}</span> },
   { id: "title", label: "Title", sort: "title", cell: (w) => <span className="t">{w.unread && <span className="unread-dot" />} {w.title}</span> },
+  { id: "parent", label: "Parent", cell: (w) => (w.parent ? <span title={w.parent.title}><span className="mono">#{w.parent.number}</span> {w.parent.title}</span> : <span className="faint">—</span>) },
   { id: "status", label: "Status", sort: "status", cell: (w) => <StatusPill status={w.status} sub={w.sub_status} /> },
   { id: "priority", label: "Priority", sort: "priority", cell: (w) => <PriorityBadge priority={w.priority} /> },
   { id: "assignees", label: "Assigned to", cell: (w) => <AssigneeChips items={w.assignees} max={2} /> },

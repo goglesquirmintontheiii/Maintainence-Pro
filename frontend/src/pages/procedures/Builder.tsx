@@ -183,8 +183,8 @@ function ItemCard(props: CardProps) {
       <span className="pb-card-actions" onClick={(e) => e.stopPropagation()}>
         <Button variant="ghost" icon size="sm" aria-label={`Move ${it.label || "item"} up`} onClick={() => onStep(it.id, -1)}><ArrowUp size={14} /></Button>
         <Button variant="ghost" icon size="sm" aria-label={`Move ${it.label || "item"} down`} onClick={() => onStep(it.id, 1)}><ArrowDown size={14} /></Button>
-        <Button variant="ghost" icon size="sm" aria-label={`Duplicate ${it.label || "item"}`} onClick={() => onDuplicate(it.id)}><Copy size={14} /></Button>
-        <Button variant="ghost" icon size="sm" aria-label={`Delete ${it.label || "item"}`} onClick={() => onRemove(it.id)}><Trash2 size={14} /></Button>
+        <Button variant="ghost" icon size="sm" className="pb-act-more" aria-label={`Duplicate ${it.label || "item"}`} onClick={() => onDuplicate(it.id)}><Copy size={14} /></Button>
+        <Button variant="ghost" icon size="sm" className="pb-act-more" aria-label={`Delete ${it.label || "item"}`} onClick={() => onRemove(it.id)}><Trash2 size={14} /></Button>
       </span>
     </div>);
   return (
