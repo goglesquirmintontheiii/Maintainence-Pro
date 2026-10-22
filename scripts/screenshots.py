@@ -51,7 +51,11 @@ def capture_030(ctx: Any, shot: Any, url: str) -> None:
     asset = api(pg, "GET", "/assets?q=Air%20Compressor%202")["items"][0]
     pg.goto(url + f"/assets/{asset['id']}")
     shot(pg, "03-asset-detail", 1200)
-    for tab, name in (("insights", "04-asset-insights"), ("downtime", "05-asset-downtime"), ("lifecycle", "06-asset-lifecycle")):
+    for tab, name in (
+        ("insights", "04-asset-insights"),
+        ("downtime", "05-asset-downtime"),
+        ("lifecycle", "06-asset-lifecycle"),
+    ):
         pg.goto(url + f"/assets/{asset['id']}/{tab}")
         shot(pg, name, 1200)
     pg.goto(url + "/assets?view=table")
