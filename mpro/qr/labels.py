@@ -64,7 +64,15 @@ THERMAL: dict[str, ThermalTemplate] = {
 def templates() -> dict[str, Any]:
     return {
         "sheets": [
-            {"id": k, "name": t.name, "per_sheet": t.per_sheet, "w": t.label_w, "h": t.label_h}
+            {
+                "id": k,
+                "name": t.name,
+                "per_sheet": t.per_sheet,
+                "cols": t.cols,
+                "rows": t.rows,
+                "w": t.label_w,
+                "h": t.label_h,
+            }
             for k, t in SHEETS.items()
         ],
         "thermal": [

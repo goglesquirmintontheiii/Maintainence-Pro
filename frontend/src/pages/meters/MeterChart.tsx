@@ -1,9 +1,9 @@
 // Meter readings chart in plain SVG: line (or min/max band when bucketed), warning/alarm bands, hover tooltip, table fallback.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChartData } from "../../lib/assets";
 import { dateTime } from "../../lib/format";
 
-const W = 800, H = 240, PL = 48, PR = 12, PT = 12, PB = 26;
+const PL = 48, PR = 12, PT = 12, PB = 26;
 
 function nice(n: number): string {
   const a = Math.abs(n);
@@ -13,6 +13,17 @@ function nice(n: number): string {
 export function MeterChart({ data, from, to, tz }: { data: ChartData; from: Date; to: Date; tz?: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const svg = useRef<SVGSVGElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  // Draw at the real pixel width so text and points aren't stretched.
+  const [W, setW] = useState(800);
+  const H = W < 500 ? 200 : 240;
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => { const w = Math.round(e.contentRect.width); if (w > 0) setW(w); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const pts = data.points.map((p) => ({ ...p, t: new Date(p.at).getTime() }));
   const L = data.limits;
   const geo = useMemo(() => {
@@ -29,14 +40,15 @@ export function MeterChart({ data, from, to, tz }: { data: ChartData; from: Date
     const y = (v: number) => PT + (1 - (v - lo) / (hi - lo)) * (H - PT - PB);
     const ticks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
     return { lo, hi, x, y, ticks, t0, t1 };
-  }, [pts, L, from, to]);
+  }, [pts, L, from, to, W, H]);
   const { x, y, lo, hi } = geo;
   const clampY = (v: number) => y(Math.max(lo, Math.min(hi, v)));
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
   const band = data.bucketed && pts.length
     ? pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.max ?? p.value).toFixed(1)}`).join(" ")
       + " " + [...pts].reverse().map((p) => `L${x(p.t).toFixed(1)},${y(p.min ?? p.value).toFixed(1)}`).join(" ") + " Z" : "";
-  const xTicks = Array.from({ length: 5 }, (_, i) => geo.t0 + ((geo.t1 - geo.t0) * i) / 4);
+  const nx = W < 500 ? 3 : 5;
+  const xTicks = Array.from({ length: nx }, (_, i) => geo.t0 + ((geo.t1 - geo.t0) * i) / (nx - 1));
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!pts.length || !svg.current) return;
     const r = svg.current.getBoundingClientRect();
@@ -55,8 +67,8 @@ export function MeterChart({ data, from, to, tz }: { data: ChartData; from: Date
     return bottom > top ? <rect x={PL} y={top} width={W - PL - PR} height={bottom - top} className={cls} /> : null;
   };
   return (
-    <div className="mchart">
-      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Chart: ${summary}`} preserveAspectRatio="none"
+    <div className="mchart" ref={wrap}>
+      <svg ref={svg} viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={`Chart: ${summary}`}
         onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
         {/* bands: alarm beyond alarm limits, warning between warning and alarm */}
         {L.alarm_high !== null && band2(L.alarm_high, null, "band-alarm")}
@@ -65,12 +77,12 @@ export function MeterChart({ data, from, to, tz }: { data: ChartData; from: Date
         {L.warning_low !== null && band2(L.alarm_low ?? lo, L.warning_low, "band-warn")}
         {geo.ticks.map((t) => <g key={t}><line x1={PL} x2={W - PR} y1={y(t)} y2={y(t)} className="grid" />
           <text x={PL - 6} y={y(t) + 4} className="axis" textAnchor="end">{nice(t)}</text></g>)}
-        {xTicks.map((t, i) => <text key={t} x={x(t)} y={H - 8} className="axis" textAnchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}>
+        {xTicks.map((t, i) => <text key={t} x={x(t)} y={H - 8} className="axis" textAnchor={i === 0 ? "start" : i === nx - 1 ? "end" : "middle"}>
           {new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: tz })}</text>)}
         {([["warning_high", "lim-warn"], ["warning_low", "lim-warn"], ["alarm_high", "lim-alarm"], ["alarm_low", "lim-alarm"]] as const).map(([k, c]) =>
           L[k] !== null && L[k]! >= lo && L[k]! <= hi ? <line key={k} x1={PL} x2={W - PR} y1={y(L[k]!)} y2={y(L[k]!)} className={c} /> : null)}
         {band && <path d={band} className="minmax" />}
-        {pts.length > 0 && <path d={line} className="series" vectorEffect="non-scaling-stroke" />}
+        {pts.length > 0 && <path d={line} className="series" />}
         {pts.length <= 60 && pts.map((p) => <circle key={p.at} cx={x(p.t)} cy={y(p.value)} r={2.6} className="pt" />)}
         {h && <><line x1={x(h.t)} x2={x(h.t)} y1={PT} y2={H - PB} className="cursor" /><circle cx={x(h.t)} cy={y(h.value)} r={4.5} className="pt hi" /></>}
       </svg>

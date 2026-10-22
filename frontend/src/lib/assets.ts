@@ -75,7 +75,7 @@ export type ScanResult =
   | { status: "unassigned" | "retired"; code: QrCodeItem }
   | { status: "several"; results: { entity_type: string; entity_id: string; label: string; url: string }[] }
   | { status: "unknown"; value: string };
-export type LabelTemplates = { sheets: { id: string; name: string; per_sheet: number; w: number; h: number }[];
+export type LabelTemplates = { sheets: { id: string; name: string; per_sheet: number; cols?: number; rows?: number; w: number; h: number }[];
   thermal: { id: string; name: string; w: number; h: number; zpl: boolean }[] };
 
 export const ASSET_STATUS_LABEL: Record<AssetStatus, string> = { online: "Online", offline: "Offline", do_not_track: "Do Not Track" };

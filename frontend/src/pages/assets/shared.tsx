@@ -121,7 +121,7 @@ export function FilesSection({ files, entityType, entityId, editable, queryKey, 
       <div className="row" style={{ justifyContent: "space-between" }}><h3 className="sec-h" style={{ margin: 0 }}>Photos and files</h3>
         {editable && <><input ref={input} type="file" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />
           <Button size="sm" onClick={() => input.current?.click()} disabled={busy}><ImagePlus size={14} />{busy ? "Uploading…" : "Add"}</Button></>}</div>
-      {files.length === 0 && <span className="small faint">No photos or files yet. Add a nameplate photo, manuals or drawings.</span>}
+      {files.length === 0 && <span className="small faint">No photos or files yet. Add photos, manuals or drawings.</span>}
       {imgs.length > 0 && <div className="thumbs">{imgs.map((f) => (
         <figure key={f.id} className="thumb"><button type="button" onClick={() => setView(f)} aria-label={`Open ${f.name}`}><img src={f.thumb_url ?? f.url} alt={f.name} /></button>
           {editable && f.link_id && <button type="button" className="thumb-x" aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={12} /></button>}</figure>))}</div>}
@@ -173,7 +173,7 @@ export function HistoryList({ path, tz }: { path: string; tz?: string }) {
 
 /** Simple grouped bar chart (two series) drawn with SVG and design tokens. */
 export function BarChart2({ data, aLabel, bLabel, labelFor }: { data: { k: string; a: number; b: number }[]; aLabel: string; bLabel: string; labelFor: (k: string) => string }) {
-  const W = 640, H = 200, pad = 28, max = Math.max(1, ...data.flatMap((d) => [d.a, d.b]));
+  const W = 640, H = 200, pad = 28, top = Math.max(2, ...data.flatMap((d) => [d.a, d.b])), max = top % 2 ? top + 1 : top;
   const slot = (W - pad) / Math.max(1, data.length), bw = Math.max(3, Math.min(14, slot / 3));
   const step = Math.ceil(data.length / 8);
   return (

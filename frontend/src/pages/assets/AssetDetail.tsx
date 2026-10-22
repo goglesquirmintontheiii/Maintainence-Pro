@@ -80,7 +80,7 @@ export function AssetDetailView({ id, tab, onTab }: { id: string; tab: AssetTab;
         </div>
       </div>
 
-      <div className="tabs asset-tabs" role="tablist" aria-label="Asset sections">
+      <div className="tabs asset-tabs" role="tablist" aria-label="Asset sections" ref={(el) => el?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" })}>
         {ASSET_TABS.map(([k, l]) => <button key={k} type="button" role="tab" className="tab" aria-selected={tab === k} onClick={() => onTab(k)}>{l}</button>)}
       </div>
       {tab === "details" && <DetailsTab a={a} tz={tz} />}

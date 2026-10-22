@@ -98,3 +98,11 @@
   .asset-table { min-width: 860px; }
   .history-row { padding: var(--s-2) var(--s-3); flex-wrap: wrap; }
 }
+.asset-table td:nth-child(2) { min-width: 200px; }
+.asset-table td:nth-child(3) { white-space: nowrap; }
+@media (max-width: 640px) {
+  .asset-detail .wo-head { flex-wrap: wrap; }
+  .asset-detail .wo-head > .asset-hero { display: none; }
+  .asset-detail .wo-head > .grow { flex-basis: 100%; }
+  .asset-detail .wo-head > .row:last-child { width: 100%; justify-content: flex-end; }
+}

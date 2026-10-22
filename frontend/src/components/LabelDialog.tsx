@@ -8,7 +8,6 @@ import { postForFile, type LabelTemplates } from "../lib/assets";
 import { Button, Field, Input, Modal, Select, Toggle } from "./ui";
 
 type Fmt = "sheet" | "thermal" | "zpl";
-const SHEET_COLS: Record<string, number> = { avery_94107: 3, avery_5160: 3, avery_94202: 2, avery_5163: 2 };
 const NOUN = { asset: "asset", location: "location", meter: "meter" } as const;
 
 function loadPrefs(): { fmt: Fmt; sheet: string; thermal: string } | null {
@@ -46,7 +45,7 @@ export function LabelDialog({ entityType, ids, query, codeIds, onClose }: {
     catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
   };
-  const cols = sheetT ? SHEET_COLS[sheetT.id] ?? Math.max(1, Math.floor(8 / sheetT.w)) : 3;
+  const cols = sheetT ? sheetT.cols ?? Math.max(1, Math.floor(8 / sheetT.w)) : 3;
   const set = (k: keyof typeof opt) => (v: boolean) => setOpt((o) => ({ ...o, [k]: v }));
   return (
     <Modal title="Print labels" onClose={onClose} width={640}
@@ -81,7 +80,7 @@ export function LabelDialog({ entityType, ids, query, codeIds, onClose }: {
             {size && <LabelPreview w={size.w} h={size.h} opt={opt} sample={codeIds ? "" : entityType === "asset" ? "Air Compressor 2" : entityType === "meter" ? "Run hours" : "Compressor Room"} />}
             {fmt === "sheet" && sheetT && <>
               <span className="small muted" id="lbl-start">Start at label {start} <span className="faint">(skip used labels on a part-used sheet)</span></span>
-              <div className="lbl-sheet" role="radiogroup" aria-labelledby="lbl-start" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, aspectRatio: "8.5 / 11" }}>
+              <div className="lbl-sheet" role="radiogroup" aria-labelledby="lbl-start" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${Math.ceil(sheetT.per_sheet / cols)}, 1fr)`, aspectRatio: "8.5 / 11" }}>
                 {Array.from({ length: sheetT.per_sheet }, (_, i) => (
                   <button key={i} type="button" role="radio" aria-checked={start === i + 1} aria-label={`Start at label ${i + 1}`}
                     className={"lbl-cell" + (i + 1 < start ? " used" : "") + (start === i + 1 ? " on" : "")} onClick={() => setStart(i + 1)} />))}

@@ -25,7 +25,7 @@
 .mlimits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-2); }
 /* chart */
 .mchart { position: relative; display: flex; flex-direction: column; gap: var(--s-2); }
-.mchart svg { width: 100%; height: 240px; display: block; overflow: visible; }
+.mchart svg { width: 100%; display: block; overflow: visible; }
 .mchart .grid { stroke: var(--c-border-soft); stroke-width: 1; }
 .mchart .axis { fill: var(--c-text-3); font-size: 11px; }
 .mchart .series { fill: none; stroke: var(--c-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -42,9 +42,12 @@
 .mchart-empty { position: absolute; top: 100px; left: 0; right: 0; text-align: center; }
 .mchart details summary { cursor: pointer; color: var(--c-text-2); }
 @media (max-width: 760px) {
-  .mstat-row { grid-template-columns: minmax(0, 1fr); }
+  .mstat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mstat-row .tile { padding: var(--s-3) var(--s-4); }
+  .mstat-row .tile:last-child { grid-column: 1 / -1; }
+  .mstat-row .tile .v { font-size: var(--fs-xl); }
+  .mstat-row .tile .v.sm { font-size: var(--fs-md); }
   .mread-more { grid-template-columns: minmax(0, 1fr) auto; }
   .mread-more .clearable { grid-column: 1 / -1; }
   .mlimits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mchart svg { height: 200px; }
 }

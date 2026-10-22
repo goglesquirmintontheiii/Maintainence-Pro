@@ -1,0 +1,45 @@
+/* Scanning, QR codes, labels and nameplate OCR (0.3.0). Tokens only. */
+.scan-page { max-width: 640px; }
+.scan-view { position: relative; width: 100%; min-height: 200px; background: var(--c-panel); border-radius: var(--r-xl); overflow: hidden;
+  display: grid; place-items: center; color: var(--c-text-2); border: 1px dashed var(--c-border); }
+/* the live camera is always on black, like a photo viewer */
+.scan-view.live { aspect-ratio: 4 / 3; max-height: 60vh; background: #05070b; border-style: solid; }
+.scan-view video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.scan-view.live video { opacity: 1; }
+.scan-frame { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.scan-frame span { width: min(62%, 280px); aspect-ratio: 1; border-radius: var(--r-lg); box-shadow: 0 0 0 9999px rgba(8, 12, 20, .45); outline: 3px solid rgba(255, 255, 255, .9); }
+.scan-frame i { position: absolute; width: min(56%, 252px); height: 2px; background: var(--c-primary); box-shadow: 0 0 8px var(--c-primary); animation: scanline 2.2s ease-in-out infinite; }
+@keyframes scanline { 0%, 100% { transform: translateY(-110px); } 50% { transform: translateY(110px); } }
+@media (prefers-reduced-motion: reduce) { .scan-frame i { animation: none; } }
+.scan-msg { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--s-3); text-align: center; padding: var(--s-6); max-width: 420px; }
+.scan-busy { position: absolute; bottom: var(--s-3); left: 50%; transform: translateX(-50%); background: var(--c-panel); color: var(--c-text); border-radius: var(--r-pill);
+  padding: 6px 14px; display: flex; gap: 8px; align-items: center; box-shadow: var(--shadow-2); font-size: var(--fs-sm); }
+.scan-torch { position: absolute; top: var(--s-3); right: var(--s-3); }
+.scan-manual { display: flex; flex-direction: column; gap: var(--s-3); }
+.scan-manual .input { flex: 1; font-family: var(--font-mono); }
+.scan-out .list { border: 1px solid var(--c-border-soft); border-radius: var(--r-md); }
+.scan-resolving { display: flex; flex-direction: column; align-items: center; gap: var(--s-3); padding: var(--s-10) 0; color: var(--c-text-2); }
+/* QR admin */
+.qr-val { word-break: break-all; }
+tr.qr-retired td { color: var(--c-text-3); }
+/* label dialog */
+.lbl-grid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: var(--s-5); }
+.lbl-prev { border: 1px dashed var(--c-border); border-radius: var(--r-md); background: #fff; color: #111; display: flex; align-items: center; gap: 6px; padding: 6px;
+  overflow: hidden; font-size: 10px; line-height: 1.2; }
+.lbl-prev.stacked { flex-direction: column; justify-content: center; text-align: center; }
+.lbl-qr { flex: none; display: grid; place-items: center; }
+.lbl-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lbl-text b, .lbl-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbl-bars { height: 12px; width: 90%; background: repeating-linear-gradient(90deg, #111 0 1px, transparent 1px 3px, #111 3px 5px, transparent 5px 6px); }
+.lbl-sheet { display: grid; gap: 3px; height: auto; padding: 8px; background: var(--c-sunken); border: 1px solid var(--c-border); border-radius: var(--r-md); width: 100%; max-width: 200px; align-content: start; }
+.lbl-cell { border: 1px solid var(--c-border); background: var(--c-panel); border-radius: 2px; min-height: 10px; cursor: pointer; padding: 0; }
+.lbl-cell.used { background: var(--c-border); }
+.lbl-cell.on { background: var(--c-primary); border-color: var(--c-primary); }
+.lbl-cell:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 1px; }
+/* nameplate */
+.np-photo { max-height: 220px; width: 100%; object-fit: contain; border-radius: var(--r-md); background: var(--c-sunken); }
+.np-text { white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--fs-xs); background: var(--c-sunken); padding: var(--s-3); border-radius: var(--r-md); max-height: 200px; overflow: auto; }
+@media (max-width: 640px) {
+  .lbl-grid { grid-template-columns: minmax(0, 1fr); }
+  .scan-view.live { aspect-ratio: 3 / 4; max-height: 62vh; }
+}

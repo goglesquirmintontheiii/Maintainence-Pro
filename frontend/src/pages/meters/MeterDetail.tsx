@@ -18,6 +18,13 @@ import { CopyMeterDialog, MeterForm, TriggerForm } from "./MeterForms";
 const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"]] as const;
 const FREQ: Record<string, string> = { hour: "hour", day: "day", week: "week", month: "month", year: "year" };
 
+function limitText(lo: number | null, hi: number | null, unit: string): string {
+  if (lo === null && hi === null) return "not set";
+  if (lo === null) return `above ${fmtNum(hi!)} ${unit}`;
+  if (hi === null) return `below ${fmtNum(lo)} ${unit}`;
+  return `below ${fmtNum(lo)} or above ${fmtNum(hi)} ${unit}`;
+}
+
 export function LevelBadge({ level }: { level: "" | "warning" | "alarm" }) {
   if (!level) return null;
   return <Pill tone={level === "alarm" ? "danger" : "warning"}><AlertTriangle size={12} />{level === "alarm" ? "Alarm" : "Warning"}</Pill>;
@@ -79,6 +86,8 @@ export function MeterDetail({ id }: { id: string }) {
         </div>
       </div>
 
+      {can("meters.read") && <RecordReading meter={m} onSaved={refresh} />}
+
       <div className="mstat-row">
         <div className="card tile"><div className="k">Last reading</div>
           <div className={"v" + (m.level === "alarm" ? " danger" : m.level === "warning" ? " warning" : "")}>{m.last_value === null ? "—" : fmtNum(m.last_value)} <span className="unit">{m.unit}</span></div>
@@ -88,11 +97,9 @@ export function MeterDetail({ id }: { id: string }) {
           <div className="small muted">{m.reading_frequency === "none" ? "Readings whenever needed" : `Every ${m.frequency_interval > 1 ? m.frequency_interval + " " : ""}${FREQ[m.reading_frequency]}${m.frequency_interval > 1 ? "s" : ""}`}</div></div>
         <div className="card tile"><div className="k">Limits</div>
           <div className="small mlims">
-            <span>Warning {m.warning_low ?? "—"} to {m.warning_high ?? "—"}</span>
-            <span>Alarm {m.alarm_low ?? "—"} to {m.alarm_high ?? "—"}</span></div></div>
+            <span>Warning {limitText(m.warning_low, m.warning_high, m.unit)}</span>
+            <span>Alarm {limitText(m.alarm_low, m.alarm_high, m.unit)}</span></div></div>
       </div>
-
-      {can("meters.read") && <RecordReading meter={m} onSaved={refresh} />}
 
       <section className="card">
         <div className="card-head"><h2>Readings</h2>

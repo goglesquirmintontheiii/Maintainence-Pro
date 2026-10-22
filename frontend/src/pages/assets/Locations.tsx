@@ -140,7 +140,7 @@ function LocationDetailView({ id, tab, onTab, onAddChild }: { id: string; tab: T
           </Dropdown>
         </div>
       </div>
-      <div className="tabs asset-tabs" role="tablist" aria-label="Location sections">
+      <div className="tabs asset-tabs" role="tablist" aria-label="Location sections" ref={(el) => el?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" })}>
         {TABS.map(([k, label]) => <button key={k} type="button" role="tab" className="tab" aria-selected={tab === k} onClick={() => onTab(k)}>{label}
           {k === "assets" && l.asset_count > 0 && <span className="tab-count">{l.asset_count}</span>}{k === "sub-locations" && l.child_count > 0 && <span className="tab-count">{l.child_count}</span>}</button>)}
       </div>
