@@ -174,17 +174,20 @@ def search(org_id: uuid.UUID, args: dict[str, Any]) -> dict[str, Any]:
         q = q.where(FinanceDocument.kind == args["kind"])
     if args.get("q"):
         for word in str(args["q"]).lower().split()[:6]:
-            q = q.where(FinanceDocument.search_text.contains(word))
+            q = q.where(FinanceDocument.search_text.contains(word, autoescape=True))
     for k in ("vendor_id", "customer_id", "work_order_id", "asset_id"):
         if args.get(k):
             try:
                 q = q.where(getattr(FinanceDocument, k) == uuid.UUID(str(args[k])))
             except ValueError:
                 return {"items": [], "total": 0, "page": 1, "per_page": 50}
-    if args.get("from"):
-        q = q.where(FinanceDocument.doc_date >= date.fromisoformat(str(args["from"])[:10]))
-    if args.get("to"):
-        q = q.where(FinanceDocument.doc_date <= date.fromisoformat(str(args["to"])[:10]))
+    try:
+        if args.get("from"):
+            q = q.where(FinanceDocument.doc_date >= date.fromisoformat(str(args["from"])[:10]))
+        if args.get("to"):
+            q = q.where(FinanceDocument.doc_date <= date.fromisoformat(str(args["to"])[:10]))
+    except ValueError:
+        return {"items": [], "total": 0, "page": 1, "per_page": 50}
     if args.get("hold") == "1":
         q = q.where(FinanceDocument.legal_hold.is_(True))
     q = q.order_by(FinanceDocument.doc_date.desc().nulls_last(), FinanceDocument.created_at.desc())
