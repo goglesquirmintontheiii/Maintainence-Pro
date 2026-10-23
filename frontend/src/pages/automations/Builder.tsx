@@ -13,6 +13,7 @@ import {
   ACTION_LABEL, ASSET_STATUS, COND_LABEL, RECURRING, TRIGGER_LABEL, WEEKDAYS, WO_STATUS, emptyDoc, useMeterList,
   type Action, type AssetStatus, type Automation, type AutomationDoc, type Condition, type MeterCondition, type TriggerType,
 } from "./types";
+import { AutomationTree } from "./Tree";
 
 const MAX_TARGETS = 250;
 
@@ -75,6 +76,7 @@ export function AutomationBuilder({ edit, init, onClose, onSaved }: {
         <Field label="Name">{(id) => <Input id={id} value={doc.name} maxLength={255} placeholder={autoName(doc) || "e.g. Compressor running hot"} onChange={(e) => set({ name: e.target.value })} />}</Field>
 
         <div className="auto-summary" aria-live="polite"><Sparkles size={16} aria-hidden="true" /><span>{summary || "Fill in the steps below and a summary appears here."}</span></div>
+        <AutomationTree doc={doc} defaultOpen={false} />
 
         <Step n={1} title="When">
           <div className="seg auto-kind" role="radiogroup" aria-label="Trigger">

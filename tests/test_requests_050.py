@@ -159,3 +159,40 @@ def test_upcoming_window_and_remembered_days(admin: Any) -> None:
 def test_pm_calendar_covers_a_year(admin: Any) -> None:
     assert admin.get(f"{API}/pm/calendar?days=365").status_code == 200
     assert admin.get(f"{API}/pm/calendar?days=400").status_code in (200, 422)
+
+
+# ---- MP-128: merged shapes with holes and pinned parts lists on floor plans -----------------------
+def test_floor_plan_merged_rings_and_parts_lists(admin: Any) -> None:
+    from tests.test_assets import upload
+
+    plant = admin.post(f"{API}/locations", {"name": "Plant R"}).json
+    fid = upload(admin, "plan.png")
+    fp = admin.post(f"{API}/locations/{plant['id']}/floor-plans", {"name": "Ground", "file_id": fid}).json
+    url = f"{API}/locations/{plant['id']}/floor-plans/{fp['id']}/annotations"
+    part = admin.post(f"{API}/parts", {"name": "V-belt"}).json
+    gone = admin.post(f"{API}/parts", {"name": "Old filter"}).json
+    outer = [[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]]
+    hole = [[0.2, 0.2], [0.5, 0.2], [0.5, 0.5], [0.2, 0.5]]
+    shapes = [
+        {"id": "m1", "type": "polygon", "points": outer, "rings": [outer, hole], "fill": "#1b5bd4"},
+        {"id": "p1", "type": "parts", "x": 0.7, "y": 0.2, "w": 0.14, "h": 0.04, "part_ids": [part["id"]], "open": True},
+        {"id": "p2", "type": "parts", "x": 0.7, "y": 0.5, "part_ids": [gone["id"]]},
+    ]
+
+    def put(body: Any, version: int) -> Any:
+        return admin.c.put(url, json={"annotations": {"shapes": body}, "version": version}, headers=admin._h())
+
+    admin.delete(f"{API}/parts/{gone['id']}")
+    r = put(shapes, 0)
+    assert r.status_code == 200, r.json
+    saved = {s["id"]: s for s in r.json["annotations"]["shapes"]}
+    assert saved["m1"]["rings"] == [outer, hole] and saved["m1"]["points"] == outer
+    assert saved["p1"]["part_ids"] == [part["id"]] and saved["p1"]["open"] is True
+    assert "p2" not in saved  # its only part was deleted: the list is dropped so the drawing still saves
+    # another org's / unknown parts are dropped too; bad rings are refused
+    import uuid
+
+    r = put([{"id": "p3", "type": "parts", "x": 0.1, "y": 0.1, "part_ids": [str(uuid.uuid4())]}], 1)
+    assert r.status_code == 200 and r.json["annotations"]["shapes"] == []
+    assert put([{"id": "m2", "type": "polygon", "points": outer, "rings": [[[0, 0], [1, 1]]]}], 2).status_code == 422
+    assert put([{"id": "p4", "type": "parts", "x": 0.1, "y": 0.1, "part_ids": []}], 2).status_code == 422

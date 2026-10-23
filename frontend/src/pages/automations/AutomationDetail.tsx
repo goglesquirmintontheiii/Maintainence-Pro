@@ -9,6 +9,7 @@ import { dateTime, timeAgo } from "../../lib/format";
 import { useToast } from "../../components/Toast";
 import { Button, Dropdown, EmptyState, ListSkeleton, Modal, Pill, Select, Toggle } from "../../components/ui";
 import { AutomationBuilder } from "./Builder";
+import { AutomationTree } from "./Tree";
 import { ACTION_LABEL, TRIGGER_LABEL, minutesText, type Automation, type Run } from "./types";
 
 export function AutomationDetail({ id }: { id: string }) {
@@ -62,6 +63,7 @@ export function AutomationDetail({ id }: { id: string }) {
         </div>
       </div>
 
+      <AutomationTree doc={a} targetNames={a.target_names} />
       <div className="card card-pad auto-summary-card">
         <p className="auto-summary-text">{a.summary}</p>
         <div className="row wrap" style={{ gap: 12, justifyContent: "space-between" }}>

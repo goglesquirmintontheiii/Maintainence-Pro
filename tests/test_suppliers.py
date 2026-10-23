@@ -264,7 +264,7 @@ def test_blocked_sites_still_show_a_card(admin: Api, app: Any, net: FakeNet) -> 
     assert got["product"]["fetch_status"] == "blocked" and "automatic readers" in got["product"]["fetch_error"]
     assert got["title"] == "Shop vac filter" and got["price"] == "19.9700" and got["price_from"] == "typed"
     assert not any("/p/" in c for c in net.calls)  # robots.txt was respected
-    net.add("https://www.lowes.com/pd/Thing/1000123456", "denied", status=403)
+    net.add("https://www.lowes.com/pd/1000123456", "denied", status=403)
     lk2 = link(admin, pid, "https://www.lowes.com/pd/Thing/1000123456")
     assert admin.get(f"{API}/product-links/{lk2['id']}").json["product"]["fetch_status"] == "blocked"
 
@@ -350,12 +350,13 @@ def test_price_stock_and_discontinued_alerts(admin: Api, app: Any, net: FakeNet)
     net.add(url, PAGE_JSONLD.replace("InStock", "Discontinued"))
     admin.post(f"{API}/product-links/{lk['id']}/refresh")
     assert "discontinued" in _emails(app)[-1][2]
-    log = (
-        admin.get(f"{API}/audit-log?entity_type=part").json
-        if admin.get(f"{API}/audit-log").status_code == 200
-        else None
-    )
-    assert log is not None
+    with app.app_context():
+        from sqlalchemy import func, select
+
+        from mpro.core.events import DomainEvent as Event
+        from mpro.extensions import db
+
+        assert db.session.scalar(select(func.count()).select_from(Event).where(Event.type == "product.alert")) == 2
 
 
 def test_compare_suppliers(admin: Api, app: Any, net: FakeNet) -> None:
@@ -778,7 +779,10 @@ def test_received_items_update_last_paid_price(admin: Api, app: Any, net: FakeNe
     pol = po["lines"][0]
     if po["status"] != "approved":
         admin.post(f"{API}/purchase-orders/{po['id']}/approve", {})
-    got = admin.post(f"{API}/purchase-orders/{po['id']}/receive", {"lines": [{"line_id": pol["id"], "quantity": "5", "unit_cost": "13.25"}]})
+    got = admin.post(
+        f"{API}/purchase-orders/{po['id']}/receive",
+        {"lines": [{"line_id": pol["id"], "quantity": "5", "unit_cost": "13.25"}]},
+    )
     assert got.status_code == 200, got.json
     with app.app_context():
         from mpro.purchasing.hooks import PO_RECEIVED_HOOKS

@@ -110,7 +110,7 @@ body.no-select { user-select: none; }
 .plan-svg .plan-link { pointer-events: auto; cursor: pointer; outline: none; }
 .plan-svg .plan-link:hover > :not(title), .plan-svg .plan-link:focus-visible > :not(title) { filter: brightness(1.15) drop-shadow(0 0 3px rgba(27, 91, 212, .7)); }
 .plan-box.fp-preview { cursor: zoom-in; touch-action: auto; }
-.plan-box.fp-box:not(.editing) { touch-action: pan-x pan-y; }
+.plan-box.fp-box:not(.editing) { touch-action: none; } /* pinch and pan are handled in floorplanTouch.ts (MP-128) */
 .fp-preview:focus-visible { outline: 2px solid var(--c-focus); outline-offset: 2px; }
 .fp-open-hint { position: absolute; right: 8px; top: 8px; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
   padding: 3px 8px; border-radius: var(--r-pill); background: rgba(4, 7, 12, .62); color: #fff; pointer-events: none; opacity: 0; transition: opacity var(--dur); }
