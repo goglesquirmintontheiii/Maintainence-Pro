@@ -4,6 +4,7 @@ customer invoices, the documents vault, email-in and finance settings. Cross-org
 from __future__ import annotations
 
 import io
+import json
 import uuid
 import zipfile
 from datetime import date, timedelta
@@ -33,7 +34,9 @@ def org_id(app: Any, email: str = "admin@example.com") -> uuid.UUID:
         return db.session.scalars(select(Membership.org_id).where(Membership.user_id == u.id)).first()  # type: ignore[return-value]
 
 
-def vendor(app: Any, name: str = "Northside Supply", region: str = "IL", email: str = "orders@northside.example") -> str:
+def vendor(
+    app: Any, name: str = "Northside Supply", region: str = "IL", email: str = "orders@northside.example"
+) -> str:
     with app.app_context():
         from mpro.extensions import db
         from mpro.vendors.models import Vendor
@@ -49,9 +52,13 @@ def customer(app: Any, name: str = "Riverside Apartments", region: str = "IL", *
         from mpro.extensions import db
         from mpro.vendors.models import Customer
 
-        c = Customer(org_id=org_id(app), name=name, billing_email="ap@riverside.example",
-                     billing_address={"line1": "22 River Rd", "city": "Springfield", "region": region, "country": "US"},
-                     **kw)
+        c = Customer(
+            org_id=org_id(app),
+            name=name,
+            billing_email="ap@riverside.example",
+            billing_address={"line1": "22 River Rd", "city": "Springfield", "region": region, "country": "US"},
+            **kw,
+        )
         db.session.add(c)
         db.session.commit()
         return str(c.id)
@@ -88,20 +95,35 @@ def export_bytes(app: Any, export_id: str) -> bytes:
 
 
 def cert(admin: Api, **kw: Any) -> dict[str, Any]:
-    body = {"type": "resale", "country": "US", "region": "IL", "number": "2931-0457",
-            "issued_on": (date.today() - timedelta(days=300)).isoformat(),
-            "expires_on": (date.today() + timedelta(days=200)).isoformat(), **kw}
+    body = {
+        "type": "resale",
+        "country": "US",
+        "region": "IL",
+        "number": "2931-0457",
+        "issued_on": (date.today() - timedelta(days=300)).isoformat(),
+        "expires_on": (date.today() + timedelta(days=200)).isoformat(),
+        **kw,
+    }
     r = admin.post(f"{API}/finance/tax-certificates", body)
     assert r.status_code == 200, r.json
-    return r.json  # type: ignore[no-any-return]
+    return r.json
 
 
 def done_wo(admin: Api, app: Any, customer_id: str | None = None) -> dict[str, Any]:
     wo = admin.post(f"{API}/work-orders", {"title": "Rooftop unit service"}).json
-    assert admin.post(f"{API}/work-orders/{wo['id']}/time", {"minutes": 90, "time_type": "Work",
-                                                            "rate_cents": 4000}).status_code == 201
-    assert admin.post(f"{API}/work-orders/{wo['id']}/costs", {"amount_cents": 2500, "cost_type": "Travel",
-                                                             "description": "Trip charge"}).status_code == 201
+    assert (
+        admin.post(
+            f"{API}/work-orders/{wo['id']}/time", {"minutes": 90, "time_type": "Work", "rate_cents": 4000}
+        ).status_code
+        == 201
+    )
+    assert (
+        admin.post(
+            f"{API}/work-orders/{wo['id']}/costs",
+            {"amount_cents": 2500, "cost_type": "Travel", "description": "Trip charge"},
+        ).status_code
+        == 201
+    )
     r = admin.post(f"{API}/work-orders/{wo['id']}/status", {"status": "done"})
     assert r.status_code == 200, r.json
     if customer_id:
@@ -113,7 +135,7 @@ def done_wo(admin: Api, app: Any, customer_id: str | None = None) -> dict[str, A
             assert w is not None
             w.customer_id = uuid.UUID(customer_id)
             db.session.commit()
-    return wo  # type: ignore[no-any-return]
+    return wo
 
 
 # ---- core: encrypted files -----------------------------------------------------------------------------------
@@ -143,8 +165,10 @@ def test_reader_parses_receipts_invoices_and_terms() -> None:
     assert r["vendor_name"].upper().startswith("THE HOME DEPOT")
     assert (r["subtotal"], r["tax"], r["total"], r["card_last4"]) == ("38.50", "3.18", "41.68", "4417")
     assert r["purchased_on"] == "2026-10-12"
-    inv = reader.parse_invoice("GRAINGER\nInvoice No: 9981-22\nInvoice Date: Oct 1, 2026\nPO Number: PO-0042\n"
-                               "Terms: 2/10 Net 30\nSubtotal 100.00\nTax 0.00\nTotal Due $100.00")
+    inv = reader.parse_invoice(
+        "GRAINGER\nInvoice No: 9981-22\nInvoice Date: Oct 1, 2026\nPO Number: PO-0042\n"
+        "Terms: 2/10 Net 30\nSubtotal 100.00\nTax 0.00\nTotal Due $100.00"
+    )
     assert inv["number"] == "9981-22" and inv["total"] == "100.00" and inv["invoice_date"] == "2026-10-01"
     assert reader.parse_terms("2/10 net 30") == {"discount_pct": "2", "discount_days": 10, "net_days": 30}
     assert {"pdf_text", "browser_ocr"} <= set(reader.READERS)
@@ -181,12 +205,17 @@ def test_certificate_scan_encrypted_access_log_and_card(app: Any, admin: Api) ->
     sam = login(app, "sam.patel@example.com")
     assert sam.get(f"{API}/finance/tax-certificates/{c['id']}/card").status_code == 404
     assert sam.get(f"{API}/finance/tax-certificates").json["items"] == []
-    assert "show_card" in {e["action"] for e in admin.get(f"{API}/finance/tax-certificates/{c['id']}/access-log").json["items"]}
+    assert "show_card" in {
+        e["action"] for e in admin.get(f"{API}/finance/tax-certificates/{c['id']}/access-log").json["items"]
+    }
 
     # validation
     assert admin.post(f"{API}/finance/tax-certificates", {"type": "nope"}).status_code == 422
     assert admin.post(f"{API}/finance/tax-certificates", {"multistate_form": "sst"}).status_code == 422
-    assert admin.post(f"{API}/finance/tax-certificates", {"card_user_ids": [str(uuid.uuid4())]}).status_code in (404, 422)
+    assert admin.post(f"{API}/finance/tax-certificates", {"card_user_ids": [str(uuid.uuid4())]}).status_code in (
+        404,
+        422,
+    )
 
 
 def test_vendor_registry_send_and_exemption_lookup(app: Any, admin: Api) -> None:
@@ -212,11 +241,15 @@ def test_vendor_registry_send_and_exemption_lookup(app: Any, admin: Api) -> None
         assert hit is not None and str(hit.id) == c["id"]
         assert exemption_for_po(org_id(app), uuid.UUID(v), {"region": "WI", "country": "US"}, None) is None
     # renewal: registry copied, scan on the renewal re-sends automatically
-    new = admin.post(f"{API}/finance/tax-certificates/{c['id']}/renew",
-                     {"issued_on": date.today().isoformat(), "expires_on": (date.today() + timedelta(days=900)).isoformat()})
+    new = admin.post(
+        f"{API}/finance/tax-certificates/{c['id']}/renew",
+        {"issued_on": date.today().isoformat(), "expires_on": (date.today() + timedelta(days=900)).isoformat()},
+    )
     assert new.status_code == 200, new.json
     before = len(emails(app))
-    r = multipart(admin, f"{API}/finance/tax-certificates/{new.json['id']}/files", [("crt-2027.png", PNG_1PX)], field="file")
+    r = multipart(
+        admin, f"{API}/finance/tax-certificates/{new.json['id']}/files", [("crt-2027.png", PNG_1PX)], field="file"
+    )
     assert r.json["resent"] == 1 and len(emails(app)) == before + 1
     old = admin.get(f"{API}/finance/tax-certificates/{c['id']}").json
     assert old["status"] == "retired" and old["renewed_by_id"] == new.json["id"]
@@ -239,10 +272,15 @@ def test_certificate_reminders_60_30_7(app: Any, admin: Api) -> None:
 def test_exempt_purchases_report_and_export(app: Any, admin: Api) -> None:
     v = vendor(app)
     c = cert(admin)
-    admin.c.put(f"{API}/finance/tax-certificates/{c['id']}/vendors", json={"vendor_id": v, "status": "on_file"},
-                headers=admin._h())
-    r = admin.post(f"{API}/finance/receipts", {"fields": {"vendor_id": v, "total": "10.80", "tax": "0.80",
-                                                          "purchased_on": date.today().isoformat()}})
+    admin.c.put(
+        f"{API}/finance/tax-certificates/{c['id']}/vendors",
+        json={"vendor_id": v, "status": "on_file"},
+        headers=admin._h(),
+    )
+    r = admin.post(
+        f"{API}/finance/receipts",
+        {"fields": {"vendor_id": v, "total": "10.80", "tax": "0.80", "purchased_on": date.today().isoformat()}},
+    )
     assert r.status_code == 200, r.json
     rows = admin.get(f"{API}/finance/reports/exempt-purchases").json["items"]
     assert rows and rows[0]["certificate_id"] == c["id"] and rows[0]["tax_charged"] == "0.80"
@@ -255,15 +293,26 @@ def test_exempt_purchases_report_and_export(app: Any, admin: Api) -> None:
 def test_receipt_capture_reading_tax_flag_and_wo_cost(app: Any, admin: Api) -> None:
     v = vendor(app, name="Home Depot")
     c = cert(admin)
-    admin.c.put(f"{API}/finance/tax-certificates/{c['id']}/vendors", json={"vendor_id": v, "status": "on_file"},
-                headers=admin._h())
+    admin.c.put(
+        f"{API}/finance/tax-certificates/{c['id']}/vendors",
+        json={"vendor_id": v, "status": "on_file"},
+        headers=admin._h(),
+    )
     wo = admin.post(f"{API}/work-orders", {"title": "Fix dock door"}).json
     tech = login(app, TECH)
-    admin.patch(f"{API}/work-orders/{wo['id']}", {"assignees": [{"type": "user", "id": uid(admin, TECH)}],
-                                                  "version": wo["version"]})
+    admin.patch(
+        f"{API}/work-orders/{wo['id']}",
+        {"assignees": [{"type": "user", "id": uid(admin, TECH)}], "version": wo["version"]},
+    )
     ocr = "HOME DEPOT\n10/20/2026\nSUBTOTAL 38.50\nTAX 3.18\nTOTAL 41.68\nVISA ************4417"
-    r = multipart(tech, f"{API}/finance/receipts", [("p1.png", PNG_1PX), ("p2.png", PNG_1PX)], source="camera",
-                  ocr_text=ocr, work_order_id=wo["id"])
+    r = multipart(
+        tech,
+        f"{API}/finance/receipts",
+        [("p1.png", PNG_1PX), ("p2.png", PNG_1PX)],
+        source="camera",
+        ocr_text=ocr,
+        work_order_id=wo["id"],
+    )
     assert r.status_code == 200, r.json
     rec = r.json
     assert rec["total"] == "41.68" and rec["tax"] == "3.18" and rec["vendor"]["id"] == v
@@ -299,16 +348,27 @@ def test_receipt_duplicates_reimbursement_and_export(app: Any, admin: Api) -> No
     a = multipart(tech, f"{API}/finance/receipts", [("r.png", PNG_1PX)]).json
     b = multipart(tech, f"{API}/finance/receipts", [("r-again.png", PNG_1PX)]).json
     assert b["status"] == "duplicate" and b["duplicate_of_id"] == a["id"]
-    assert tech.post(f"{API}/finance/receipts/{b['id']}/attach", {"target": "expense", "category": "Fuel"}).status_code == 409
+    assert (
+        tech.post(f"{API}/finance/receipts/{b['id']}/attach", {"target": "expense", "category": "Fuel"}).status_code
+        == 409
+    )
     assert tech.post(f"{API}/finance/receipts/{b['id']}/not-duplicate").json["status"] == "new"
 
-    tech.patch(f"{API}/finance/receipts/{a['id']}", {"total": "42.10", "vendor_name": "Corner Gas",
-                                                     "purchased_on": date.today().isoformat()})
-    assert tech.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "request"}).json[
-        "reimbursement_status"] == "requested"
+    tech.patch(
+        f"{API}/finance/receipts/{a['id']}",
+        {"total": "42.10", "vendor_name": "Corner Gas", "purchased_on": date.today().isoformat()},
+    )
+    assert (
+        tech.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "request"}).json["reimbursement_status"]
+        == "requested"
+    )
     assert tech.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "approve"}).status_code == 403
-    assert admin.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "approve"}).json[
-        "reimbursement_status"] == "approved"
+    assert (
+        admin.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "approve"}).json[
+            "reimbursement_status"
+        ]
+        == "approved"
+    )
     # approved receipts are read-only
     assert tech.patch(f"{API}/finance/receipts/{a['id']}", {"total": "1.00"}).status_code == 409
     assert tech.delete(f"{API}/finance/receipts/{a['id']}").status_code == 409
@@ -316,32 +376,44 @@ def test_receipt_duplicates_reimbursement_and_export(app: Any, admin: Api) -> No
     data = export_bytes(app, ex.json["id"]).decode("utf-8-sig")
     assert "Avery Kim" in data and "42.10" in data
     assert admin.get(f"{API}/finance/receipts/{a['id']}").json["reimbursement_status"] == "exported"
-    assert admin.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "paid"}).json[
-        "reimbursement_status"] == "paid"
+    assert (
+        admin.post(f"{API}/finance/receipts/{a['id']}/reimbursement", {"action": "paid"}).json["reimbursement_status"]
+        == "paid"
+    )
 
 
 def test_receipt_attach_to_part_restock_and_po(app: Any, admin: Api) -> None:
     part = admin.post(f"{API}/parts", {"name": "V-belt A42", "unit_cost": "10"})
     assert part.status_code in (200, 201), part.json
     r = admin.post(f"{API}/finance/receipts", {"fields": {"vendor_name": "Belts R Us", "total": "40.00"}}).json
-    got = admin.post(f"{API}/finance/receipts/{r['id']}/attach", {"target": "part", "id": part.json["id"], "quantity": 4})
+    got = admin.post(
+        f"{API}/finance/receipts/{r['id']}/attach", {"target": "part", "id": part.json["id"], "quantity": 4}
+    )
     assert got.status_code == 200, got.json
     assert got.json["part_id"] == part.json["id"]
     assert admin.post(f"{API}/finance/receipts/{r['id']}/attach", {"target": "nope"}).status_code == 422
-    assert admin.post(f"{API}/finance/receipts/{r['id']}/attach",
-                      {"target": "purchase_order", "id": str(uuid.uuid4())}).status_code == 404
+    assert (
+        admin.post(
+            f"{API}/finance/receipts/{r['id']}/attach", {"target": "purchase_order", "id": str(uuid.uuid4())}
+        ).status_code
+        == 404
+    )
 
 
 def test_cards_statement_reconcile_and_chase(app: Any, admin: Api) -> None:
-    card = admin.post(f"{API}/finance/cards", {"name": "Maintenance Amex", "last4": "1005",
-                                               "holder_user_id": uid(admin, TECH)})
+    card = admin.post(
+        f"{API}/finance/cards", {"name": "Maintenance Amex", "last4": "1005", "holder_user_id": uid(admin, TECH)}
+    )
     assert card.status_code == 200, card.json
     cid = card.json["id"]
     assert admin.post(f"{API}/finance/cards", {"name": "x", "last4": "12"}).status_code == 422
-    rec = admin.post(f"{API}/finance/receipts", {"fields": {"vendor_name": "Grainger", "total": "112.40",
-                                                            "card_last4": "1005", "purchased_on": "2026-10-02"}}).json
-    csv_data = ("Date,Description,Amount\n10/03/2026,GRAINGER 0441,-112.40\n10/05/2026,=cmd|' /C calc'!A0,15.00\n"
-                "bad,row,\n").encode()
+    rec = admin.post(
+        f"{API}/finance/receipts",
+        {"fields": {"vendor_name": "Grainger", "total": "112.40", "card_last4": "1005", "purchased_on": "2026-10-02"}},
+    ).json
+    csv_data = (
+        b"Date,Description,Amount\n10/03/2026,GRAINGER 0441,-112.40\n10/05/2026,=cmd|' /C calc'!A0,15.00\nbad,row,\n"
+    )
     r = multipart(admin, f"{API}/finance/cards/{cid}/statement", [("stmt.csv", csv_data)], field="file")
     assert r.status_code == 200, r.json
     assert (r.json["added"], r.json["matched"]) == (2, 1)
@@ -356,26 +428,48 @@ def test_cards_statement_reconcile_and_chase(app: Any, admin: Api) -> None:
 
 # ---- vendor invoices (MP-092) -----------------------------------------------------------------------------------
 def make_po(admin: Api, app: Any, v: str) -> dict[str, Any]:
-    po = admin.post(f"{API}/purchase-orders", {"vendor_id": v, "title": "Belts", "lines": [
-        {"description": "V-belt A42", "part_number": "A42", "quantity": 10, "unit_cost": "19.25"},
-        {"description": "Bearing 6205", "part_number": "6205-2RS", "quantity": 4, "unit_cost": "8.00"}]})
+    po = admin.post(
+        f"{API}/purchase-orders",
+        {
+            "vendor_id": v,
+            "title": "Belts",
+            "lines": [
+                {"description": "V-belt A42", "part_number": "A42", "quantity": 10, "unit_cost": "19.25"},
+                {"description": "Bearing 6205", "part_number": "6205-2RS", "quantity": 4, "unit_cost": "8.00"},
+            ],
+        },
+    )
     assert po.status_code == 201, po.json
     po = po.json
     if po["status"] != "approved":
         admin.post(f"{API}/purchase-orders/{po['id']}/approve", {})
-    rec = admin.post(f"{API}/purchase-orders/{po['id']}/receive", {"lines": [
-        {"line_id": po["lines"][0]["id"], "quantity": 10}, {"line_id": po["lines"][1]["id"], "quantity": 2}]})
+    rec = admin.post(
+        f"{API}/purchase-orders/{po['id']}/receive",
+        {
+            "lines": [
+                {"line_id": po["lines"][0]["id"], "quantity": 10},
+                {"line_id": po["lines"][1]["id"], "quantity": 2},
+            ]
+        },
+    )
     assert rec.status_code in (200, 201), rec.json
-    return admin.get(f"{API}/purchase-orders/{po['id']}").json  # type: ignore[no-any-return]
+    return admin.get(f"{API}/purchase-orders/{po['id']}").json
 
 
 def test_vendor_invoice_three_way_match_approval_and_payment(app: Any, admin: Api) -> None:
     v = vendor(app)
     po = make_po(admin, app, v)
-    body = {"vendor_id": v, "number": "INV-1001", "invoice_date": date.today().isoformat(), "terms": "2/10 net 30",
-            "purchase_order_ids": [po["id"]],
-            "lines": [{"description": "V-belt A42", "part_number": "A42", "quantity": 10, "unit_price": "19.50"},
-                      {"description": "Bearing 6205", "part_number": "6205-2RS", "quantity": 4, "unit_price": "8.00"}]}
+    body = {
+        "vendor_id": v,
+        "number": "INV-1001",
+        "invoice_date": date.today().isoformat(),
+        "terms": "2/10 net 30",
+        "purchase_order_ids": [po["id"]],
+        "lines": [
+            {"description": "V-belt A42", "part_number": "A42", "quantity": 10, "unit_price": "19.50"},
+            {"description": "Bearing 6205", "part_number": "6205-2RS", "quantity": 4, "unit_price": "8.00"},
+        ],
+    }
     inv = admin.post(f"{API}/finance/vendor-invoices", body)
     assert inv.status_code == 200, inv.json
     inv = inv.json
@@ -394,7 +488,9 @@ def test_vendor_invoice_three_way_match_approval_and_payment(app: Any, admin: Ap
     jordan = login(app, "jordan.reyes@example.com")  # limited admin: records invoices, can't override exceptions
     assert jordan.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {"override": True}).status_code == 409
     # receiving the rest clears the quantity exception
-    admin.post(f"{API}/purchase-orders/{po['id']}/receive", {"lines": [{"line_id": po["lines"][1]["id"], "quantity": 2}]})
+    admin.post(
+        f"{API}/purchase-orders/{po['id']}/receive", {"lines": [{"line_id": po["lines"][1]["id"], "quantity": 2}]}
+    )
     inv = admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/match").json
     assert inv["exceptions"] == [] and inv["status"] == "matched"
     dup = admin.post(f"{API}/finance/vendor-invoices", {**body, "lines": []}).json
@@ -405,8 +501,10 @@ def test_vendor_invoice_three_way_match_approval_and_payment(app: Any, admin: Ap
     assert got.json["status"] == "approved"
     assert admin.patch(f"{API}/finance/vendor-invoices/{inv['id']}", {"number": "X"}).status_code == 409  # read-only
     assert admin.delete(f"{API}/finance/vendor-invoices/{inv['id']}").status_code == 409
-    paid = admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/payments",
-                      {"amount": got.json["total"], "method": "ach", "paid_on": date.today().isoformat()})
+    paid = admin.post(
+        f"{API}/finance/vendor-invoices/{inv['id']}/payments",
+        {"amount": got.json["total"], "method": "ach", "paid_on": date.today().isoformat()},
+    )
     assert paid.status_code == 200, paid.json
     assert paid.json["status"] == "paid"
     spend = admin.get(f"{API}/finance/reports/vendor-spend").json["items"]
@@ -417,12 +515,24 @@ def test_vendor_invoice_three_way_match_approval_and_payment(app: Any, admin: Ap
 def test_vendor_invoice_approval_rule_dispute_and_void(app: Any, admin: Api) -> None:
     v = vendor(app)
     jordan_id = uid(admin, "jordan.reyes@example.com")
-    rule = admin.post(f"{API}/approval-rules", {"name": "Invoices over 50", "applies_to": "vendor_invoice",
-                                                 "conditions": [{"field": "total", "op": ">", "value": "50"}],
-                                                 "approver_user_ids": [jordan_id]})
+    rule = admin.post(
+        f"{API}/approval-rules",
+        {
+            "name": "Invoices over 50",
+            "applies_to": "vendor_invoice",
+            "conditions": [{"field": "total", "op": ">", "value": "50"}],
+            "approver_user_ids": [jordan_id],
+        },
+    )
     assert rule.status_code in (200, 201), rule.json
-    inv = admin.post(f"{API}/finance/vendor-invoices", {"vendor_id": v, "number": "A-1", "lines": [
-        {"description": "Service call", "quantity": 1, "unit_price": "120"}]}).json
+    inv = admin.post(
+        f"{API}/finance/vendor-invoices",
+        {
+            "vendor_id": v,
+            "number": "A-1",
+            "lines": [{"description": "Service call", "quantity": 1, "unit_price": "120"}],
+        },
+    ).json
     assert {e["kind"] for e in inv["exceptions"]} == {"no_po"}
     assert admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {}).status_code == 409
     got = admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {"override": True}).json
@@ -433,16 +543,26 @@ def test_vendor_invoice_approval_rule_dispute_and_void(app: Any, admin: Api) -> 
     d = jordan.post(f"{API}/finance/vendor-invoices/{inv['id']}/decide", {"approve": False, "comment": "Wrong rate"})
     assert d.status_code == 200, d.json
     assert d.json["status"] == "disputed"
-    assert admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/status", {"action": "reopen"}).json["status"] == "received"
+    assert (
+        admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/status", {"action": "reopen"}).json["status"]
+        == "received"
+    )
     assert admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/status", {"action": "dispute"}).status_code == 422
     assert admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/status", {"action": "void"}).json["status"] == "void"
 
 
 def test_vendor_invoice_reminders(app: Any, admin: Api) -> None:
     v = vendor(app)
-    inv = admin.post(f"{API}/finance/vendor-invoices", {"vendor_id": v, "number": "R-1", "terms": "2/10 net 30",
-                                                         "invoice_date": date.today().isoformat(), "lines": [
-                                                             {"description": "x", "quantity": 1, "unit_price": "5"}]}).json
+    inv = admin.post(
+        f"{API}/finance/vendor-invoices",
+        {
+            "vendor_id": v,
+            "number": "R-1",
+            "terms": "2/10 net 30",
+            "invoice_date": date.today().isoformat(),
+            "lines": [{"description": "x", "quantity": 1, "unit_price": "5"}],
+        },
+    ).json
     admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {"override": True})
     with app.app_context():
         from mpro.finance import invoices
@@ -458,13 +578,22 @@ def test_customer_invoice_from_work_orders_send_pay_credit(app: Any, admin: Api)
     admin.patch(f"{API}/finance/settings", {"tax_rates": {"US-IL": "6.25"}, "invoice_prefix": "RS-"})
     wo = done_wo(admin, app, cust)
     open_wo = admin.post(f"{API}/work-orders", {"title": "Not done"}).json
-    assert admin.post(f"{API}/finance/customer-invoices", {"customer_id": cust,
-                                                           "work_order_ids": [open_wo["id"]]}).status_code == 422
+    assert (
+        admin.post(
+            f"{API}/finance/customer-invoices", {"customer_id": cust, "work_order_ids": [open_wo["id"]]}
+        ).status_code
+        == 422
+    )
     billable = admin.get(f"{API}/finance/billable-work-orders?customer_id={cust}").json["items"]
     assert [w["id"] for w in billable] == [wo["id"]]
-    r = admin.post(f"{API}/finance/customer-invoices", {"customer_id": cust, "work_order_ids": [wo["id"]],
-                                                        "lines": [{"kind": "part", "description": "Filter",
-                                                                   "quantity": 2, "unit_price": "10"}]})
+    r = admin.post(
+        f"{API}/finance/customer-invoices",
+        {
+            "customer_id": cust,
+            "work_order_ids": [wo["id"]],
+            "lines": [{"kind": "part", "description": "Filter", "quantity": 2, "unit_price": "10"}],
+        },
+    )
     assert r.status_code == 200, r.json
     ci = r.json
     labor = next(ln for ln in ci["lines"] if ln["kind"] == "labor")
@@ -488,9 +617,15 @@ def test_customer_invoice_from_work_orders_send_pay_credit(app: Any, admin: Api)
     p = admin.post(f"{API}/finance/customer-invoices/{ci['id']}/payments", {"amount": "100", "method": "check"})
     assert p.json["status"] == "partially_paid" and p.json["balance"] == "90.31"
     assert admin.post(f"{API}/finance/customer-invoices/{ci['id']}/void").status_code == 409
-    cn = admin.post(f"{API}/finance/customer-invoices/{ci['id']}/credit-note", {
-        "reason": "Trip charge waived", "lines": [{"kind": "cost", "description": "Trip charge", "quantity": 1,
-                                                   "unit_price": "25", "taxable": True}]})
+    cn = admin.post(
+        f"{API}/finance/customer-invoices/{ci['id']}/credit-note",
+        {
+            "reason": "Trip charge waived",
+            "lines": [
+                {"kind": "cost", "description": "Trip charge", "quantity": 1, "unit_price": "25", "taxable": True}
+            ],
+        },
+    )
     assert cn.status_code == 200, cn.json
     assert cn.json["kind"] == "credit_note" and cn.json["total"] == "26.56"
     admin.post(f"{API}/finance/customer-invoices/{cn.json['id']}/send", {})
@@ -507,14 +642,21 @@ def test_customer_invoice_exempt_overdue_and_ageing(app: Any, admin: Api) -> Non
     cust = customer(app, name="County Schools")
     admin.patch(f"{API}/finance/settings", {"default_tax_rate_pct": "7", "reminder_days_after_due": [7, 30]})
     c = cert(admin, type="government", customer_id=cust)
-    ci = admin.post(f"{API}/finance/customer-invoices", {"customer_id": cust, "lines": [
-        {"kind": "part", "description": "Ballast", "quantity": 1, "unit_price": "80"}]}).json
+    ci = admin.post(
+        f"{API}/finance/customer-invoices",
+        {"customer_id": cust, "lines": [{"kind": "part", "description": "Ballast", "quantity": 1, "unit_price": "80"}]},
+    ).json
     assert ci["tax_exempt"] and ci["tax"] == "0.00" and ci["total"] == "80.00"
     assert admin.patch(f"{API}/finance/customer-invoices/{ci['id']}", {"tax_rate_pct": "7"}).status_code == 409
     pdf = admin.get(f"{API}/finance/customer-invoices/{ci['id']}/pdf").data
     assert pdf.startswith(b"%PDF")
-    admin.patch(f"{API}/finance/customer-invoices/{ci['id']}", {"due_date": (date.today() - timedelta(days=40)).isoformat(),
-                                                                "issue_date": (date.today() - timedelta(days=70)).isoformat()})
+    admin.patch(
+        f"{API}/finance/customer-invoices/{ci['id']}",
+        {
+            "due_date": (date.today() - timedelta(days=40)).isoformat(),
+            "issue_date": (date.today() - timedelta(days=70)).isoformat(),
+        },
+    )
     admin.post(f"{API}/finance/customer-invoices/{ci['id']}/send", {})
     with app.app_context():
         from mpro.finance import billing
@@ -547,19 +689,30 @@ def test_payment_links_are_cloud_only(app: Any, admin: Api) -> None:
 # ---- documents vault and accountant export (MP-094) ---------------------------------------------------------
 def test_vault_search_hold_retention_and_accounting_export(app: Any, admin: Api) -> None:
     v = vendor(app)
-    inv = admin.post(f"{API}/finance/vendor-invoices", {"vendor_id": v, "number": "V-77",
-                                                         "invoice_date": date.today().isoformat(),
-                                                         "lines": [{"description": "Gasket", "quantity": 2,
-                                                                    "unit_price": "12.5"}]}).json
+    inv = admin.post(
+        f"{API}/finance/vendor-invoices",
+        {
+            "vendor_id": v,
+            "number": "V-77",
+            "invoice_date": date.today().isoformat(),
+            "lines": [{"description": "Gasket", "quantity": 2, "unit_price": "12.5"}],
+        },
+    ).json
     admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {"override": True})
-    rec = multipart(admin, f"{API}/finance/receipts", [("r.png", PNG_1PX)],
-                    fields='{"vendor_name": "=HYPERLINK(1)", "total": "9.99", "purchased_on": "%s"}' % date.today()).json
+    rec = multipart(
+        admin,
+        f"{API}/finance/receipts",
+        [("r.png", PNG_1PX)],
+        fields=json.dumps({"vendor_name": "=HYPERLINK(1)", "total": "9.99", "purchased_on": str(date.today())}),
+    ).json
     admin.post(f"{API}/finance/receipts/{rec['id']}/attach", {"target": "expense", "category": "Supplies"})
     docs = admin.get(f"{API}/finance/documents?q=V-77").json["items"]
     assert len(docs) == 1 and docs[0]["kind"] == "vendor_invoice" and docs[0]["locked"]
     retain = date.fromisoformat(docs[0]["retain_until"])
     assert retain.year - date.today().year == 7
-    doc = next(d for d in admin.get(f"{API}/finance/documents?kind=receipt").json["items"] if d["record_id"] == rec["id"])
+    doc = next(
+        d for d in admin.get(f"{API}/finance/documents?kind=receipt").json["items"] if d["record_id"] == rec["id"]
+    )
     assert admin.post(f"{API}/finance/documents/{doc['id']}/hold", {"hold": True}).json["legal_hold"]
     assert admin.delete(f"{API}/finance/receipts/{rec['id']}").status_code == 409
     jordan = login(app, "jordan.reyes@example.com")
@@ -617,18 +770,29 @@ def _mail(to: str, sender: str, name: str = "receipt.pdf") -> bytes:
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, to, "Receipt"
     msg.set_content("see attached")
-    pdf = (b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF")
-    msg.add_attachment(pdf if name.endswith(".pdf") else PNG_1PX, maintype="application" if name.endswith(".pdf")
-                       else "image", subtype="pdf" if name.endswith(".pdf") else "png", filename=name)
+    pdf = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+    msg.add_attachment(
+        pdf if name.endswith(".pdf") else PNG_1PX,
+        maintype="application" if name.endswith(".pdf") else "image",
+        subtype="pdf" if name.endswith(".pdf") else "png",
+        filename=name,
+    )
     return msg.as_bytes()
 
 
 def test_email_in_routes_plus_tags_and_checks_senders(app: Any, admin: Api, monkeypatch: pytest.MonkeyPatch) -> None:
     from mpro.finance import inbox
 
-    r = admin.patch(f"{API}/finance/settings", {"inbox_enabled": True, "inbox_host": "imap.example.com",
-                                                "inbox_user": "ap@example.com", "inbox_password": "imap-secret",
-                                                "inbox_address": "ap@example.com"})
+    r = admin.patch(
+        f"{API}/finance/settings",
+        {
+            "inbox_enabled": True,
+            "inbox_host": "imap.example.com",
+            "inbox_user": "ap@example.com",
+            "inbox_password": "imap-secret",
+            "inbox_address": "ap@example.com",
+        },
+    )
     assert r.status_code == 200, r.json
     assert r.json["inbox_password"] != "imap-secret" and r.json["inbox_password_set"]
     assert r.json["receipts_address"] == "ap+receipts@example.com"
@@ -649,7 +813,10 @@ def test_email_in_routes_plus_tags_and_checks_senders(app: Any, admin: Api, monk
     assert len(mine) == 1 and mine[0]["source"] == "email"
     assert admin.get(f"{API}/finance/vendor-invoices").json["total"] == 1
     assert admin.post(f"{API}/finance/settings/inbox-test").json["created"] == 0  # read once
-    assert login(app, "jordan.reyes@example.com").patch(f"{API}/finance/settings", {"retention_years": 3}).status_code == 403
+    assert (
+        login(app, "jordan.reyes@example.com").patch(f"{API}/finance/settings", {"retention_years": 3}).status_code
+        == 403
+    )
     assert admin.patch(f"{API}/finance/settings", {"retention_years": 0}).status_code == 422
 
 
@@ -660,36 +827,56 @@ def test_cross_org_isolation(app: Any, admin: Api) -> None:
     c = cert(admin)
     rec = admin.post(f"{API}/finance/receipts", {"fields": {"vendor_name": "A", "total": "1.00"}}).json
     inv = admin.post(f"{API}/finance/vendor-invoices", {"vendor_id": v, "number": "Z"}).json
-    ci = admin.post(f"{API}/finance/customer-invoices", {"customer_id": cust, "lines": [
-        {"description": "x", "quantity": 1, "unit_price": "1"}]}).json
+    ci = admin.post(
+        f"{API}/finance/customer-invoices",
+        {"customer_id": cust, "lines": [{"description": "x", "quantity": 1, "unit_price": "1"}]},
+    ).json
     card = admin.post(f"{API}/finance/cards", {"name": "Card", "last4": "1111"}).json
     doc = admin.get(f"{API}/finance/documents").json["items"][0]
     wo = admin.post(f"{API}/work-orders", {"title": "x"}).json
 
     other = other_org(app)
-    for url in (f"finance/receipts/{rec['id']}", f"finance/vendor-invoices/{inv['id']}",
-                f"finance/customer-invoices/{ci['id']}", f"finance/customer-invoices/{ci['id']}/pdf",
-                f"finance/tax-certificates/{c['id']}", f"finance/tax-certificates/{c['id']}/card",
-                f"finance/cards/{card['id']}/transactions", f"finance/customers/{cust}/statement",
-                f"finance/work-orders/{wo['id']}/receipts", f"finance/billable-work-orders?customer_id={cust}"):
+    for url in (
+        f"finance/receipts/{rec['id']}",
+        f"finance/vendor-invoices/{inv['id']}",
+        f"finance/customer-invoices/{ci['id']}",
+        f"finance/customer-invoices/{ci['id']}/pdf",
+        f"finance/tax-certificates/{c['id']}",
+        f"finance/tax-certificates/{c['id']}/card",
+        f"finance/cards/{card['id']}/transactions",
+        f"finance/customers/{cust}/statement",
+        f"finance/work-orders/{wo['id']}/receipts",
+        f"finance/billable-work-orders?customer_id={cust}",
+    ):
         assert other.get(f"{API}/{url}").status_code == 404, url
-    for url, body in ((f"finance/receipts/{rec['id']}/attach", {"target": "expense", "category": "x"}),
-                      (f"finance/vendor-invoices/{inv['id']}/submit", {}),
-                      (f"finance/customer-invoices/{ci['id']}/send", {}),
-                      (f"finance/tax-certificates/{c['id']}/send", {"vendor_id": v}),
-                      (f"finance/documents/{doc['id']}/hold", {"hold": True}),
-                      (f"finance/cards/{card['id']}/chase", {})):
+    for url, body in (
+        (f"finance/receipts/{rec['id']}/attach", {"target": "expense", "category": "x"}),
+        (f"finance/vendor-invoices/{inv['id']}/submit", {}),
+        (f"finance/customer-invoices/{ci['id']}/send", {}),
+        (f"finance/tax-certificates/{c['id']}/send", {"vendor_id": v}),
+        (f"finance/documents/{doc['id']}/hold", {"hold": True}),
+        (f"finance/cards/{card['id']}/chase", {}),
+    ):
         assert other.post(f"{API}/{url}", body).status_code == 404, url
-    for kind, coll in (("receipts", "items"), ("vendor-invoices", "items"), ("customer-invoices", "items"),
-                       ("tax-certificates", "items"), ("documents", "items")):
+    for kind, coll in (
+        ("receipts", "items"),
+        ("vendor-invoices", "items"),
+        ("customer-invoices", "items"),
+        ("tax-certificates", "items"),
+        ("documents", "items"),
+    ):
         assert other.get(f"{API}/finance/{kind}").json[coll] == [], kind
     # ids from another organization in request bodies are refused
     mine = other.post(f"{API}/finance/receipts", {"fields": {"vendor_name": "B", "total": "2.00"}}).json
     assert other.patch(f"{API}/finance/receipts/{mine['id']}", {"vendor_id": v}).status_code == 404
     assert other.patch(f"{API}/finance/receipts/{mine['id']}", {"card_id": card["id"]}).status_code == 404
-    assert other.post(f"{API}/finance/receipts/{mine['id']}/attach",
-                      {"target": "work_order", "id": wo["id"]}).status_code == 404
+    assert (
+        other.post(f"{API}/finance/receipts/{mine['id']}/attach", {"target": "work_order", "id": wo["id"]}).status_code
+        == 404
+    )
     assert other.post(f"{API}/finance/vendor-invoices", {"vendor_id": v}).status_code == 404
     assert other.post(f"{API}/finance/customer-invoices", {"customer_id": cust}).status_code == 404
     assert other.post(f"{API}/finance/tax-certificates", {"customer_id": cust}).status_code == 404
-    assert other.post(f"{API}/finance/receipts", {"work_order_id": wo["id"], "fields": {"total": "1"}}).status_code == 404
+    assert (
+        other.post(f"{API}/finance/receipts", {"work_order_id": wo["id"], "fields": {"total": "1"}}).status_code == 404
+    )
