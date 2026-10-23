@@ -2,6 +2,7 @@
 // or PDF, or forward to the receipts email address. Review the fields, then attach to a work order (adds a cost),
 // a purchase order, a part restock or a general expense. Tax charged despite an exemption is flagged to reclaim.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DropZone } from "../../components/DropZone";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Camera, Check, Copy, FileUp, Mail, Plus, Search, Trash2, Wand2, X } from "lucide-react";
@@ -133,10 +134,12 @@ export function CaptureModal({ onClose, onDone, workOrderId }: { onClose: () => 
       footer={<><Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" disabled={!count || !!busy} onClick={() => save.mutate()}>{busy || "Save receipt"}</Button></>}>
       <div className="stack">
+        <DropZone accept="image/*,application/pdf" label="Drop receipt pictures or PDFs" onFiles={(fs) => { const dt = new DataTransfer(); fs.forEach((f) => dt.items.add(f)); void addPhotos(dt.files); }}>
         <div className="fin-capture-btns">
           <Button size="lg" variant="primary" onClick={() => cam.current?.click()} disabled={!!busy}><Camera size={18} />{pages.length ? "Add a page" : "Take a photo"}</Button>
           <Button size="lg" onClick={() => pick.current?.click()} disabled={!!busy}><FileUp size={18} />Upload picture or PDF</Button>
         </div>
+        </DropZone>
         <input ref={cam} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
         <input ref={pick} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
         <Checkbox checked={straighten} onChange={setStraighten} label="Crop to the paper and straighten photos" />

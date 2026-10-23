@@ -2,6 +2,7 @@
 // work the exceptions queue, approve (purchasing approval rules, applies_to vendor_invoice), pay.
 // Statuses: Received → Matched → Approved → Paid, plus Disputed and Void.
 import { useEffect, useState } from "react";
+import { DropZone } from "../../components/DropZone";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Copy, FileUp, Mail, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
@@ -109,10 +110,12 @@ function NewInvoice({ onClose, onSaved }: { onClose: () => void; onSaved: (inv: 
     <Modal title="New vendor invoice" onClose={onClose} width={640} footer={<><Button onClick={onClose}>Cancel</Button>
       <Button variant="primary" disabled={!!busy || (!file && !f.vendor_id)} onClick={() => save.mutate()}>{busy || "Save"}</Button></>}>
       <div className="stack">
+        <DropZone accept="application/pdf,image/*" multiple={false} label="Drop the invoice" onFiles={(fs) => setFile(fs[0])}>
         <label className="fin-drop">
           <FileUp size={20} /><span className="grow">{file ? file.name : "Upload the invoice (PDF or picture). We read the number, dates, PO and totals."}</span>
           <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
+        </DropZone>
         <div className="fin-form-grid">
           <Field label="Vendor">{(fid) => <Select id={fid} value={f.vendor_id} onChange={(e) => { set("vendor_id")(e); setPoIds([]); }}>
             <option value="">{file ? "From the invoice" : "Pick a vendor"}</option>{vendors.data?.items.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</Select>}</Field>

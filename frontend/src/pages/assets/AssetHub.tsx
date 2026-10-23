@@ -1,6 +1,7 @@
 // Asset Hub (0.5.0, r115): OEM equipment packages — asset type, fields, spare parts, procedures and work order
 // templates for a manufacturer's model range — plus suggestions for existing assets that match. Admins only.
 import { useRef, useState } from "react";
+import { DropZone } from "../../components/DropZone";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Boxes, Check, PackageCheck, Upload, X } from "lucide-react";
@@ -128,10 +129,10 @@ export function AssetHubPage() {
       <Link to="/assets" className="row small"><ArrowLeft size={14} />Assets</Link>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div><h1>Asset Hub</h1><p className="muted small" style={{ margin: 0 }}>Ready-made equipment packages: asset type, fields, spare parts, procedures and work order templates.</p></div>
-        <div className="row">
+        <DropZone inline accept="application/json,.json" multiple={false} label="Drop a package file" onFiles={(fs) => void importFile(fs[0])}><div className="row">
           <Button onClick={() => file.current?.click()}><Upload size={14} />Import package</Button>
           <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importFile(f); }} />
-        </div>
+        </div></DropZone>
       </div>
       {(pending.data?.items.length ?? 0) > 0 && <section className="card">
         <div className="card-head"><h2>Suggested for your assets</h2><span className="small muted">{plural(pending.data!.items.length, "asset")}</span></div>

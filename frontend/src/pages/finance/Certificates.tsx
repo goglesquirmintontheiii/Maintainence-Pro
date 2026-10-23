@@ -3,6 +3,7 @@
 // exempt-purchases report, and the mobile exemption card — shown to the people named on it, watermarked
 // "For <org> employees only", and kept on the phone so it works offline.
 import { useEffect, useState } from "react";
+import { DropZone } from "../../components/DropZone";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, BadgeCheck, CreditCard, FileUp, Plus, RefreshCw, Send, ShieldCheck, Trash2, WifiOff } from "lucide-react";
@@ -157,13 +158,15 @@ function CertificateDetail({ id, onBack }: { id: string; onBack: () => void }) {
           <Button variant="ghost" onClick={() => { if (confirm("Retire this certificate? It stops covering purchases.")) act.mutate("retire"); }}>Retire</Button></>}
         <Button icon variant="ghost" aria-label="Delete" onClick={() => { if (confirm("Delete this certificate?")) del.mutate(); }}><Trash2 size={16} /></Button>
       </div>
-      <section className="card card-pad stack">
+      <DropZone className="card" accept="application/pdf,image/*" multiple={false} label="Drop a scan to add it" onFiles={(fs) => upload.mutate({ file: fs[0], role: "file" })}>
+      <section className="card-pad stack">
         <div className="row"><h3 className="sec-h grow">Scans</h3>
           <label className="btn sm"><FileUp size={14} />Add scan<input type="file" accept="application/pdf,image/*" hidden onChange={pick("file")} /></label>
           <label className="btn sm"><CreditCard size={14} />{c.has_card ? "Replace" : "Add"} card picture<input type="file" accept="image/*" hidden onChange={pick("card")} /></label></div>
         {(c.files ?? []).length ? (c.files ?? []).map((f) => <a key={f.id} className="row fin-small" href={`/api/v1/finance/tax-certificates/${c.id}/files/${f.id}`} target="_blank" rel="noreferrer">
           <FileUp size={14} />{f.name}</a>) : <p className="muted">No scan yet. Scans are encrypted at rest and every view is logged.</p>}
       </section>
+      </DropZone>
       <section className="card card-pad stack">
         <h3 className="sec-h">Vendors</h3>
         {(c.vendors ?? []).map((v) => { const [l, t] = REG[v.status]; return (

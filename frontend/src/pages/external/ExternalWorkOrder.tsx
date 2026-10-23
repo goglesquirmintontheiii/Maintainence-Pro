@@ -1,6 +1,7 @@
 // Public work order page for people outside the organization (0.5.0: r058–r060, r092). No login: the secret link in
 // the URL is the credential, so this page never uses the session and only calls /api/v1/external/<token>/….
 import { useEffect, useRef, useState } from "react";
+import { DropZone } from "../../components/DropZone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock, FileText, MapPin, Paperclip, Send, Wrench } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
@@ -123,7 +124,9 @@ function Comments({ t, view, name, canEdit, onSaved }: { t: string; view: View; 
       <div key={c.id} className="ext-comment"><div className="small"><b>{c.author}</b> <span className="faint">· {timeAgo(c.created_at)}</span></div>
         {c.body && <p className="prewrap" style={{ margin: "4px 0" }}>{c.body}</p>}<FileChips files={c.files} /></div>))}
     {!view.comments?.length && <p className="small muted">No comments yet.</p>}
-    {canEdit && <div className="stack" style={{ gap: 6 }}>
+    {canEdit && <DropZone label="Drop files to attach them" onFiles={async (list) => {
+      for (const f of list) { setBusy((n) => n + 1); try { const up = await uploadFile(t, f); setFiles((x) => [...x, up]); } catch (err) { toast((err as ApiError).message, { kind: "error" }); } finally { setBusy((n) => n - 1); } } }}>
+    <div className="stack" style={{ gap: 6 }}>
       <textarea className="textarea" rows={3} placeholder="Write a comment…" value={body} onChange={(e) => setBody(e.target.value)} aria-label="Comment" />
       {files.length > 0 && <div className="row wrap small">{files.map((f) => <span key={f.id} className="chip">{f.name}</span>)}</div>}
       <div className="row">
@@ -134,7 +137,7 @@ function Comments({ t, view, name, canEdit, onSaved }: { t: string; view: View; 
         <Button variant="primary" size="sm" disabled={post.isPending || busy > 0 || (!body.trim() && !files.length) || !name.trim()} onClick={() => post.mutate()}><Send size={13} />Post</Button>
       </div>
       {!name.trim() && <span className="small faint">Type your name at the top to comment.</span>}
-    </div>}
+    </div></DropZone>}
   </section>;
 }
 

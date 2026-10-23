@@ -1,4 +1,5 @@
 // Company cards (MP-091): import the bank's statement CSV, match charges to receipts, and chase the card holder for
+import { DropZone } from "../../components/DropZone";
 // the receipts still missing. Approved reimbursements export to CSV for payroll from here too.
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -86,12 +87,12 @@ function CardDetail({ id, me, onBack }: { id: string; me: FinanceMe; onBack: () 
         <h2 className="grow">{card ? `${card.name} ••${card.last4}` : "Card"}</h2>
         {writer && card && <Button onClick={() => setEdit(true)}>Edit</Button>}
       </div>
-      {writer && <div className="row wrap fin-actions">
+      {writer && <DropZone accept=".csv,text/csv" multiple={false} label="Drop the statement CSV" onFiles={(fs) => imp.mutate(fs[0])}><div className="row wrap fin-actions">
         <label className="btn primary"><FileUp size={15} />Import statement (CSV)<input type="file" accept=".csv,text/csv" hidden
           onChange={(e) => { const f = e.target.files?.[0]; if (f) imp.mutate(f); e.target.value = ""; }} /></label>
         <Button onClick={() => act.mutate("reconcile")}><RefreshCw size={15} />Match receipts</Button>
         <Button onClick={() => act.mutate("chase")} disabled={!card?.holder}><Mail size={15} />Chase missing receipts</Button>
-      </div>}
+      </div></DropZone>}
       <div className="seg fin-seg" role="tablist" aria-label="Filter">
         {[["missing", "Missing receipt"], ["matched", "Matched"], ["ignored", "Ignored"], ["", "All"]].map(([k, l]) =>
           <button key={k} type="button" role="tab" aria-selected={filter === k} className={"seg-btn" + (filter === k ? " on" : "")} onClick={() => setFilter(k)}>{l}</button>)}

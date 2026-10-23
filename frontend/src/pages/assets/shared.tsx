@@ -101,6 +101,9 @@ export function PhotoPicker({ files, setFiles, label = "Add photos or files" }: 
 const LIST_KEYS: Record<string, string[]> = {
   asset: ["assets", "asset-tree", "asset-pick"],
   location: ["locations", "location-tree", "location-pick"],
+  part: ["parts"],
+  vendor: ["vendors"],
+  customer: ["customers"],
 };
 
 /** Files attached to a saved record, with add and remove. */
