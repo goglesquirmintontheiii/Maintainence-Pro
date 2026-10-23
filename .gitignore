@@ -19,3 +19,8 @@ mpro/static/app/
 packaging/out/
 *.AppImage
 *.exe
+
+# stray TypeScript output (run "npm run typecheck", not "tsc -b")
+frontend/src/**/*.js
+frontend/*.tsbuildinfo
+frontend/vite.config.js

@@ -1,8 +1,8 @@
 // Customers (0.5.0, MP-046, r234, r235): list + detail. A customer gets its own location, billing details, labor
 // rate and parts markup, linked assets, work orders (the Customer field on a work order) and quotes the customer
 // approves through a link — no account needed.
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Ban, Copy, FileDown, FileText, MoreHorizontal, Pencil, Plus, Search, Send, Trash2, UserRound } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
@@ -47,6 +47,8 @@ export function CustomersPage() {
   const { can } = useSession();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  useEffect(() => { if (params.get("new") === "1") { setCreating(true); const p = new URLSearchParams(params); p.delete("new"); setParams(p, { replace: true }); } }, [params, setParams]); // Create menu
   return (
     <div className="wo-page">
       <div className={"split wo-split" + (id ? " has-detail" : "")}>

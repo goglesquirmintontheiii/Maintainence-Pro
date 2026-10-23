@@ -1,7 +1,7 @@
 // Vendors (0.5.0, MP-045, r262–r264): MaintainX list + detail. Vendor types, contacts (who gets purchase orders,
 // who is CC'd), linked assets and locations, parts they sell, purchase orders, files and custom vendor fields.
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Building2, Download, FileSpreadsheet, Globe, Mail, MoreHorizontal, Pencil, Phone, Plus, Search, ShoppingCart, Tags, Trash2 } from "lucide-react";
 import { api, ApiError, type CustomFieldDef, type ExportItem, type FileItem } from "../../lib/api";
@@ -58,6 +58,8 @@ export function VendorsPage() {
   const [search, setSearch] = useState("");
   const [typeId, setTypeId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  useEffect(() => { if (params.get("new") === "1") { setCreating(true); const p = new URLSearchParams(params); p.delete("new"); setParams(p, { replace: true }); } }, [params, setParams]); // Create menu
   const [typesOpen, setTypesOpen] = useState(false);
   const types = useVendorTypes();
   const exportCsv = useMutation({

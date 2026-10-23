@@ -70,6 +70,7 @@ assets (0.3). Also the changes requested while testing 0.4.
 - External work orders shared by link with hidden / view / interact fields, link controls, "Shared externally"
   filter, completion notice (r058–r060, r088, r092); vendors on work orders (r075); emailing the work order PDF to
   vendors (r094); Asset Hub packages (r115); completion side effects (r042)
+- The Create menu now also creates a part, purchase order, vendor or customer
 
 ### Moved to later versions
 - **0.6.0:** Message button on users and teams (r655), Guest user role (r236), customer request portal (r265),

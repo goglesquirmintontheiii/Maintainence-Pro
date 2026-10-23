@@ -112,8 +112,8 @@ def test_create_team_and_see_it_in_audit_log(page: Any, server: str) -> None:
 
 def test_unbuilt_module_explains_itself(page: Any, server: str) -> None:
     _login(page, server)
-    page.goto(server + "/parts")
-    page.get_by_text("Arrives in MPro 0.5.0").wait_for()
+    page.goto(server + "/requests")
+    page.get_by_text("Arrives in MPro 0.6.0").wait_for()
 
 
 def test_create_comment_and_complete_work_order(page: Any, server: str) -> None:
@@ -173,8 +173,11 @@ def test_work_order_with_asset_and_quick_template(page: Any, server: str) -> Non
     page.get_by_label("Asset", exact=True).click()
     page.get_by_role("listbox", name="Asset").get_by_placeholder("Search assets").fill("Air Compressor 1")
     page.get_by_role("option", name="Air Compressor 1").click()
+    page.keyboard.press("Escape")  # the asset picker takes several assets (0.5.0), so it stays open until closed
     # picking the asset fills in its location
-    page.get_by_role("dialog", name="New work order").get_by_text("Compressor Room").wait_for()
+    page.get_by_role("dialog", name="New work order").get_by_role("button", name="Location").get_by_text(
+        "Compressor Room"
+    ).wait_for()
     due = page.get_by_label("Due date")
     due.fill("2030-01-02T10:00")
     page.get_by_role("button", name="Clear due date").click()
@@ -184,8 +187,10 @@ def test_work_order_with_asset_and_quick_template(page: Any, server: str) -> Non
     page.get_by_role("link", name="Air Compressor 1").wait_for()
     # one-tap create from a template in the Create menu
     page.get_by_role("button", name="Create", exact=True).click()
-    page.get_by_role("menu").get_by_role("button", name="Replace HVAC filters").click()
-    page.get_by_text("created from “Replace HVAC filters”").wait_for()
+    first = page.get_by_role("menu").locator("button[title^='Create a work order from']").first
+    name = first.inner_text().strip()
+    first.click()
+    page.get_by_text(f"created from “{name}”").wait_for()
 
 
 def test_asset_task_list(page: Any, server: str) -> None:

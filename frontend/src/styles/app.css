@@ -203,6 +203,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 @keyframes fade { from { opacity: 0; } }
 .menu { position: absolute; z-index: 30; min-width: 220px; background: var(--c-panel); border: 1px solid var(--c-border); border-radius: var(--r-lg);
   box-shadow: var(--shadow-2); padding: var(--s-1); }
+.topbar .menu { max-height: calc(100dvh - 72px); overflow-y: auto; }
 .menu-item { width: 100%; display: flex; align-items: center; gap: var(--s-2); padding: 8px 10px; border: 0; background: none; border-radius: var(--r-md);
   cursor: pointer; text-align: left; color: var(--c-text); text-decoration: none !important; }
 .menu-item:hover:not(:disabled) { background: var(--c-hover); }

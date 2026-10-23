@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Boxes, Building2, Gauge, MapPin, ScanLine, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Home, Keyboard, LogOut, Menu, MessageSquare, Monitor, Moon,
-  MoreHorizontal, Pin, Plus, Search, Sun, Tags, UserRound, Zap } from "lucide-react";
+  Handshake, MoreHorizontal, Package, Pin, Plus, Search, ShoppingCart, Sun, Tags, Truck, UserRound, Zap } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Session, type Template } from "../lib/api";
 import { applyTheme, useSession } from "../lib/session";
@@ -119,6 +119,10 @@ export function AppShell() {
               {can("assets.manage") && <button className="menu-item" onClick={() => { close(); nav("/assets?new=1"); }}><Boxes size={15} />Asset</button>}
               {can("locations.manage") && <button className="menu-item" onClick={() => { close(); nav("/locations?new=1"); }}><MapPin size={15} />Location</button>}
               {can("meters.manage") && <button className="menu-item" onClick={() => { close(); nav("/meters?new=1"); }}><Gauge size={15} />Meter</button>}
+              {can("parts.manage") && <button className="menu-item" onClick={() => { close(); nav("/parts?new=1"); }}><Package size={15} />Part</button>}
+              {(can("po.manage") || can("po.request")) && <button className="menu-item" onClick={() => { close(); nav("/purchase-orders?new=1"); }}><ShoppingCart size={15} />Purchase order</button>}
+              {can("vendors.manage") && <button className="menu-item" onClick={() => { close(); nav("/vendors?new=1"); }}><Truck size={15} />Vendor</button>}
+              {can("customers.manage") && <button className="menu-item" onClick={() => { close(); nav("/customers?new=1"); }}><Handshake size={15} />Customer</button>}
             </>}
           </Dropdown>
           <Dropdown trigger={(_, toggle) => <Button variant="ghost" icon aria-label="Notifications" onClick={toggle}><Bell size={18} /></Button>}>
