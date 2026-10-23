@@ -370,6 +370,10 @@ def update(org_id: uuid.UUID, ci: CustomerInvoice, data: dict[str, Any]) -> Cust
     if "notes" in data:
         ci.notes = str(data["notes"] or "")[:4000]
     recompute(ci)
+    if ci.kind == "credit_note" and ci.credit_for_id:
+        inv = db.session.get(CustomerInvoice, ci.credit_for_id)
+        if inv is not None and (ci.total or ZERO) > credit_room(inv, exclude_id=ci.id):
+            raise RuleError("The credit is larger than what's left to credit on the invoice.", 422)
     _index(ci)
     emit(
         "customer_invoice.updated",
@@ -528,6 +532,10 @@ def send(org_id: uuid.UUID, ci: CustomerInvoice, user: Any, to: str = "", messag
     to = (to or (_recipient(cust) if cust else "")).strip()
     if "@" not in to:
         raise RuleError("The customer has no email address. Add a billing email first.", 422)
+    if ci.status == "draft" and ci.kind == "credit_note" and ci.credit_for_id:
+        inv = db.session.get(CustomerInvoice, ci.credit_for_id)
+        if inv is not None and (ci.total or ZERO) > credit_room(inv, exclude_id=ci.id):
+            raise RuleError("The credit is larger than what's left to credit on the invoice.", 422)
     if ci.status == "draft":
         ci.issue_date = ci.issue_date or today()
         ci.due_date = ci.due_date or ci.issue_date + timedelta(

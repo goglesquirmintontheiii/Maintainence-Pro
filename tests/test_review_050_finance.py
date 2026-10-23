@@ -157,15 +157,30 @@ def test_credit_note_is_checked_again_when_sent(app: Any, admin: Api) -> None:
     half = (Decimal(ci["total"]) / 2).quantize(Decimal("0.01"))
     a = _credit(admin, ci, str(half)).json
     b = _credit(admin, ci, str(half)).json
-    # the second draft grows after it was made: sending it must not credit more than the invoice
+    # a draft can't be edited past what's left to credit
     grown = admin.patch(
         f"{API}/finance/customer-invoices/{b['id']}",
         {"lines": [{"kind": "cost", "description": "Credit", "quantity": 1, "unit_price": ci["total"]}]},
     )
-    assert grown.status_code == 200, grown.json
-    assert admin.post(f"{API}/finance/customer-invoices/{a['id']}/send", {}).status_code == 200
+    assert grown.status_code == 422, grown.json
+    # and if a draft ends up too large anyway (e.g. two people at once), sending it is refused
+    with app.app_context():
+        from mpro.extensions import db
+        from mpro.finance.models import CustomerInvoice
+
+        row = db.session.get(CustomerInvoice, uuid.UUID(b["id"]))
+        assert row is not None
+        row.total = Decimal(ci["total"])
+        db.session.commit()
     assert admin.post(f"{API}/finance/customer-invoices/{b['id']}/send", {}).status_code == 422
     assert admin.get(f"{API}/finance/customer-invoices/{b['id']}").json["status"] == "draft"
+    assert admin.post(f"{API}/finance/customer-invoices/{a['id']}/send", {}).status_code == 422  # b's draft counts
+    with app.app_context():
+        row = db.session.get(CustomerInvoice, uuid.UUID(b["id"]))
+        assert row is not None
+        row.total = half
+        db.session.commit()
+    assert admin.post(f"{API}/finance/customer-invoices/{a['id']}/send", {}).status_code == 200
     got = admin.get(f"{API}/finance/customer-invoices/{ci['id']}").json
     assert Decimal(got["balance"]) == Decimal(ci["total"]) - half
 
@@ -309,7 +324,7 @@ def test_invoice_part_lines_use_the_cost_when_used(app: Any, admin: Api) -> None
 def test_certificate_download_filename_is_sanitised(app: Any, admin: Api) -> None:
     c = cert(admin)
     bad = 'x"; filename=evil.html\r\nSet-Cookie: a=b.png'
-    r = multipart(admin, f"{API}/finance/tax-certificates/{c['id']}/files", [(bad, PNG_1PX)], field="file")
+    r = multipart(admin, f"{API}/finance/tax-certificates/{c['id']}/files", [("card.png", PNG_1PX)], field="file")
     assert r.status_code == 200, r.json
     fid = r.json["files"][0]["id"]
     with app.app_context():  # store the name exactly as given, whatever the upload layer did with it
