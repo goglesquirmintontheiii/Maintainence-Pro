@@ -819,20 +819,35 @@ def _quote_lines(q: Quote) -> list[QuoteLine]:
     return list(db.session.scalars(select(QuoteLine).where(QuoteLine.quote_id == q.id).order_by(QuoteLine.sort)))
 
 
+def _taxable(lines: list[QuoteLine]) -> Decimal:
+    return sum(((ln.quantity * ln.unit_price) for ln in lines if ln.taxable), ZERO)
+
+
 def _recalc_quote(q: Quote, tax_pct: Decimal | None = None) -> None:
     lines = _quote_lines(q)
     sub = sum(((ln.quantity * ln.unit_price) for ln in lines), ZERO)
-    taxable = sum(((ln.quantity * ln.unit_price) for ln in lines if ln.taxable), ZERO)
+    taxable = _taxable(lines)
     q.subtotal = sub.quantize(Decimal("0.01"))
     if tax_pct is not None:
         q.tax = (taxable * tax_pct / 100).quantize(Decimal("0.01"))
     q.total = (q.subtotal + (q.tax or ZERO)).quantize(Decimal("0.01"))
 
 
+# what a change to these fields means for a sent quote: back to draft, and the customer's old link stops working
+_QUOTE_CONTENT = ("title", "scope", "valid_until", "work_order_id", "lines", "tax", "tax_pct")
+
+
 def save_quote(org: Organization, m: Membership, data: dict[str, Any], q: Quote | None = None) -> Quote:
     creating = q is None
     if q is not None and q.status not in ("draft", "sent"):
         raise RuleError("Approved, rejected or canceled quotes can't be changed.", 409)
+    reverted = False
+    old_rate: Decimal | None = None
+    if q is not None and q.status == "sent" and any(k in data for k in _QUOTE_CONTENT):
+        # the customer must never approve something other than what they see: editing a sent quote takes it back
+        # to Draft and turns the old link off; Send makes a new link
+        q.status, q.share_token_hash, q.sent_at = "draft", "", None
+        reverted = True
     if q is None:
         cust = get_customer(org.id, data.get("customer_id"))
         q = Quote(
@@ -865,6 +880,9 @@ def save_quote(org: Organization, m: Membership, data: dict[str, Any], q: Quote 
         raw = data.get("lines") or []
         if not isinstance(raw, list) or len(raw) > 200:
             raise RuleError("A quote can have up to 200 lines.", 422)
+        # the tax rate the quote had, so new lines are taxed the same way (a fixed tax with no taxable lines stays)
+        old_taxable = _taxable(_quote_lines(q))
+        old_rate = (q.tax or ZERO) * 100 / old_taxable if old_taxable > ZERO and (q.tax or ZERO) > ZERO else None
         for old in _quote_lines(q):
             db.session.delete(old)
         for i, ln in enumerate(raw):
@@ -894,13 +912,17 @@ def save_quote(org: Organization, m: Membership, data: dict[str, Any], q: Quote 
     tax_pct = money(data.get("tax_pct"), "Tax", required=False) if "tax_pct" in data else None
     if "tax" in data and tax_pct is None:
         q.tax = money(data.get("tax"), "Tax") or ZERO
+    elif tax_pct is None and "lines" in data and old_rate is not None:
+        tax_pct = old_rate  # lines changed: recompute the tax at the same rate
     _recalc_quote(q, tax_pct)
     emit(
         "quote.created" if creating else "quote.updated",
         entity_type="quote",
         entity_id=q.id,
         entity_label=f"Quote {q.number}",
-        summary=f"{'Created' if creating else 'Updated'} quote {q.number}",
+        summary=f"{'Created' if creating else 'Updated'} quote {q.number}"
+        + (" (back to draft; the customer's link was turned off)" if reverted else ""),
+        org_id=org.id,
     )
     db.session.commit()
     return q

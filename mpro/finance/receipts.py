@@ -130,7 +130,8 @@ def apply_reading(r: Receipt, text: str, reader_name: str) -> dict[str, Any]:
     got = reader.parse_receipt(text)
     r.ocr_text = text[:100_000]
     r.reader = reader_name
-    r.extracted = got
+    keep = {k: v for k, v in (r.extracted or {}).items() if k in ("email_from", "sender_verified")}
+    r.extracted = {**got, **keep}  # how it arrived isn't something a re-read may change
     if not r.vendor_name and got.get("vendor_name"):
         r.vendor_name = got["vendor_name"]
         r.vendor_id = r.vendor_id or _vendor_by_name(r.org_id, got["vendor_name"])
@@ -380,6 +381,9 @@ def attach_to(org_id: uuid.UUID, r: Receipt, data: dict[str, Any], member: Any) 
 
         if not can(member, "parts.stock"):
             raise RuleError("You can't restock parts.", 403)
+        if r.part_id is not None:
+            # stock already went up for this receipt; attaching again would count the same purchase twice (review #4)
+            raise RuleError("This receipt has already restocked a part. Adjust that part's stock instead.", 409)
         part = get_in_org(Part, org_id, data.get("id"), "part", allow_none=False)
         qty = money(data.get("quantity", 1), "quantity")
         assert qty is not None
@@ -502,6 +506,9 @@ def reimbursement(org_id: uuid.UUID, r: Receipt, action: str, user: Any, can_app
             raise RuleError("Only the person who paid can ask to be reimbursed.", 403)
         if r.total is None:
             raise RuleError("Enter the receipt total first.", 422)
+        if r.reimbursement_status not in ("", "rejected"):
+            raise RuleError("This receipt already has a reimbursement in progress or paid.", 409)
+        vault.assert_editable(org_id, "receipt", r.id)
         r.paid_personally = True
         r.reimbursement_status = "requested"
     elif action in ("approve", "reject"):
@@ -540,6 +547,9 @@ def receipt_dict(r: Receipt, *, detail: bool = False) -> dict[str, Any]:
         "id": str(r.id),
         "title": title(r),
         "source": r.source,
+        # email-in: From can be faked; only a DKIM pass for the From domain counts as verified (review #10)
+        "sender_verified": r.source != "email" or bool((r.extracted or {}).get("sender_verified")),
+        "email_from": (r.extracted or {}).get("email_from", "") if r.source == "email" else "",
         "status": r.status,
         "file": file_dict(f) if f and f.deleted_at is None else None,
         "vendor": vendor_label(r.vendor_id),

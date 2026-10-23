@@ -20,15 +20,15 @@ export type Receipt = {
   work_order_id: string | null; purchase_order_id: string | null; part_id: string | null; expense_category: string;
   tax_flagged: boolean; tax_reclaim_status: "" | "to_reclaim" | "reclaimed" | "waived"; tax_certificate_id: string | null;
   paid_personally: boolean; reimbursement_status: "" | "requested" | "approved" | "rejected" | "exported" | "paid";
-  duplicate_of_id: string | null; submitted_by: { id: string; name: string } | null; created_at: string; locked: boolean;
+  duplicate_of_id: string | null; sender_verified?: boolean; email_from?: string; submitted_by: { id: string; name: string } | null; created_at: string; locked: boolean;
   lines?: { description: string; quantity: string; unit_price: string; amount: string }[];
   extracted?: Record<string, unknown>; reader?: string; pages?: FileLite[];
 };
 
 export type InvException = { kind: "price" | "quantity" | "unmatched" | "no_po" | "tax_exempt" | "duplicate"; message: string; line_id?: string };
 export type VendorInvoice = {
-  id: string; title: string; number: string; vendor: Label; status: "received" | "matched" | "approved" | "paid" | "disputed" | "void";
-  source: string; invoice_date: string | null; due_date: string | null; terms: string; discount_pct: string | null; discount_until: string | null;
+  id: string; title: string; number: string; vendor: Label; status: "received" | "matched" | "pending" | "approved" | "paid" | "disputed" | "void";
+  source: string; sender_verified?: boolean; email_from?: string; invoice_date: string | null; due_date: string | null; terms: string; discount_pct: string | null; discount_until: string | null;
   currency: string; subtotal: string; tax: string; shipping: string; total: string; paid: string; balance: string;
   purchase_orders: { id: string; number: string; status: string; total: string; tax_exempt: boolean }[];
   exceptions: (InvException & { label: string })[]; file: FileLite | null; dispute_note: string; overdue: boolean;
@@ -78,7 +78,7 @@ export type FinanceSettings = {
   price_tolerance_pct: string; quantity_tolerance: string; retention_years: number; invoice_prefix: string; invoice_due_days: number;
   invoice_footer: string; labor_rate: string; parts_markup_pct: string; default_tax_rate_pct: string; tax_rates: Record<string, string>;
   reminder_days_after_due: number[]; expense_categories: string[]; duplicate_window_days: number; certificate_reminder_days: number[];
-  inbox_enabled: boolean; inbox_host: string; inbox_port: number; inbox_user: string; inbox_password: string; inbox_password_set: boolean;
+  inbox_enabled: boolean; inbox_host: string; inbox_port: number; inbox_user: string; inbox_password: string; inbox_password_set: boolean; inbox_help?: string;
   inbox_folder: string; inbox_address: string; receipts_address?: string; invoices_address?: string;
   payment_links: { available: boolean; provider: string; reason: string };
 };
@@ -97,7 +97,7 @@ export const RECEIPT_STATUS: Record<Receipt["status"], [string, "neutral" | "inf
   new: ["To review", "info"], confirmed: ["Confirmed", "neutral"], matched: ["Matched", "success"], duplicate: ["Possible duplicate", "warning"],
 };
 export const VI_STATUS: Record<VendorInvoice["status"], [string, "neutral" | "info" | "success" | "warning" | "danger"]> = {
-  received: ["Received", "info"], matched: ["Matched", "neutral"], approved: ["Approved", "success"], paid: ["Paid", "success"],
+  received: ["Received", "info"], matched: ["Matched", "neutral"], pending: ["Waiting for approval", "warning"], approved: ["Approved", "success"], paid: ["Paid", "success"],
   disputed: ["Disputed", "danger"], void: ["Void", "neutral"],
 };
 export const CI_STATUS: Record<CustomerInvoice["status"], [string, "neutral" | "info" | "success" | "warning" | "danger"]> = {

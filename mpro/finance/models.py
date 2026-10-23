@@ -168,7 +168,8 @@ class Receipt(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model
 
 # ---------------------------------------------------------------- vendor invoices with 3-way match (MP-092)
 
-VENDOR_INVOICE_STATUSES = ("received", "matched", "approved", "paid", "disputed", "void")
+# "pending" = sent for approval; locked against edits until the approvers decide (0.5.0 review #1)
+VENDOR_INVOICE_STATUSES = ("received", "matched", "pending", "approved", "paid", "disputed", "void")
 
 
 class VendorInvoice(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

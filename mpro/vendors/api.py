@@ -353,15 +353,34 @@ def quote_pdf(qid: str) -> Any:
 
 
 # ---- the customer's link (no sign-in) -------------------------------------------------------------
+def _public_quote(token: str) -> Quote:
+    """The quote for a customer link. No signed-in user acts here (g.user = None, even if a staff member opens it),
+    g.org is the quote's org, and every hit goes through the external-link rate limits (per IP, failed attempts)."""
+    from mpro.orgs.models import Organization
+    from mpro.workorders import external as ext
+
+    g.user = None
+    g.membership = None
+    try:
+        q = svc.quote_by_token(token)
+    except RuleError as e:
+        db.session.rollback()
+        guard(ext.throttle, None, False)
+        abort(e.status, message=e.message)
+    guard(ext.throttle, None, True)
+    g.org = db.session.get(Organization, q.org_id)
+    return q
+
+
 @bp.get("/public/quotes/<token>")
 def public_quote(token: str) -> dict[str, Any]:
-    return svc.public_quote(guard(svc.quote_by_token, token))
+    return svc.public_quote(_public_quote(token))
 
 
 @bp.post("/public/quotes/<token>/decision")
 def public_decide(token: str) -> dict[str, Any]:
     """{approve: bool, name, comment}"""
-    q = guard(svc.quote_by_token, token)
+    q = _public_quote(token)
     b = body()
     guard(svc.decide_quote, q, bool(b.get("approve")), str(b.get("name") or ""), str(b.get("comment") or ""))
     return svc.public_quote(q)
@@ -370,7 +389,7 @@ def public_decide(token: str) -> dict[str, Any]:
 @bp.post("/public/quotes/<token>/comments")
 def public_comment(token: str) -> dict[str, Any]:
     """{name, body}"""
-    q = guard(svc.quote_by_token, token)
+    q = _public_quote(token)
     if q.status not in ("sent", "approved", "rejected"):
         abort(409, message="This quote isn't open for comments.")
     b = body()
@@ -386,7 +405,7 @@ def public_quote_pdf(token: str) -> Any:
 
     from mpro.purchasing.pdf import quote_pdf as make
 
-    q = guard(svc.quote_by_token, token)
+    q = _public_quote(token)
     return Response(
         make(q), mimetype="application/pdf", headers={"Content-Disposition": f'inline; filename="Quote-{q.number}.pdf"'}
     )

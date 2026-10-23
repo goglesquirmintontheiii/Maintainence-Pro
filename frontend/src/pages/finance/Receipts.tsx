@@ -221,6 +221,7 @@ function ReceiptDetail({ id, me, onBack }: { id: string; me: FinanceMe; onBack: 
             <Button size="sm" variant="ghost" onClick={() => act.mutate({ path: "reclaim", body: { status: "waived" } })}>Waive</Button></>}
         </div>
       )}
+      {r.source === "email" && r.sender_verified === false && <div className="fin-banner warn"><AlertTriangle size={16} />Sender not verified: emailed from {r.email_from || "an unknown address"}, which its mail server didn't confirm.</div>}
       {ro && <div className="fin-banner"><Check size={16} />Approved for reimbursement — this receipt is read-only now.</div>}
       <div className="fin-receipt-grid">
         <div className="fin-images">

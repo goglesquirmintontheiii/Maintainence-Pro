@@ -603,10 +603,10 @@ def po_calls(monkeypatch: Any) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
     real = getattr(po_svc, "create_purchase_order", None)
 
-    def fake(org: Any, member: Any, data: dict[str, Any]) -> Any:
+    def fake(org: Any, member: Any, data: dict[str, Any], **kw: Any) -> Any:
         calls.append(data)
         if real is not None:
-            return real(org, member, data)
+            return real(org, member, data, **kw)
         return SimpleNamespace(id=uuid.uuid4())
 
     monkeypatch.setattr(po_svc, "create_purchase_order", fake, raising=False)

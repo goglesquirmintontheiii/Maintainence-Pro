@@ -4,6 +4,10 @@ Safety (pages are untrusted input from the internet):
 - only http/https, ports 80/443 (or the URL's explicit port if public), no credentials in URLs;
 - every host is resolved and refused if any address is private, loopback, link-local, multicast or reserved, and
   redirects are followed by hand (at most 5) with the same check each time;
+- the connection dials the exact address that was checked (Host header and TLS SNI/certificate stay the host
+  name), so a DNS answer that changes between the check and the connection (DNS rebinding) can't reach an
+  internal address. Exception: when an outbound proxy is configured for the host (HTTPS_PROXY…), the proxy
+  resolves the name, and the proxy's own egress rules apply;
 - responses are capped (2 MB pages, 5 MB images) and time-limited;
 - robots.txt is respected for our User-Agent; requests to one domain are spaced out;
 - only plain text fields are kept from the HTML; nothing from the page is ever rendered as HTML.
@@ -14,10 +18,12 @@ The HTTP layer is replaceable (`set_transport`) so tests never touch the network
 from __future__ import annotations
 
 import html
+import http.client
 import ipaddress
 import json
 import re
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -84,8 +90,8 @@ def _resolve(host: str) -> list[str]:
 _resolver: Resolver = _resolve
 
 
-def check_url(url: str) -> None:
-    """Refuse URLs we must never fetch. Raises FetchError(kind="blocked")."""
+def check_url(url: str) -> str:
+    """Refuse URLs we must never fetch (raises FetchError(kind="blocked")); returns the checked address to dial."""
     p = urlsplit(url)
     if p.scheme not in ("http", "https"):
         raise FetchError("Only web links (http or https) can be read.", "blocked")
@@ -102,12 +108,7 @@ def check_url(url: str) -> None:
         raise FetchError("Only standard web ports can be read.", "blocked")
     if host.lower() in ("localhost",) or host.lower().endswith((".local", ".internal", ".localhost")):
         raise FetchError("That address is on a private network.", "blocked")
-    try:
-        ips = [host] if _is_ip(host) else _resolver(host)
-    except OSError as e:
-        raise FetchError("That web address can't be found.") from e
-    if not ips or not all(_ip_ok(ip) for ip in ips):
-        raise FetchError("That address is on a private network.", "blocked")
+    return checked_address(host)
 
 
 def _is_ip(host: str) -> bool:
@@ -126,8 +127,83 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def checked_address(host: str) -> str:
+    """Resolve once, refuse private/internal answers, and return the address to dial (DNS rebinding safe)."""
+    try:
+        ips = [host] if _is_ip(host) else _resolver(host)
+    except OSError as e:
+        raise FetchError("That web address can't be found.") from e
+    if not ips or not all(_ip_ok(ip) for ip in ips):
+        raise FetchError("That address is on a private network.", "blocked")
+    return ips[0]
+
+
+class _PinnedHTTP(http.client.HTTPConnection):
+    def __init__(self, host: str, port: int, ip: str, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self._ip = ip
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self._ip, self.port), self.timeout)
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    def __init__(self, host: str, port: int, ip: str, timeout: float, context: ssl.SSLContext) -> None:
+        super().__init__(host, port, timeout=timeout, context=context)
+        self._ip = ip
+        self._ctx = context
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._ip, self.port), self.timeout)
+        # SNI and certificate checks use the host name, not the address
+        self.sock = self._ctx.wrap_socket(sock, server_hostname=self.host)
+
+
+def _proxied(url: str) -> bool:
+    p = urlsplit(url)
+    proxies = urllib.request.getproxies()
+    return bool(proxies.get(p.scheme)) and not urllib.request.proxy_bypass(p.hostname or "")
+
+
+def pinned_request(
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    body: bytes | None,
+    limit: int,
+    *,
+    context: ssl.SSLContext | None = None,
+    timeout: float = TIMEOUT,
+) -> Response:
+    """One request to the checked address of `url`'s host; never follows redirects."""
+    ip = check_url(url)  # resolved once; this exact address is dialed
+    p = urlsplit(url)
+    host = p.hostname or ""
+    port = p.port or (443 if p.scheme == "https" else 80)
+    conn: http.client.HTTPConnection
+    if p.scheme == "https":
+        conn = _PinnedHTTPS(host, port, ip, timeout, context or ssl.create_default_context())
+    else:
+        conn = _PinnedHTTP(host, port, ip, timeout)
+    path = (p.path or "/") + (f"?{p.query}" if p.query else "")
+    try:
+        conn.request(method, path, body=body, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read(limit + 1)
+    except (TimeoutError, OSError, http.client.HTTPException) as e:
+        raise FetchError(f"The site didn't answer ({type(e).__name__}).") from e
+    finally:
+        conn.close()
+    if len(data) > limit:
+        raise FetchError("The page is too large to read.")
+    return Response(int(resp.status or 0), url, {k.lower(): v for k, v in resp.getheaders()}, data)
+
+
 def urllib_transport(method: str, url: str, headers: dict[str, str], body: bytes | None, limit: int) -> Response:
-    """One request, no automatic redirects. Uses the standard proxy environment variables (HTTPS_PROXY…)."""
+    """One request, no automatic redirects. Dials the checked address directly; when an outbound proxy is set for
+    this host (HTTPS_PROXY…) the request goes through the proxy instead."""
+    if not _proxied(url):
+        return pinned_request(method, url, headers, body, limit)
     opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from typing import Any
 
@@ -36,12 +37,21 @@ DEFAULTS: dict[str, Any] = {
     "inbox_user": "",
     "inbox_password": "",  # encrypted at rest
     "inbox_folder": "INBOX",
-    "inbox_address": "",  # shown to people, e.g. maintenance@acme.com → maintenance+receipts@acme.com
+    "inbox_address": "",  # shown to people, e.g. maintenance@acme.com → maintenance+receipts-<secret>@acme.com
+    # the secret in the plus-tag (review 0.5.0 #10); made automatically, changed with "Regenerate", never typed in
+    "inbox_secret": "",
 }
+
+INBOX_HELP = (
+    "Mail is accepted only at the addresses below (they include a secret; regenerate it if it leaks) and only from "
+    "members of this organization. Mail servers on a private network (192.168.x.x, 10.x.x.x, localhost) are refused "
+    "unless the server is started with MPRO_ALLOW_PRIVATE_MAIL_HOSTS=1."
+)
 
 register_defaults("finance", DEFAULTS)
 
 _SECRET = {"inbox_password"}
+_NOT_EDITABLE = {"inbox_secret"}
 
 
 def finance_settings(org_id: uuid.UUID) -> dict[str, Any]:
@@ -52,12 +62,20 @@ def public_settings(org_id: uuid.UUID) -> dict[str, Any]:
     out = dict(finance_settings(org_id))
     out["inbox_password"] = mask("x" * 8) if out.get("inbox_password") else ""
     out["inbox_password_set"] = bool(finance_settings(org_id).get("inbox_password"))
+    secret = str(out.pop("inbox_secret", "") or "")
     addr = str(out.get("inbox_address") or "")
-    if "@" in addr:
+    if "@" in addr and secret:
         local, dom = addr.split("@", 1)
-        out["receipts_address"] = f"{local}+receipts@{dom}"
-        out["invoices_address"] = f"{local}+invoices@{dom}"
+        out["receipts_address"] = f"{local}+receipts-{secret}@{dom}"
+        out["invoices_address"] = f"{local}+invoices-{secret}@{dom}"
+    out["inbox_help"] = INBOX_HELP
     return out
+
+
+def regenerate_inbox_secret(org_id: uuid.UUID) -> dict[str, Any]:
+    """A new secret for the email-in addresses; mail to the old addresses is skipped from now on."""
+    save_settings(org_id, "finance", {"inbox_secret": secrets.token_hex(5)})
+    return public_settings(org_id)
 
 
 def update_settings(org_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
@@ -65,7 +83,7 @@ def update_settings(org_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
 
     clean: dict[str, Any] = {}
     for k, v in data.items():
-        if k not in DEFAULTS:
+        if k not in DEFAULTS or k in _NOT_EDITABLE:
             continue
         if k in ("price_tolerance_pct", "quantity_tolerance", "parts_markup_pct", "default_tax_rate_pct"):
             d = money(v, k.replace("_", " "))
@@ -96,6 +114,15 @@ def update_settings(org_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
             clean[k] = [str(x).strip()[:80] for x in v if str(x).strip()]
         elif k == "inbox_enabled":
             clean[k] = bool(v)
+        elif k == "inbox_host":
+            from mpro.finance.inbox import HostError, check_host
+
+            host = str(v or "").strip()[:255]
+            try:
+                check_host(host)
+            except HostError as e:
+                raise RuleError(f"{e} Set MPRO_ALLOW_PRIVATE_MAIL_HOSTS=1 to allow it.", 422) from e
+            clean[k] = host
         elif k in _SECRET:
             if v and not is_encrypted(v) and not str(v).startswith("•"):
                 clean[k] = encrypt_str(str(v))
@@ -103,5 +130,7 @@ def update_settings(org_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
                 clean[k] = ""
         else:
             clean[k] = str(v or "")[:500]
+    if not finance_settings(org_id).get("inbox_secret"):
+        clean["inbox_secret"] = secrets.token_hex(5)
     save_settings(org_id, "finance", clean)
     return public_settings(org_id)

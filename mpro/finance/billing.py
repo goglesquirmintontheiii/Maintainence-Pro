@@ -153,13 +153,17 @@ def lines_from_work_orders(
                     }
                 )
         if include.get("parts", True):
+            at_use = _ledger_part_costs(org_id, wo.id)
             for wp in db.session.scalars(select(WorkOrderPart).where(WorkOrderPart.work_order_id == wo.id)):
                 if not wp.used:
                     continue
                 part = db.session.get(Part, wp.part_id)
-                unit = (
-                    wp.unit_cost_override if wp.unit_cost_override is not None else (part.unit_cost if part else ZERO)
-                )
+                if wp.unit_cost_override is not None:
+                    unit = wp.unit_cost_override
+                elif wp.part_id in at_use:
+                    unit = at_use[wp.part_id]
+                else:
+                    unit = part.unit_cost if part else ZERO
                 price = (unit * (1 + markup / 100)).quantize(Decimal("0.0001"))
                 out.append(
                     {
@@ -190,6 +194,40 @@ def lines_from_work_orders(
     return out
 
 
+def billed_work_order_ids(org_id: uuid.UUID) -> set[str]:
+    """Work orders already on an invoice that isn't void (a work order is billed once; review #6)."""
+    billed: set[str] = set()
+    for ids in db.session.scalars(
+        select(CustomerInvoice.work_order_ids).where(
+            CustomerInvoice.org_id == org_id,
+            CustomerInvoice.deleted_at.is_(None),
+            CustomerInvoice.kind == "invoice",
+            CustomerInvoice.status != "void",
+        )
+    ):
+        billed |= {str(x) for x in (ids or [])}
+    return billed
+
+
+def _ledger_part_costs(org_id: uuid.UUID, wo_id: uuid.UUID) -> dict[uuid.UUID, Decimal]:
+    """Average cost per unit of each part as it was when used on the work order (from the ledger rows, review #11)."""
+    from mpro.parts.models import InventoryTransaction
+
+    qty: dict[uuid.UUID, Decimal] = {}
+    cost: dict[uuid.UUID, Decimal] = {}
+    for t in db.session.scalars(
+        select(InventoryTransaction).where(
+            InventoryTransaction.org_id == org_id,
+            InventoryTransaction.work_order_id == wo_id,
+            InventoryTransaction.kind.in_(("use", "return")),
+        )
+    ):
+        used = -(t.quantity or ZERO)  # use rows are negative, returns positive
+        qty[t.part_id] = qty.get(t.part_id, ZERO) + used
+        cost[t.part_id] = cost.get(t.part_id, ZERO) + used * (t.unit_cost or ZERO)
+    return {pid: (cost[pid] / q).quantize(Decimal("0.0001")) for pid, q in qty.items() if q > ZERO}
+
+
 def create(org_id: uuid.UUID, user: Any, data: dict[str, Any]) -> CustomerInvoice:
     """{customer_id, work_order_ids?: [...], include?: {labor, parts, costs}, lines?: [...], notes?, due_date?}"""
     from mpro.vendors.models import Customer
@@ -205,6 +243,12 @@ def create(org_id: uuid.UUID, user: Any, data: dict[str, Any]) -> CustomerInvoic
             raise RuleError(f"Work order #{wo.number} isn't done yet.", 422)
         if wo.customer_id is not None and wo.customer_id != cust.id:
             raise RuleError(f"Work order #{wo.number} belongs to another customer.", 422)
+    if len({w.id for w in wos}) != len(wos):
+        raise RuleError("A work order is listed twice.", 422)
+    already = billed_work_order_ids(org_id)
+    for wo in wos:
+        if str(wo.id) in already:
+            raise RuleError(f"Work order #{wo.number} is already on an invoice.", 409)
     rate, cert_id = tax_for(org_id, cust)
     cfg = _settings(org_id)
     ci = CustomerInvoice(
@@ -648,9 +692,8 @@ def credit_note(org_id: uuid.UUID, ci: CustomerInvoice, user: Any, data: dict[st
         db.session.add(_line(org_id, cn.id, i, r))
     db.session.flush()
     recompute(cn)
-    balance = (ci.total or ZERO) - (ci.paid or ZERO)
-    if cn.total > balance + (paid_total(ci)):
-        raise RuleError("The credit is larger than the invoice.", 422)
+    if cn.total > credit_room(ci, exclude_id=cn.id):
+        raise RuleError("The credit is larger than what's left to credit on the invoice.", 422)
     _index(cn)
     emit(
         "customer_invoice.credit_note",
@@ -663,11 +706,28 @@ def credit_note(org_id: uuid.UUID, ci: CustomerInvoice, user: Any, data: dict[st
     return cn
 
 
+def credit_room(ci: CustomerInvoice, exclude_id: uuid.UUID | None = None) -> Decimal:
+    """What can still be credited on an invoice: its total minus every credit note that isn't void, drafts included
+    (review #5: two full drafts sent one after the other must not credit it twice)."""
+    q = select(func.coalesce(func.sum(CustomerInvoice.total), 0)).where(
+        CustomerInvoice.credit_for_id == ci.id,
+        CustomerInvoice.kind == "credit_note",
+        CustomerInvoice.status != "void",
+        CustomerInvoice.deleted_at.is_(None),
+    )
+    if exclude_id is not None:
+        q = q.where(CustomerInvoice.id != exclude_id)
+    return (ci.total or ZERO) - (db.session.scalar(q) or ZERO)
+
+
 def issue_credit(org_id: uuid.UUID, cn: CustomerInvoice) -> None:
-    """When a credit note is sent, it counts against its invoice."""
+    """When a credit note is sent, it counts against its invoice; it's checked again first."""
     if cn.kind == "credit_note" and cn.credit_for_id:
+        db.session.execute(select(CustomerInvoice.id).where(CustomerInvoice.id == cn.credit_for_id).with_for_update())
         inv = db.session.get(CustomerInvoice, cn.credit_for_id)
         if inv is not None:
+            if (cn.total or ZERO) > credit_room(inv, exclude_id=cn.id):
+                raise RuleError("The credit is larger than what's left to credit on the invoice.", 422)
             _refresh_paid(inv)
 
 

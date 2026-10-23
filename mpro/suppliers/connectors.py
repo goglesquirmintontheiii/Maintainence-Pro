@@ -31,14 +31,13 @@ import os
 import ssl
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from mpro.core.crypto import decrypt_json
-from mpro.suppliers.fetch import ProductInfo, availability, check_url, money
+from mpro.suppliers import fetch as fetch_mod
+from mpro.suppliers.fetch import ProductInfo, availability, money
 
 HTTP = Callable[[str, str, dict[str, str], bytes | None], tuple[int, dict[str, Any] | list[Any] | None]]
 
@@ -135,19 +134,15 @@ SPECS: dict[str, ConnectorSpec] = {
 
 def _default_http(cert: tuple[str, str | None] | None = None) -> HTTP:
     def call(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, Any]:
-        check_url(url)
         ctx = ssl.create_default_context()
         if cert:
             ctx.load_cert_chain(cert[0], password=cert[1])
-        req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:  # noqa: S310 (checked above)
-                raw = resp.read(4 * 1024 * 1024)
-                status = resp.status
-        except urllib.error.HTTPError as e:
-            raw, status = e.read(64 * 1024), e.code
-        except (urllib.error.URLError, OSError) as e:
-            raise ConnectorError(f"Couldn't reach the supplier ({type(e).__name__}).") from e
+            # dials the checked address (DNS rebinding safe) and never follows redirects
+            r = fetch_mod.pinned_request(method, url, headers, body, 4 * 1024 * 1024, context=ctx, timeout=20)
+        except fetch_mod.FetchError as e:
+            raise ConnectorError(f"Couldn't reach the supplier: {e}") from e
+        raw, status = r.body, r.status
         try:
             return status, json.loads(raw) if raw else None
         except ValueError:

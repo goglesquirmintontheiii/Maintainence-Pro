@@ -536,7 +536,7 @@ def test_vendor_invoice_approval_rule_dispute_and_void(app: Any, admin: Api) -> 
     assert {e["kind"] for e in inv["exceptions"]} == {"no_po"}
     assert admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {}).status_code == 409
     got = admin.post(f"{API}/finance/vendor-invoices/{inv['id']}/submit", {"override": True}).json
-    assert got["status"] == "received"  # waiting for Jordan
+    assert got["status"] == "pending"  # waiting for Jordan; locked meanwhile
     sam = login(app, "sam.patel@example.com")
     assert sam.post(f"{API}/finance/vendor-invoices/{inv['id']}/decide", {"approve": True}).status_code == 403
     jordan = login(app, "jordan.reyes@example.com")
@@ -795,12 +795,13 @@ def test_email_in_routes_plus_tags_and_checks_senders(app: Any, admin: Api, monk
     )
     assert r.status_code == 200, r.json
     assert r.json["inbox_password"] != "imap-secret" and r.json["inbox_password_set"]
-    assert r.json["receipts_address"] == "ap+receipts@example.com"
+    rcpt, invs = r.json["receipts_address"], r.json["invoices_address"]  # ap+receipts-<secret>@example.com
+    assert rcpt.startswith("ap+receipts-") and rcpt.endswith("@example.com")
     FakeImap.messages = {
-        b"1": _mail("ap+receipts@example.com", f"Avery <{TECH}>", "fuel.png"),
-        b"2": _mail("ap+invoices@example.com", "Admin <admin@example.com>"),
-        b"3": _mail("ap+receipts@example.com", "stranger@evil.example"),
-        b"4": _mail("ap+invoices@example.com", f"Avery <{TECH}>"),  # technicians can't send invoices
+        b"1": _mail(rcpt, f"Avery <{TECH}>", "fuel.png"),
+        b"2": _mail(invs, "Admin <admin@example.com>"),
+        b"3": _mail(rcpt, "stranger@evil.example"),
+        b"4": _mail(invs, f"Avery <{TECH}>"),  # technicians can't send invoices
         b"5": _mail("ap@example.com", "admin@example.com"),  # no plus-tag
     }
     FakeImap.seen = set()

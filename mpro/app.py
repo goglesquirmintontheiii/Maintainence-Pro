@@ -29,6 +29,14 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
         docs_path="/api/docs",
     )
     app.config.update(load_config(overrides))
+    proxies = int(app.config.get("MPRO_TRUSTED_PROXIES") or 0)
+    if proxies > 0:
+        # request.remote_addr becomes the client address set by the trusted proxies, and nothing else
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
+            app.wsgi_app, x_for=proxies, x_proto=proxies, x_host=proxies, x_port=proxies, x_prefix=0
+        )
     app.json.sort_keys = False  # type: ignore[attr-defined]
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 

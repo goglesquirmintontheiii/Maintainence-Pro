@@ -205,6 +205,33 @@ def get_po(org_id: uuid.UUID, pid: Any, include_deleted: bool = False) -> Purcha
     return po
 
 
+def lock_po(po: PurchaseOrder) -> PurchaseOrder:
+    """SELECT … FOR UPDATE the PO and its lines and reload them, so read-modify-write (receive, edit, cancel) works
+    on current values. No-op locking on SQLite (writers are serialized there)."""
+    db.session.execute(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.id == po.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+    db.session.execute(
+        select(PurchaseOrderLine)
+        .where(PurchaseOrderLine.purchase_order_id == po.id)
+        .order_by(PurchaseOrderLine.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalars().all()
+    return po
+
+
+def status_from_receipts(po: PurchaseOrder) -> str:
+    """The status an approved PO has given what arrived: approved, partially fulfilled or complete."""
+    lines = lines_of(po)
+    if lines and all((ln.received or ZERO) >= ln.quantity for ln in lines):
+        return "complete"
+    return "partially_fulfilled" if any((ln.received or ZERO) != ZERO for ln in lines) else "approved"
+
+
 def lines_of(po: PurchaseOrder) -> list[PurchaseOrderLine]:
     return list(
         db.session.scalars(
@@ -789,7 +816,7 @@ def _link_in_org(org_id: uuid.UUID, raw: Any) -> uuid.UUID | None:
         return None
     from mpro.suppliers.models import ProductLink
 
-    return one_in_org(ProductLink, org_id, raw, "product link").id  # type: ignore[no-any-return]
+    return one_in_org(ProductLink, org_id, raw, "product link").id
 
 
 def _apply_lines(org_id: uuid.UUID, po: PurchaseOrder, raw: Any) -> None:
@@ -959,6 +986,8 @@ def create_purchase_order(
     manager = can(member, "po.manage") or can(member, "po.manage_own")
     if not can(member, "po.request") and not manager:
         raise RuleError("You don't have permission to request purchase orders.", 403)
+    if not manager and any(data.get(k) for k in ("costs", "budget_id", "custom_number")):
+        raise RuleError("You can't set costs, a budget or a PO number on a request.", 403)
     source = data.get("source") or ""
     if source not in ("", "low_stock", "work_order", "punchout", "reorder"):
         raise RuleError("Unknown purchase order source.", 422)
@@ -1015,6 +1044,7 @@ def create_purchase_order(
         entity_label=po_number(po, s["number_prefix"]),
         summary=f"Created {po_number(po, s['number_prefix'])} ({STATUS_LABELS[po.status]})",
         data={"source": source},
+        org_id=org.id,
     )
     recompute_ordered(org.id, _part_ids(po))
     if commit:
@@ -1033,6 +1063,7 @@ def can_edit(m: Membership, po: PurchaseOrder) -> bool:
 def update_purchase_order(
     org: Organization, m: Membership, po: PurchaseOrder, data: dict[str, Any]
 ) -> tuple[PurchaseOrder, list[str]]:
+    lock_po(po)
     if not can_edit(m, po):
         raise RuleError(
             "This purchase order can't be changed."
@@ -1055,11 +1086,14 @@ def update_purchase_order(
         warnings += _apply_costs(org.id, po, data.get("costs") or [])
     _recalc(po)
     po.version += 1
-    received = any((ln.received or ZERO) != ZERO for ln in lines_of(po))
-    if po.status in ("approved", "pending") and (po.total or ZERO) > old_total and not received:
-        new = _start_approval(org.id, po)
-        if new != po.status:
-            _set_status(org.id, po, new, "Total went up; approval needed again" if new == "pending" else "")
+    if po.status in ("approved", "pending", "partially_fulfilled") and (po.total or ZERO) > old_total:
+        # the total went up: the approval rules run again. Received quantities stay as they are; the PO shows
+        # Pending until approved, and approval puts it back to what was received (partially fulfilled, …)
+        if _start_approval(org.id, po) == "pending":
+            _set_status(org.id, po, "pending", "Total went up; approval needed again")
+        elif po.status == "pending":
+            po.approved_by_id, po.approved_at = m.user_id, utcnow()
+            _set_status(org.id, po, status_from_receipts(po), "Approved")
     emit(
         "purchase_order.updated",
         entity_type="purchase_order",
@@ -1067,6 +1101,7 @@ def update_purchase_order(
         entity_label=po_number(po),
         summary=f"Updated {po_number(po)}",
         data={"keys": sorted(data)},
+        org_id=org.id,
     )
     recompute_ordered(org.id, old_parts | _part_ids(po))
     db.session.commit()
@@ -1083,7 +1118,7 @@ def approve(org: Organization, m: Membership, po: PurchaseOrder, comment: str = 
             _set_status(org.id, po, "pending", "Sent for approval")
         else:
             po.approved_by_id, po.approved_at = m.user_id, utcnow()
-            _set_status(org.id, po, "approved", "Approved")
+            _set_status(org.id, po, status_from_receipts(po), "Approved")
         db.session.commit()
         return po
     if po.status != "pending":
@@ -1100,7 +1135,8 @@ def approve(org: Organization, m: Membership, po: PurchaseOrder, comment: str = 
     )
     if res == "approved":
         po.approved_by_id, po.approved_at = m.user_id, utcnow()
-        _set_status(org.id, po, "approved", "Approved")
+        # a PO sent back for approval after items arrived keeps its receipts
+        _set_status(org.id, po, status_from_receipts(po), "Approved")
     db.session.commit()
     return po
 
@@ -1144,6 +1180,7 @@ def can_decide(m: Membership, po: PurchaseOrder) -> bool:
 
 
 def cancel(org: Organization, m: Membership, po: PurchaseOrder, reason: str = "") -> PurchaseOrder:
+    lock_po(po)
     if po.status in ("complete", "canceled"):
         raise RuleError("This purchase order is already closed.", 409)
     if any((ln.received or ZERO) != ZERO for ln in lines_of(po)):
@@ -1167,6 +1204,7 @@ def delete_po(org: Organization, m: Membership, po: PurchaseOrder) -> None:
         entity_id=po.id,
         entity_label=po_number(po),
         summary=f"Deleted {po_number(po)}",
+        org_id=org.id,
     )
     recompute_ordered(org.id, _part_ids(po))
     db.session.commit()
@@ -1228,6 +1266,7 @@ def duplicate(org: Organization, m: Membership, po: PurchaseOrder) -> PurchaseOr
         entity_id=new.id,
         entity_label=po_number(new),
         summary=f"Copied from {po_number(po)}",
+        org_id=org.id,
     )
     db.session.commit()
     return new
@@ -1242,11 +1281,12 @@ def receive(
     from mpro.assets.models import Location
     from mpro.parts import ledger
 
-    if po.status not in ("approved", "partially_fulfilled"):
+    lock_po(po)  # two people receiving the same line at once both count, from the current quantities
+    if po.status not in ("approved", "partially_fulfilled") or approvals.pending(org.id, "purchase_order", po.id):
         raise RuleError(
-            "Only approved purchase orders can be received."
-            if po.status in ("requested", "pending")
-            else "This purchase order is closed.",
+            "This purchase order is closed."
+            if po.status in ("complete", "canceled", "rejected")
+            else "Only approved purchase orders can be received.",
             409,
         )
     raw = data.get("lines") or []
@@ -1329,6 +1369,7 @@ def receive(
         summary=f"Received {len(out_lines)} line{'s' if len(out_lines) != 1 else ''}"
         + (f" (slip {rec.packing_slip})" if rec.packing_slip else ""),
         data={"receipt_id": rec.id},
+        org_id=org.id,
     )
     if new != po.status:
         _set_status(org.id, po, new)
@@ -1673,7 +1714,9 @@ def send_to_vendor(org: Organization, m: Membership, po: PurchaseOrder, data: di
     from mpro.core.mail import send_email
     from mpro.purchasing.pdf import po_pdf
 
-    if po.status not in ("approved", "partially_fulfilled", "complete"):
+    if po.status not in ("approved", "partially_fulfilled", "complete") or approvals.pending(
+        org.id, "purchase_order", po.id
+    ):
         raise RuleError("Only approved purchase orders can be sent to the vendor.", 409)
     contacts = (
         db.session.scalars(

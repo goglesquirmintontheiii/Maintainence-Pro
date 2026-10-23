@@ -686,15 +686,27 @@ def _link_vendor(org_id: uuid.UUID, vendor_id: uuid.UUID | None, supplier_key: s
     return v
 
 
-def create_po(org: Any, member: Any, vendor_id: uuid.UUID | None, lines: list[dict[str, Any]], source: str) -> Any:
-    """Through the purchasing module's documented contract."""
+def create_po(
+    org: Any,
+    member: Any,
+    vendor_id: uuid.UUID | None,
+    lines: list[dict[str, Any]],
+    source: str,
+    *,
+    as_request: bool = False,
+    commit: bool = True,
+) -> Any:
+    """Through the purchasing module's documented contract. `as_request` makes a Requested PO (a manager reviews it,
+    which runs the approval rules)."""
     from mpro.purchasing import services as po_svc
 
     fn = getattr(po_svc, "create_purchase_order", None)
     if fn is None:
         raise RuleError("Purchase orders aren't available yet.", 503)
-    data = {"vendor_id": str(vendor_id) if vendor_id else None, "lines": lines, "source": source}
-    return fn(org, member, data)
+    data: dict[str, Any] = {"vendor_id": str(vendor_id) if vendor_id else None, "lines": lines, "source": source}
+    if as_request:
+        data["as_request"] = True
+    return fn(org, member, data, commit=commit)
 
 
 def reorder(org: Any, member: Any, link: ProductLink, quantity: Any = None) -> Any:
@@ -962,22 +974,39 @@ def _post_xml(url: str, doc: bytes) -> bytes:
     r = fetch_mod._transport(
         "POST", url, {"Content-Type": "text/xml; charset=utf-8", "User-Agent": fetch_mod.USER_AGENT}, doc, 1024 * 1024
     )
+    if 300 <= r.status < 400:  # redirects aren't followed: the next hop wouldn't have been checked
+        raise fetch_mod.FetchError("The supplier's address redirects somewhere else; use the final address.")
     if r.status >= 400:
         raise fetch_mod.FetchError(f"The supplier answered with an error ({r.status}).")
     return r.body
 
 
 def punchout_return(cookie: str, form: dict[str, str]) -> PunchOutSession:
-    """The supplier's browser post with the cart. Creates a requested PO for the person who started shopping."""
+    """The supplier's browser post with the cart. Creates a Requested PO for the person who started shopping (a
+    manager reviews it, and the approval rules run then). This request has no signed-in user: g.org is the
+    session's org and g.user is cleared. The session row is locked and marked, so a replayed post can't create a
+    second purchase order."""
+    from flask import g
+
     from mpro.orgs.models import Membership, Organization
     from mpro.suppliers import punchout as po
 
-    session = db.session.scalars(select(PunchOutSession).where(PunchOutSession.buyer_cookie == cookie)).first()
+    g.user = None
+    session = db.session.scalars(
+        select(PunchOutSession)
+        .where(PunchOutSession.buyer_cookie == cookie)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).first()
     if session is None or session.status != "started" or utcnow() - session.created_at > timedelta(hours=8):
         raise RuleError("This shopping session has ended. Start PunchOut again from MPro.", 410)
     connection = db.session.get(SupplierConnection, session.connection_id)
-    if connection is None:
+    if connection is None or connection.org_id != session.org_id:
         raise RuleError("This shopping session has ended.", 410)
+    org = db.session.get(Organization, session.org_id)
+    if org is None:
+        raise RuleError("This shopping session has ended.", 410)
+    g.org = org
     if connection.connector == "punchout_cxml":
         raw = po.order_message_from_form(form)
         sent_cookie, lines = po.parse_order_message(raw)
@@ -992,19 +1021,18 @@ def punchout_return(cookie: str, form: dict[str, str]) -> PunchOutSession:
     if not lines:
         db.session.flush()
         return session
-    org = db.session.get(Organization, session.org_id)
     member = db.session.scalars(
         select(Membership).where(
             Membership.org_id == session.org_id, Membership.user_id == session.user_id, Membership.deleted_at.is_(None)
         )
     ).first()
-    if org is None or member is None or not can(member, "po.request"):
+    if member is None or not (can(member, "po.request") or can(member, "po.manage")):
         raise RuleError("You can no longer request purchase orders here.", 403)
     vendor_id = None
     if connection.supplier_key:
         vendor_id = _link_vendor(org.id, None, connection.supplier_key)
     po_lines = [_cart_line_to_po(org.id, connection.supplier_key, ln) for ln in lines]
-    created = create_po(org, member, vendor_id, po_lines, "punchout")
+    created = create_po(org, member, vendor_id, po_lines, "punchout", as_request=True, commit=False)
     session.purchase_order_id = getattr(created, "id", None)
     session.status = "converted"
     if hasattr(created, "punchout_session_id"):

@@ -217,18 +217,30 @@ def enter(
 
 
 def apply_run(org: Organization, m: Membership, run: CycleCountRun, *, commit: bool = True) -> int:
-    """Write the differences to the ledger and finish the run. Uncounted lines are left alone."""
-    from mpro.parts.services import _after_change, _stock_row
+    """Write the differences to the ledger and finish the run. Uncounted lines are left alone. Idempotent: the run
+    row is locked and re-read, so applying twice (a double click, a retried request) writes the corrections once."""
+    from mpro.parts.ledger import lock_part, lock_stock
+    from mpro.parts.services import _after_change
 
+    db.session.execute(
+        select(CycleCountRun)
+        .where(CycleCountRun.id == run.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if run.status != "open":
         return 0
     n = 0
     for line in db.session.scalars(select(CycleCountLine).where(CycleCountLine.run_id == run.id)).all():
         if line.counted is None:
             continue
-        st = _stock_row(org.id, line.part_id, line.location_id)
-        current = st.on_hand if st else ZERO
-        diff = line.counted - (current or ZERO)
+        p = db.session.get(Part, line.part_id)
+        if p is None or p.deleted_at is not None or p.non_stock:
+            continue
+        # lock (part, then stock, like the ledger) before reading on-hand, so a concurrent change can't be lost
+        lock_part(org.id, line.part_id)
+        st = lock_stock(org.id, line.part_id, line.location_id)
+        diff = line.counted - (st.on_hand or ZERO)
         if diff != ZERO:
             record(
                 org.id,
@@ -240,9 +252,7 @@ def apply_run(org: Organization, m: Membership, run: CycleCountRun, *, commit: b
                 user_id=m.user_id,
                 note=f"Cycle count: counted {line.counted}" + (f" ({line.note})" if line.note else ""),
             )
-            p = db.session.get(Part, line.part_id)
-            if p is not None:
-                _after_change(org.id, p, line.location_id)
+            _after_change(org.id, p, line.location_id)
             n += 1
     run.status = "done"
     run.completed_at = utcnow()

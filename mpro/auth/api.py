@@ -62,7 +62,8 @@ def csrf_token() -> str:
 
 
 def client_ip() -> str:
-    return (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip())[:64]
+    # never a raw X-Forwarded-For: behind trusted proxies (MPRO_TRUSTED_PROXIES) ProxyFix sets remote_addr
+    return (request.remote_addr or "")[:64]
 
 
 def _db_location(uri: str) -> str:

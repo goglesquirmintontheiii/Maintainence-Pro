@@ -117,6 +117,7 @@ def _public(token: str, write: bool = False) -> tuple[Any, Any, Any]:
     s, wo, org = _guard(ext.resolve, token, write)
     g.org = org  # services scope by the shared work order's organization
     g.membership = None
+    g.user = None  # nobody is signed in here, even if a staff member opens the link: never the actor
     return s, wo, org
 
 

@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from apiflask import APIBlueprint, abort
-from flask import Response, g, request
+from flask import Response, current_app, g, request
 from sqlalchemy import func, select
 
 from mpro.core.files import (
@@ -168,10 +168,26 @@ def inbox_test() -> dict[str, Any]:
         abort(409, message="Turn email-in on first.")
     try:
         n = inbox.poll_org(g.org.id)
-    except Exception as e:  # noqa: BLE001 — show the mail server's answer
+    except inbox.HostError as e:
         db.session.rollback()
-        abort(502, message=f"Couldn't read the mailbox: {e}"[:300])
+        abort(422, message=f"{e} Set MPRO_ALLOW_PRIVATE_MAIL_HOSTS=1 to allow it.")
+    except Exception as e:  # noqa: BLE001
+        # never echo the server's reply: it would turn this into a probe of other hosts and ports (review #10)
+        db.session.rollback()
+        current_app.logger.warning("Finance email-in check for org %s failed: %s", g.org.id, e)
+        abort(502, message="Couldn't read the mailbox. Check the server, port, user name and password.")
     return ok(created=n)
+
+
+@bp.post("/finance/settings/inbox-secret")
+@require("finance.export")
+def regenerate_inbox_secret() -> dict[str, Any]:
+    """New email-in addresses; the old ones stop working."""
+    from mpro.finance.settings import regenerate_inbox_secret as regen
+
+    out = regen(g.org.id)
+    db.session.commit()
+    return out
 
 
 @bp.get("/finance/summary")
@@ -204,7 +220,7 @@ def summary() -> dict[str, Any]:
             select(func.count(VendorInvoice.id)).where(
                 VendorInvoice.org_id == oid,
                 VendorInvoice.deleted_at.is_(None),
-                VendorInvoice.status.in_(("received", "matched", "approved")),
+                VendorInvoice.status.in_(("received", "matched", "pending", "approved")),
             )
         ),
         "customer_overdue": count(
@@ -523,6 +539,7 @@ def patch_vendor_invoice(iid: str) -> dict[str, Any]:
 def read_vendor_invoice(iid: str) -> dict[str, Any]:
     inv = get_scoped(VendorInvoice, iid)
     guard(vault.assert_editable, g.org.id, "vendor_invoice", inv.id)
+    guard(invoices.assert_editable_status, inv)
     got = invoices.apply_reading(inv, str(body().get("text") or "")[:100_000])
     invoices._recompute(inv)
     invoices.match(g.org.id, inv)
@@ -622,16 +639,7 @@ def billable_work_orders() -> dict[str, Any]:
     from mpro.workorders.models import WorkOrder
 
     cust = get_scoped(Customer, request.args.get("customer_id") or "")
-    billed: set[str] = set()
-    for ids in db.session.scalars(
-        select(CustomerInvoice.work_order_ids).where(
-            CustomerInvoice.org_id == g.org.id,
-            CustomerInvoice.deleted_at.is_(None),
-            CustomerInvoice.kind == "invoice",
-            CustomerInvoice.status != "void",
-        )
-    ):
-        billed |= set(ids or [])
+    billed = billing.billed_work_order_ids(g.org.id)
     rows = db.session.scalars(
         select(WorkOrder)
         .where(
@@ -834,11 +842,24 @@ def download_certificate_file(cid: str, fid: str) -> Response:
         abort(404)
     certificates.log_access(g.org.id, c, g.user, "download")
     db.session.commit()
-    return Response(
-        read_bytes(f),
-        mimetype=f.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{f.name}"', "Cache-Control": "no-store"},
-    )
+    from urllib.parse import quote
+
+    from mpro.core.files import INLINE_TYPES
+
+    ctype = f.content_type or "application/octet-stream"
+    # the name is whatever was uploaded: strip quotes and line breaks so it can't break the header (review #12)
+    safe = (f.name or "file").replace('"', "").replace("\r", "").replace("\n", "")
+    ascii_name = safe.encode("ascii", "ignore").decode() or "file"
+    disp = "inline" if ctype in INLINE_TYPES else "attachment"
+    resp = Response(read_bytes(f), mimetype=ctype)
+    resp.headers["Content-Disposition"] = f"{disp}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(safe)}"
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    if ctype != "application/pdf":
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"
+        )
+    return resp
 
 
 @bp.get("/finance/tax-certificates/<cid>/access-log")

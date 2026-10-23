@@ -119,7 +119,8 @@ def apply_reading(inv: VendorInvoice, text: str) -> dict[str, Any]:
 
     got = reader.parse_invoice(text)
     inv.ocr_text = text[:100_000]
-    inv.extracted = got
+    keep = {k: v for k, v in (inv.extracted or {}).items() if k in ("email_from", "sender_verified")}
+    inv.extracted = {**got, **keep}  # how it arrived isn't something a re-read may change
     if not inv.number and got.get("number"):
         inv.number = got["number"][:120]
     if inv.vendor_id is None and got.get("vendor_name"):
@@ -179,12 +180,31 @@ def _set_terms(inv: VendorInvoice, terms: str) -> None:
             inv.discount_until = inv.invoice_date + timedelta(days=t["discount_days"])
 
 
+def assert_editable_status(inv: VendorInvoice) -> None:
+    if inv.status == "pending":
+        raise RuleError("This invoice is waiting for approval and can't be changed. Dispute it to change it.", 409)
+    if inv.status in ("approved", "paid", "void"):
+        raise RuleError(f"This invoice is {inv.status} and can't be edited.", 409)
+
+
+def lock(inv: VendorInvoice) -> VendorInvoice:
+    """Row-lock the invoice and reload it, so two approvals or payments at once see each other (review #1)."""
+    db.session.flush()
+    db.session.execute(select(VendorInvoice.id).where(VendorInvoice.id == inv.id).with_for_update())
+    db.session.refresh(inv)
+    return inv
+
+
+def _skip_pending_steps(org_id: uuid.UUID, inv: VendorInvoice) -> None:
+    for step in approvals.pending(org_id, "vendor_invoice", inv.id):
+        step.status = "skipped"
+
+
 def update(
     org_id: uuid.UUID, inv: VendorInvoice, data: dict[str, Any], user: Any, *, rematch: bool = True
 ) -> VendorInvoice:
     vault.assert_editable(org_id, "vendor_invoice", inv.id)
-    if inv.status in ("approved", "paid", "void"):
-        raise RuleError(f"This invoice is {inv.status} and can't be edited.", 409)
+    assert_editable_status(inv)
     from mpro.assets.models import Location
     from mpro.purchasing.models import PurchaseOrder
     from mpro.vendors.models import Vendor
@@ -462,6 +482,7 @@ def submit_for_approval(
     org_id: uuid.UUID, inv: VendorInvoice, user: Any, *, override: bool, can_override: bool
 ) -> VendorInvoice:
     """Start approval. Exceptions block it unless someone allowed to approve overrides them."""
+    lock(inv)
     if inv.status not in ("received", "matched"):
         raise RuleError(f"A {inv.status} invoice can't be approved.", 409)
     if inv.exceptions and not (override and can_override):
@@ -472,6 +493,7 @@ def submit_for_approval(
             raise RuleError("Only people who approve invoices can approve this one.", 403)
         _approved(org_id, inv, user)
     else:
+        inv.status = "pending"
         emit(
             "vendor_invoice.approval_requested",
             entity_type="vendor_invoice",
@@ -502,6 +524,9 @@ def decide(
 ) -> VendorInvoice:
     from mpro.workorders.services import team_ids_of
 
+    lock(inv)
+    if inv.status != "pending":
+        raise RuleError("This invoice isn't waiting for approval.", 409)
     teams = {str(t) for t in team_ids_of(org_id, user.id)}
     res = approvals.decide(
         org_id, "vendor_invoice", inv.id, approve=approve, user=user, team_ids=teams, is_admin=is_admin, comment=comment
@@ -522,12 +547,14 @@ def decide(
 
 
 def set_status(org_id: uuid.UUID, inv: VendorInvoice, action: str, note: str = "") -> VendorInvoice:
+    lock(inv)
     if action == "dispute":
         if inv.status in ("paid", "void"):
             raise RuleError(f"A {inv.status} invoice can't be disputed.", 409)
         if not note.strip():
             raise RuleError("Say what's disputed.", 422)
         inv.status, inv.dispute_note = "disputed", note.strip()[:2000]
+        _skip_pending_steps(org_id, inv)
     elif action == "reopen":
         if inv.status != "disputed":
             raise RuleError("Only disputed invoices can be reopened.", 409)
@@ -536,7 +563,10 @@ def set_status(org_id: uuid.UUID, inv: VendorInvoice, action: str, note: str = "
     elif action == "void":
         if inv.status == "paid":
             raise RuleError("A paid invoice can't be voided.", 409)
+        if inv.status == "approved" and paid_total(inv.id) > ZERO:
+            raise RuleError("Payments are recorded on this invoice, so it can't be voided.", 409)
         inv.status = "void"
+        _skip_pending_steps(org_id, inv)
     else:
         raise RuleError("Unknown action.", 422)
     emit(
@@ -558,12 +588,16 @@ def paid_total(inv_id: uuid.UUID) -> Decimal:
 
 
 def record_payment(org_id: uuid.UUID, inv: VendorInvoice, data: dict[str, Any], user: Any) -> Payment:
+    lock(inv)
     if inv.status != "approved":
         raise RuleError("Approve the invoice before recording a payment.", 409)
     amount = money(data.get("amount"), "amount")
     assert amount is not None
     if amount <= ZERO:
         raise RuleError("Enter the amount paid.", 422)
+    left = (inv.total or ZERO) - paid_total(inv.id)
+    if cents(amount) > left:
+        raise RuleError(f"Only {inv.currency} {left} is left to pay on this invoice.", 422)
     method = str(data.get("method") or "").lower()
     if method not in ("ach", "check", "card", "wire", "cash", "other", ""):
         raise RuleError("Pick a payment method.", 422)
@@ -661,6 +695,9 @@ def invoice_dict(inv: VendorInvoice, *, detail: bool = False) -> dict[str, Any]:
         "number": inv.number,
         "status": inv.status,
         "source": inv.source,
+        # email-in: From can be faked; only a DKIM pass for the From domain counts as verified (review #10)
+        "sender_verified": inv.source != "email" or bool((inv.extracted or {}).get("sender_verified")),
+        "email_from": (inv.extracted or {}).get("email_from", "") if inv.source == "email" else "",
         "file": file_dict(f) if f and f.deleted_at is None else None,
         "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
         "due_date": inv.due_date.isoformat() if inv.due_date else None,
@@ -749,7 +786,7 @@ def list_invoices(org_id: uuid.UUID, args: dict[str, Any]) -> dict[str, Any]:
     if st == "exceptions":
         q = q.where(VendorInvoice.status == "received")
     elif st == "unpaid":
-        q = q.where(VendorInvoice.status.in_(("received", "matched", "approved")))
+        q = q.where(VendorInvoice.status.in_(("received", "matched", "pending", "approved")))
     elif st == "overdue":
         q = q.where(VendorInvoice.status.notin_(("paid", "void")), VendorInvoice.due_date < today())
     elif st:
@@ -781,7 +818,7 @@ def reminders(on: date | None = None) -> int:
     rows = db.session.scalars(
         select(VendorInvoice).where(
             VendorInvoice.deleted_at.is_(None),
-            VendorInvoice.status.in_(("matched", "approved")),
+            VendorInvoice.status.in_(("matched", "pending", "approved")),
             or_(
                 VendorInvoice.due_date == on + timedelta(days=3), VendorInvoice.discount_until == on + timedelta(days=2)
             ),

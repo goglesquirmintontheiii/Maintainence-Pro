@@ -361,7 +361,8 @@ class LinkError(RuleError):
 def _ip() -> str:
     from flask import request
 
-    return request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()[:64] or "?"
+    # the TCP peer (or what trusted proxies report, via ProxyFix): a raw X-Forwarded-For would dodge rate limits
+    return (request.remote_addr or "")[:64] or "?"
 
 
 def throttle(share: ExternalShare | None, ok: bool, write: bool = False) -> None:

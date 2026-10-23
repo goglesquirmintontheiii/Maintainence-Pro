@@ -116,7 +116,7 @@ def emit(
         changes={k: [_jsonable(a), _jsonable(b)] for k, (a, b) in (changes or {}).items()},
         data={k: _jsonable(v) for k, v in (data or {}).items()},
         ip=(
-            request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()[:64]
+            (request.remote_addr or "")[:64]  # ProxyFix applies MPRO_TRUSTED_PROXIES
             if has_request_context()
             else ""
         ),

@@ -24,7 +24,7 @@ from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team, TeamMember
 from mpro.orgs.services import RuleError
 from mpro.parts import hooks
-from mpro.parts.ledger import ZERO, dec, record, transfer
+from mpro.parts.ledger import ZERO, dec, lock_part, lock_stock, record, transfer
 from mpro.parts.models import (
     RESERVATION_STATUSES,
     InventoryTransaction,
@@ -462,6 +462,42 @@ def delete_part(org: Organization, p: Part) -> None:
     )
     if open_uses:
         raise RuleError("This part is reserved on open work orders. Release it there first.", 409)
+    on_wos = db.session.scalar(
+        select(func.count())
+        .select_from(WorkOrderPart)
+        .join(WorkOrder, WorkOrder.id == WorkOrderPart.work_order_id)
+        .where(
+            WorkOrderPart.org_id == org.id,
+            WorkOrderPart.part_id == p.id,
+            WorkOrder.status.not_in(("done", "canceled")),
+            WorkOrder.deleted_at.is_(None),
+        )
+    )
+    if on_wos:
+        raise RuleError(
+            f"{p.name} is on {on_wos} open work order{'s' if on_wos != 1 else ''}. "
+            "Remove it there (or close those work orders) before deleting it.",
+            409,
+        )
+    from mpro.purchasing.models import PurchaseOrder, PurchaseOrderLine
+
+    on_pos = db.session.scalar(
+        select(func.count(func.distinct(PurchaseOrder.id)))
+        .select_from(PurchaseOrderLine)
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.purchase_order_id)
+        .where(
+            PurchaseOrderLine.org_id == org.id,
+            PurchaseOrderLine.part_id == p.id,
+            PurchaseOrder.status.in_(("requested", "pending", "approved", "partially_fulfilled")),
+            PurchaseOrder.deleted_at.is_(None),
+        )
+    )
+    if on_pos:
+        raise RuleError(
+            f"{p.name} is on {on_pos} open purchase order{'s' if on_pos != 1 else ''}. "
+            "Remove the line or complete/cancel those purchase orders before deleting it.",
+            409,
+        )
     p.deleted_at = utcnow()
     emit(
         "part.deleted",
@@ -602,8 +638,10 @@ def adjust(org: Organization, m: Membership, p: Part, data: dict[str, Any]) -> I
         target = dec(data["quantity"], "quantity")
         if target < ZERO:
             raise RuleError("The count can't be below 0.", 422)
-        st = _stock_row(org.id, p.id, loc)
-        change = target - (st.on_hand if st else ZERO)
+        # lock (part, then stock, like the ledger) before reading on-hand, so a concurrent change can't be lost
+        lock_part(org.id, p.id)
+        st = lock_stock(org.id, p.id, loc)
+        change = target - (st.on_hand or ZERO)
     else:
         change = dec(data.get("change"), "change")
     if change == ZERO:
@@ -767,11 +805,12 @@ def _held_sum(org_id: uuid.UUID, part_id: uuid.UUID, location_id: uuid.UUID | No
 
 
 def refresh_reserved(org_id: uuid.UUID, part_id: uuid.UUID, location_id: uuid.UUID | None) -> None:
-    """Recompute the held quantity for a part at a location from its work-order lines (locks the stock row)."""
-    from mpro.parts.ledger import lock_part, lock_stock
-
-    part = lock_part(org_id, part_id)
-    if part.non_stock:
+    """Recompute the held quantity for a part at a location from its work-order lines (locks the stock row).
+    A deleted part is skipped (nothing to hold)."""
+    part = db.session.execute(
+        select(Part).where(Part.id == part_id, Part.org_id == org_id).with_for_update()
+    ).scalar_one_or_none()
+    if part is None or part.deleted_at is not None or part.non_stock:
         return
     st = lock_stock(org_id, part_id, location_id)
     st.reserved = _held_sum(org_id, part_id, location_id)
@@ -1041,13 +1080,41 @@ def _open_demand(org_id: uuid.UUID, part_id: uuid.UUID, location_id: uuid.UUID |
 
 
 def parts_cost(wo_id: uuid.UUID) -> Decimal:
-    """Cost of the parts used on a work order (per-WO override, else the part's unit cost)."""
-    rows = db.session.execute(
-        select(WorkOrderPart.used, WorkOrderPart.unit_cost_override, Part.unit_cost)
+    """Cost of the parts used on a work order, at what they cost when they were used: the per-WO override where set,
+    else the unit cost on this work order's use/return ledger rows (a later price change doesn't rewrite old work
+    orders). Usage with no ledger rows behind it (older data) falls back to the part's current unit cost."""
+    lines = db.session.execute(
+        select(WorkOrderPart.part_id, WorkOrderPart.used, WorkOrderPart.unit_cost_override, Part.unit_cost)
         .join(Part, Part.id == WorkOrderPart.part_id)
         .where(WorkOrderPart.work_order_id == wo_id)
     ).all()
-    return sum(((u or ZERO) * (o if o is not None else (c or ZERO)) for u, o, c in rows), ZERO)
+    ledger_rows = db.session.execute(
+        select(InventoryTransaction.part_id, InventoryTransaction.quantity, InventoryTransaction.unit_cost).where(
+            InventoryTransaction.work_order_id == wo_id, InventoryTransaction.kind.in_(("use", "return"))
+        )
+    ).all()
+    led_qty: dict[uuid.UUID, Decimal] = {}
+    led_amt: dict[uuid.UUID, Decimal] = {}
+    for pid, q, c in ledger_rows:
+        led_qty[pid] = led_qty.get(pid, ZERO) - (q or ZERO)  # use rows are negative
+        led_amt[pid] = led_amt.get(pid, ZERO) - (q or ZERO) * (c or ZERO)
+    total = ZERO
+    plain: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}  # part → (used without an override, current unit cost)
+    for pid, used, override, current in lines:
+        if override is not None:
+            total += (used or ZERO) * override
+        else:
+            u, _c = plain.get(pid, (ZERO, ZERO))
+            plain[pid] = (u + (used or ZERO), current or ZERO)
+    for pid, (used, current) in plain.items():
+        lq, la = led_qty.get(pid, ZERO), led_amt.get(pid, ZERO)
+        if lq > ZERO:
+            from_ledger = min(used, lq)
+            total += la * from_ledger / lq
+            total += max(used - lq, ZERO) * current
+        else:
+            total += used * current
+    return total
 
 
 # ---------------------------------------------------------------- work-order hooks (r042, r215, create with parts)
@@ -1142,38 +1209,52 @@ def auto_reserve(now: datetime | None = None) -> int:
     n = 0
     org_ids = db.session.scalars(select(OrgSetting.org_id).where(OrgSetting.key == "parts")).all()
     for org_id in org_ids:
-        days = int(settings(org_id)["auto_reserve_days"] or 0)
-        if days <= 0:
-            continue
-        rows = db.session.execute(
-            select(WorkOrderPart, WorkOrder)
-            .join(WorkOrder, WorkOrder.id == WorkOrderPart.work_order_id)
-            .where(
-                WorkOrderPart.org_id == org_id,
-                WorkOrderPart.status == "assigned",
-                WorkOrder.deleted_at.is_(None),
-                WorkOrder.status.not_in(("done", "canceled")),
-                WorkOrder.due_at.is_not(None),
-                WorkOrder.due_at <= now + timedelta(days=days),
-            )
-        ).all()
-        touched: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
-        for wp, wo in rows:
-            wp.status = "reserved"
-            touched.add((wp.part_id, wp.location_id))
-            emit(
-                "wo.part_status",
-                entity_type="work_order",
-                entity_id=wo.id,
-                entity_label=_wo_label(wo),
-                summary="Parts reserved automatically",
-                org_id=org_id,
-            )
-            n += 1
-        db.session.flush()
-        for pid, loc in touched:
-            refresh_reserved(org_id, pid, loc)
-        db.session.commit()
+        try:
+            n += _auto_reserve_org(org_id, now)
+        except Exception:  # noqa: BLE001 - one org's bad data mustn't stop the job for everyone else
+            from flask import current_app
+
+            db.session.rollback()
+            current_app.logger.exception("parts.auto_reserve failed for org %s", org_id)
+    return n
+
+
+def _auto_reserve_org(org_id: uuid.UUID, now: datetime) -> int:
+    n = 0
+    days = int(settings(org_id)["auto_reserve_days"] or 0)
+    if days <= 0:
+        return 0
+    rows = db.session.execute(
+        select(WorkOrderPart, WorkOrder)
+        .join(WorkOrder, WorkOrder.id == WorkOrderPart.work_order_id)
+        .join(Part, Part.id == WorkOrderPart.part_id)
+        .where(
+            WorkOrderPart.org_id == org_id,
+            Part.deleted_at.is_(None),  # deleted parts are skipped
+            WorkOrderPart.status == "assigned",
+            WorkOrder.deleted_at.is_(None),
+            WorkOrder.status.not_in(("done", "canceled")),
+            WorkOrder.due_at.is_not(None),
+            WorkOrder.due_at <= now + timedelta(days=days),
+        )
+    ).all()
+    touched: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
+    for wp, wo in rows:
+        wp.status = "reserved"
+        touched.add((wp.part_id, wp.location_id))
+        emit(
+            "wo.part_status",
+            entity_type="work_order",
+            entity_id=wo.id,
+            entity_label=_wo_label(wo),
+            summary="Parts reserved automatically",
+            org_id=org_id,
+        )
+        n += 1
+    db.session.flush()
+    for pid, loc in touched:
+        refresh_reserved(org_id, pid, loc)
+    db.session.commit()
     return n
 
 

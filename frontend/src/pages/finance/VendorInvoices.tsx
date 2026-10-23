@@ -12,7 +12,7 @@ import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, 
 import { readPages } from "./capture";
 import { day, money, postForm, todayISO, VI_STATUS, type FinanceMe, type Paged, type VendorInvoice } from "./types";
 
-const FILTERS: [string, string][] = [["exceptions", "Exceptions"], ["unpaid", "To pay"], ["overdue", "Overdue"], ["paid", "Paid"],
+const FILTERS: [string, string][] = [["exceptions", "Exceptions"], ["pending", "Waiting for approval"], ["unpaid", "To pay"], ["overdue", "Overdue"], ["paid", "Paid"],
   ["disputed", "Disputed"], ["", "All"]];
 type VendorLite = { id: string; name: string };
 type POLite = { id: string; display_number: string; title: string; total: string; vendor: { id: string; name: string } | null };
@@ -177,7 +177,7 @@ function InvoiceDetail({ id, me, onBack }: { id: string; me: FinanceMe; onBack: 
   const writer = me.can["finance.invoices"];
   const approver = me.can["finance.invoices.approve"];
   const open = inv.status === "received" || inv.status === "matched";
-  const pending = (inv.approvals ?? []).some((a) => a.status === "pending");
+  const pending = inv.status === "pending"; // locked while the approvers decide
   return (
     <div className="detail fin-detail">
       <div className="detail-head">
@@ -195,6 +195,7 @@ function InvoiceDetail({ id, me, onBack }: { id: string; me: FinanceMe; onBack: 
           <ul className="fin-exc">{inv.exceptions.map((e, i) => <li key={i}><strong>{e.label}:</strong> {e.message}</li>)}</ul>
         </div>
       )}
+      {inv.source === "email" && inv.sender_verified === false && <div className="fin-banner warn"><AlertTriangle size={16} />Sender not verified: emailed from {inv.email_from || "an unknown address"}, which its mail server didn't confirm. Check it really came from them.</div>}
       {inv.status === "disputed" && inv.dispute_note && <div className="fin-banner warn"><AlertTriangle size={16} />Disputed: {inv.dispute_note}</div>}
       <div className="row wrap">
         {inv.purchase_orders.map((p) => <Link key={p.id} className="fin-chip" to={`/purchase-orders/${p.id}`}>{p.number}{p.tax_exempt ? " · tax-exempt" : ""}</Link>)}

@@ -42,6 +42,9 @@ export function FinanceSettingsDrawer({ onClose }: { onClose: () => void }) {
   });
   const test = useMutation({ mutationFn: () => api<{ created: number }>("/finance/settings/inbox-test", { method: "POST", body: {} }),
     onSuccess: (r) => toast(`Mailbox read: ${r.created} new document${r.created === 1 ? "" : "s"}`), onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
+  const regen = useMutation({ mutationFn: () => api<FinanceSettings>("/finance/settings/inbox-secret", { method: "POST", body: {} }),
+    onSuccess: (s) => { qc.setQueryData(["finance", "settings"], s); void qc.invalidateQueries({ queryKey: ["finance", "me"] }); toast("New email-in addresses made"); },
+    onError: (e) => toast((e as ApiError).message, { kind: "error" }) });
   const t = (k: string, label: string, hint?: string, type = "text") => <Field label={label} hint={hint}>{(fid) =>
     <Input id={fid} type={type} value={String(f[k] ?? "")} onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))} />}</Field>;
   return (
@@ -63,10 +66,12 @@ export function FinanceSettingsDrawer({ onClose }: { onClose: () => void }) {
         {t("expense_categories", "Expense categories", "Comma-separated")}
         <h3 className="sec-h">Email-in</h3>
         <Toggle checked={!!f.inbox_enabled} onChange={(v) => setF((x) => ({ ...x, inbox_enabled: v }))} label="Read receipts and invoices from a mailbox"
-          hint={q.data.receipts_address ? `People forward receipts to ${q.data.receipts_address} and invoices to ${q.data.invoices_address}.` : "Mail to name+receipts@… becomes receipts; name+invoices@… becomes vendor invoices."} />
+          hint={q.data.receipts_address ? `People forward receipts to ${q.data.receipts_address} and invoices to ${q.data.invoices_address}.` : "Save the mailbox address to get the email-in addresses (they include a secret)."} />
         {f.inbox_enabled && <><div className="fin-form-grid">{t("inbox_address", "Mailbox address", "e.g. ap@yourcompany.com")}{t("inbox_host", "IMAP server")}{t("inbox_port", "Port")}
           {t("inbox_user", "User name")}{t("inbox_password", "Password", q.data.inbox_password_set ? "Saved (encrypted). Type to replace." : undefined, "password")}{t("inbox_folder", "Folder")}</div>
-          <div><Button onClick={() => test.mutate()} disabled={test.isPending}>Check the mailbox now</Button></div></>}
+          {q.data.inbox_help && <p className="muted fin-small">{q.data.inbox_help}</p>}
+          <div className="row"><Button onClick={() => test.mutate()} disabled={test.isPending}>Check the mailbox now</Button>
+            <Button variant="ghost" disabled={regen.isPending} onClick={() => { if (confirm("Make new email-in addresses? Mail sent to the current ones will be ignored.")) regen.mutate(); }}>Regenerate addresses</Button></div></>}
       </div>}
     </Drawer>
   );
