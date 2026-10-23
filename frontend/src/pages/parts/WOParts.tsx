@@ -32,7 +32,6 @@ export function WOPartsSection({ wo }: { wo: WODetail }) {
   const count = useQuery({ queryKey: ["wo-count", wo.id], queryFn: () => api<{ run: CountRun | null }>(`/work-orders/${wo.id}/cycle-count`), enabled: can("parts.view") });
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<WOPartLine | null>(null);
-  if (!can("parts.view")) return null;
   const closed = ["done", "canceled"].includes(wo.status);
   const editable = can("parts.use") && !closed;
   const refresh = () => { qc.invalidateQueries({ queryKey: ["wo-parts", wo.id] }); qc.invalidateQueries({ queryKey: ["part"] }); qc.invalidateQueries({ queryKey: ["parts"] }); qc.invalidateQueries({ queryKey: ["wo", wo.id] }); };
@@ -42,6 +41,7 @@ export function WOPartsSection({ wo }: { wo: WODetail }) {
   const del = useMutation({ mutationFn: (l: WOPartLine) => api(`/work-orders/${wo.id}/parts/${l.id}`, { method: "DELETE" }), onSuccess: refresh, onError: err });
   const items = q.data?.items ?? [];
   const cur = session.org?.currency;
+  if (!can("parts.view")) return null;
   return (
     <>
       {count.data?.run && <RunPanel run={count.data.run} onChange={() => count.refetch()} />}
