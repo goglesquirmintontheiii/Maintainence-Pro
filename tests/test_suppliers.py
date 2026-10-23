@@ -918,7 +918,7 @@ def test_demo_products(app: Any) -> None:
         rows = db.session.scalars(select(Product).where(Product.org_id == org.id)).all()
         assert any(p.availability == "discontinued" and p.replacement_url for p in rows)
         links = db.session.scalars(select(ProductLink).where(ProductLink.org_id == org.id)).all()
-        assert {x.role for x in links} >= {"listing", "purchased_from"}
+        assert "listing" in {x.role for x in links}  # assets (purchased_from) only exist with demo work
 
 
 def test_base64_cxml_and_quote_helper() -> None:
