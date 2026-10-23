@@ -11,6 +11,7 @@ import {
 import { api, ApiError, upload, type FileItem } from "../../lib/api";
 import { useWOOptions } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
+import { DropZone } from "../../components/DropZone";
 import { AssigneePicker } from "../../components/pickers";
 import { Button, Dropdown, Field, Input, ListSkeleton, Modal, Pill, Select, Toggle } from "../../components/ui";
 import { useMeterList } from "../automations/types";
@@ -282,22 +283,23 @@ function RefFiles({ it, onPatch }: { it: Item; onPatch: (p: Partial<Item>) => vo
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
   const ids = it.reference_file_ids ?? [];
+  const attach = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    try { const up = await upload(f); addFile(up); onPatch({ reference_file_ids: [...(it.reference_file_ids ?? []), up.id] }); }
+    catch (x) { toast((x as Error).message, { kind: "error" }); } finally { setBusy(false); }
+  };
   return (
-    <div className="field">
+    <DropZone className="field" multiple={false} disabled={busy || ids.length >= 20} onFiles={(fs) => void attach(fs[0])}>
       <label>Reference files</label>
       <div className="row wrap" style={{ gap: 6 }}>
         {ids.map((id) => <span key={id} className="chip"><FileText size={12} />{files[id]?.name ?? "File"}
           <button type="button" className="chip-x" aria-label={`Remove ${files[id]?.name ?? "file"}`} onClick={() => onPatch({ reference_file_ids: ids.filter((x) => x !== id) })}><X size={11} /></button></span>)}
-        <input ref={ref} type="file" hidden onChange={async (e) => {
-          const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
-          setBusy(true);
-          try { const up = await upload(f); addFile(up); onPatch({ reference_file_ids: [...ids, up.id] }); }
-          catch (x) { toast((x as Error).message, { kind: "error" }); } finally { setBusy(false); }
-        }} />
+        <input ref={ref} type="file" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; void attach(f); }} />
         <button type="button" className="linkbtn small" disabled={busy || ids.length >= 20} onClick={() => ref.current?.click()}><Upload size={13} />{busy ? "Uploading…" : "Attach a file"}</button>
       </div>
       <span className="hint">Manuals, diagrams or photos the technician can open from this step</span>
-    </div>);
+    </DropZone>);
 }
 
 const ENUM_VALUES = (src: Item): { key: string; label: string }[] =>

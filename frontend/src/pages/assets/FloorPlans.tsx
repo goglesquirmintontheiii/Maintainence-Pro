@@ -9,6 +9,7 @@ import type { FloorPlan, LocationDetail } from "../../lib/assets";
 import { useToast } from "../../components/Toast";
 import { Button, EmptyState, Modal } from "../../components/ui";
 import { FloorPlanEditor, PlanShapes } from "./FloorPlanEditor";
+import { DropZone } from "../../components/DropZone";
 import type { Shape } from "./floorplanShapes";
 
 export function FloorPlans({ loc, editable }: { loc: LocationDetail; editable: boolean }) {
@@ -30,7 +31,8 @@ export function FloorPlans({ loc, editable }: { loc: LocationDetail; editable: b
   const plans = loc.floor_plans;
   const plan = plans[Math.min(current, plans.length - 1)];
   return (
-    <section className="card">
+    <DropZone className="card" disabled={!editable || busy} multiple={false} accept="image/png,image/jpeg,image/webp" label="Drop an image to add it as a floor plan" onFiles={(fs) => void add(fs[0])}>
+    <section>
       <div className="card-head wrap">
         <div className="seg" role="tablist" aria-label="Floor plans">{plans.map((p, i) => (
           <button key={p.id} type="button" role="tab" aria-selected={plan?.id === p.id} className={"seg-btn" + (plan?.id === p.id ? " on" : "")} onClick={() => setCurrent(i)}>{p.name}</button>))}</div>
@@ -40,6 +42,7 @@ export function FloorPlans({ loc, editable }: { loc: LocationDetail; editable: b
       {!plan ? <EmptyState icon={<MapPin size={24} />} title="No floor plans">Upload a floor plan image (PNG, JPG or WebP) and pin assets on it, so people can find equipment fast.</EmptyState>
         : <PlanCanvas key={plan.id} loc={loc} plan={plan} editable={editable} onChanged={refresh} />}
     </section>
+    </DropZone>
   );
 }
 

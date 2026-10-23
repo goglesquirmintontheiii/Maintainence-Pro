@@ -59,8 +59,19 @@ class FakeNet:
         self.calls: list[str] = []
         self.dns: dict[str, list[str]] = {}
 
-    def add(self, url: str, body: str | bytes, status: int = 200, ctype: str = "text/html; charset=utf-8", headers: dict[str, str] | None = None) -> None:
-        self.pages[url] = (status, {"content-type": ctype, **(headers or {})}, body.encode() if isinstance(body, str) else body)
+    def add(
+        self,
+        url: str,
+        body: str | bytes,
+        status: int = 200,
+        ctype: str = "text/html; charset=utf-8",
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.pages[url] = (
+            status,
+            {"content-type": ctype, **(headers or {})},
+            body.encode() if isinstance(body, str) else body,
+        )
 
     def __call__(self, method: str, url: str, headers: dict[str, str], body: bytes | None, limit: int) -> Any:
         from mpro.suppliers.fetch import FetchError, Response
@@ -150,9 +161,29 @@ def test_recognise_rejects_bad_links(admin: Api) -> None:
 
 
 def test_org_supplier_patterns(admin: Api, app: Any) -> None:
-    assert admin.post(f"{API}/supplier-sites", {"name": "Acme Supply", "domains": ["acmesupply.com"], "id_patterns": ["/item/(?P<id>[0-9]+"]}).status_code == 422
-    assert admin.post(f"{API}/supplier-sites", {"name": "Acme Supply", "domains": ["acmesupply.com"], "id_patterns": ["/item/([0-9]+)"]}).status_code == 422
-    r = admin.post(f"{API}/supplier-sites", {"name": "Acme Supply", "domains": ["https://www.acmesupply.com/"], "id_patterns": ["/item/(?P<id>[0-9]+)"], "id_label": "Acme #"})
+    assert (
+        admin.post(
+            f"{API}/supplier-sites",
+            {"name": "Acme Supply", "domains": ["acmesupply.com"], "id_patterns": ["/item/(?P<id>[0-9]+"]},
+        ).status_code
+        == 422
+    )
+    assert (
+        admin.post(
+            f"{API}/supplier-sites",
+            {"name": "Acme Supply", "domains": ["acmesupply.com"], "id_patterns": ["/item/([0-9]+)"]},
+        ).status_code
+        == 422
+    )
+    r = admin.post(
+        f"{API}/supplier-sites",
+        {
+            "name": "Acme Supply",
+            "domains": ["https://www.acmesupply.com/"],
+            "id_patterns": ["/item/(?P<id>[0-9]+)"],
+            "id_label": "Acme #",
+        },
+    )
     assert r.status_code == 201, r.json
     m = admin.post(f"{API}/suppliers/recognize", {"url": "https://shop.acmesupply.com/item/7788?x=1"}).json
     assert (m["supplier_key"], m["external_id"], m["id_label"]) == ("acme_supply", "7788", "Acme #")
@@ -175,7 +206,12 @@ def test_link_part_reads_page_and_copies_image(admin: Api, app: Any, net: FakeNe
     got = admin.get(f"{API}/product-links/{lk['id']}").json
     p = got["product"]
     assert p["fetch_status"] == "ok" and p["source"] == "jsonld"
-    assert p["title"] == "V-Belt, 4L360 & more" and p["brand"] == "Dayton" and p["price"] == "14.8500" and p["currency"] == "USD"
+    assert (
+        p["title"] == "V-Belt, 4L360 & more"
+        and p["brand"] == "Dayton"
+        and p["price"] == "14.8500"
+        and p["currency"] == "USD"
+    )
     assert p["availability"] == "in_stock" and p["specs"] == {"Length": "36 in"} and not p["price_may_have_changed"]
     assert got["preferred"] and got["supplier_name"] == "Grainger" and got["supplier_sku"] == "1A120"
     assert p["image_url"] and admin.get(p["image_url"]).status_code == 200  # served from MPro, not the supplier
@@ -199,12 +235,20 @@ def test_parsers() -> None:
     from mpro.suppliers.fetch import money, parse_page
 
     og = parse_page(PAGE_OG.encode(), "https://shop.example.com/x")
-    assert og.source == "opengraph" and og.title == "Filter 20x20" and og.price == Decimal("1234.56") and og.currency == "EUR"
+    assert (
+        og.source == "opengraph"
+        and og.title == "Filter 20x20"
+        and og.price == Decimal("1234.56")
+        and og.currency == "EUR"
+    )
     assert og.availability == "out_of_stock" and og.image_url == "https://shop.example.com/img/f.png"
     t = parse_page(PAGE_TITLE.encode(), "https://x.example.com/")
     assert t.source == "title" and t.title == "Some Product Page"
     assert money("$1,299.00") == Decimal("1299.00") and money("abc") is None and money("-5") is None
-    js = parse_page(b'<script type="application/ld+json">{"@type":"Product","name":"<img src=x onerror=alert(1)>Pump","offers":[{"@type":"AggregateOffer","lowPrice":"5"}]}</script>', "https://a.example/")
+    js = parse_page(
+        b'<script type="application/ld+json">{"@type":"Product","name":"<img src=x onerror=alert(1)>Pump","offers":[{"@type":"AggregateOffer","lowPrice":"5"}]}</script>',
+        "https://a.example/",
+    )
     assert js.title == "Pump" and js.price == Decimal("5")
     broken = parse_page(b'<script type="application/ld+json">{not json</script><title>T</title>', "https://a.example/")
     assert broken.title == "T"
@@ -213,7 +257,9 @@ def test_parsers() -> None:
 def test_blocked_sites_still_show_a_card(admin: Api, app: Any, net: FakeNet) -> None:
     pid = make_part(app)
     net.add("https://www.homedepot.com/robots.txt", "User-agent: *\nDisallow: /p/\n", ctype="text/plain")
-    lk = link(admin, pid, "https://www.homedepot.com/p/Thing/312345678", manual_title="Shop vac filter", manual_price="19.97")
+    lk = link(
+        admin, pid, "https://www.homedepot.com/p/Thing/312345678", manual_title="Shop vac filter", manual_price="19.97"
+    )
     got = admin.get(f"{API}/product-links/{lk['id']}").json
     assert got["product"]["fetch_status"] == "blocked" and "automatic readers" in got["product"]["fetch_error"]
     assert got["title"] == "Shop vac filter" and got["price"] == "19.9700" and got["price_from"] == "typed"
@@ -225,8 +271,15 @@ def test_blocked_sites_still_show_a_card(admin: Api, app: Any, net: FakeNet) -> 
 
 @pytest.mark.parametrize(
     "url",
-    ["http://127.0.0.1/admin", "http://10.1.2.3/x", "http://localhost:8080/x", "http://169.254.169.254/latest/meta-data",
-     "http://[::1]/x", "http://intranet.local/x", "http://shop.example.com:22/x"],
+    [
+        "http://127.0.0.1/admin",
+        "http://10.1.2.3/x",
+        "http://localhost:8080/x",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/x",
+        "http://intranet.local/x",
+        "http://shop.example.com:22/x",
+    ],
 )
 def test_never_fetches_private_addresses(admin: Api, app: Any, net: FakeNet, url: str) -> None:
     pid = make_part(app)
@@ -297,14 +350,20 @@ def test_price_stock_and_discontinued_alerts(admin: Api, app: Any, net: FakeNet)
     net.add(url, PAGE_JSONLD.replace("InStock", "Discontinued"))
     admin.post(f"{API}/product-links/{lk['id']}/refresh")
     assert "discontinued" in _emails(app)[-1][2]
-    log = admin.get(f"{API}/audit-log?entity_type=part").json if admin.get(f"{API}/audit-log").status_code == 200 else None
+    log = (
+        admin.get(f"{API}/audit-log?entity_type=part").json
+        if admin.get(f"{API}/audit-log").status_code == 200
+        else None
+    )
     assert log is not None
 
 
 def test_compare_suppliers(admin: Api, app: Any, net: FakeNet) -> None:
     pid = make_part(app)
     net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)  # 14.85, in stock, pack of 2 → 7.425
-    net.add("https://www.zoro.com/i/G1234567/", PAGE_OG.replace("1.234,56", "6.00").replace("EUR", "USD"))  # out of stock
+    net.add(
+        "https://www.zoro.com/i/G1234567/", PAGE_OG.replace("1.234,56", "6.00").replace("EUR", "USD")
+    )  # out of stock
     net.add("https://www.mcmaster.com/2165K24", PAGE_JSONLD.replace('"14.85"', '"9.00"'))
     link(admin, pid, "https://www.grainger.com/product/1A120", pack_size="2")
     link(admin, pid, "https://www.zoro.com/i/G1234567/")
@@ -333,24 +392,72 @@ class FakeApi:
 def test_amazon_creators_connector() -> None:
     from mpro.suppliers.connectors import AmazonCreators, ConnectorError
 
-    api = FakeApi({
-        ("POST", "https://api.amazon.co.uk/auth/o2/token"): [(200, {"access_token": "tok", "expires_in": 3600})],
-        ("POST", "https://creatorsapi.amazon/catalog/v1/getItems"): [(200, {"itemsResult": {"items": [{
-            "asin": "B07PJV4WS3", "detailPageURL": "https://www.amazon.co.uk/dp/B07PJV4WS3",
-            "itemInfo": {"title": {"displayValue": "Hose kit"}, "byLineInfo": {"brand": {"displayValue": "Acme"}}},
-            "images": {"primary": {"large": {"url": "https://m.media-amazon.com/images/I/x.jpg"}}},
-            "offersV2": {"listings": [{"price": {"money": {"amount": 32.99, "currency": "GBP"}}, "availability": {"type": "IN_STOCK"}}]},
-        }]}})],
-    })
-    c = AmazonCreators({"credential_id": "cid", "region": "3.2", "marketplace": "www.amazon.co.uk", "partner_tag": "me-21"},
-                       {"credential_secret": "sec"}, http=api)
+    api = FakeApi(
+        {
+            ("POST", "https://api.amazon.co.uk/auth/o2/token"): [(200, {"access_token": "tok", "expires_in": 3600})],
+            ("POST", "https://creatorsapi.amazon/catalog/v1/getItems"): [
+                (
+                    200,
+                    {
+                        "itemsResult": {
+                            "items": [
+                                {
+                                    "asin": "B07PJV4WS3",
+                                    "detailPageURL": "https://www.amazon.co.uk/dp/B07PJV4WS3",
+                                    "itemInfo": {
+                                        "title": {"displayValue": "Hose kit"},
+                                        "byLineInfo": {"brand": {"displayValue": "Acme"}},
+                                    },
+                                    "images": {
+                                        "primary": {"large": {"url": "https://m.media-amazon.com/images/I/x.jpg"}}
+                                    },
+                                    "offersV2": {
+                                        "listings": [
+                                            {
+                                                "price": {"money": {"amount": 32.99, "currency": "GBP"}},
+                                                "availability": {"type": "IN_STOCK"},
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    },
+                )
+            ],
+        }
+    )
+    c = AmazonCreators(
+        {"credential_id": "cid", "region": "3.2", "marketplace": "www.amazon.co.uk", "partner_tag": "me-21"},
+        {"credential_secret": "sec"},
+        http=api,
+    )
     info = c.lookup("https://www.amazon.co.uk/dp/B07PJV4WS3?tag=x")
-    assert (info.title, info.brand, info.price, info.currency, info.availability) == ("Hose kit", "Acme", Decimal("32.99"), "GBP", "in_stock")
+    assert (info.title, info.brand, info.price, info.currency, info.availability) == (
+        "Hose kit",
+        "Acme",
+        Decimal("32.99"),
+        "GBP",
+        "in_stock",
+    )
     tok_call, get_call = api.calls
-    assert tok_call[3] == {"grant_type": "client_credentials", "client_id": "cid", "client_secret": "sec", "scope": "creatorsapi::default"}
+    assert tok_call[3] == {
+        "grant_type": "client_credentials",
+        "client_id": "cid",
+        "client_secret": "sec",
+        "scope": "creatorsapi::default",
+    }
     assert get_call[2]["Authorization"] == "Bearer tok" and get_call[2]["x-marketplace"] == "www.amazon.co.uk"
-    assert get_call[3]["itemIds"] == ["B07PJV4WS3"] and get_call[3]["partnerTag"] == "me-21" and get_call[3]["itemIdType"] == "ASIN"
-    bad = AmazonCreators({"credential_id": "cid"}, {"credential_secret": "x"}, http=FakeApi({("POST", "https://api.amazon.com/auth/o2/token"): [(401, {})]}))
+    assert (
+        get_call[3]["itemIds"] == ["B07PJV4WS3"]
+        and get_call[3]["partnerTag"] == "me-21"
+        and get_call[3]["itemIdType"] == "ASIN"
+    )
+    bad = AmazonCreators(
+        {"credential_id": "cid"},
+        {"credential_secret": "x"},
+        http=FakeApi({("POST", "https://api.amazon.com/auth/o2/token"): [(401, {})]}),
+    )
     with pytest.raises(ConnectorError, match="didn't accept"):
         bad.test()
 
@@ -359,31 +466,62 @@ def test_mcmaster_connector_subscribes_and_reads_replacements() -> None:
     from mpro.suppliers.connectors import McMaster
 
     base = "https://api.mcmaster.com/v1"
-    api = FakeApi({
-        ("POST", f"{base}/login"): [(200, {"AuthToken": "T", "ExpirationTS": "x"})],
-        ("GET", f"{base}/products/6384K365"): [(403, None), (200, {})],
-        ("PUT", f"{base}/products"): [(201, {"PartNumber": "6384K365", "ProductStatus": "Discontinued",
-                                            "FamilyDescription": "Ball Bearing", "DetailDescription": "6205-2Z",
-                                            "Specifications": [{"Attribute": "Shaft", "Values": ["25 mm"]}],
-                                            "Links": [{"Key": "Price", "Value": "/v1/products/6384K365/price"},
-                                                      {"Key": "SuggestedProduct", "Value": "/5972K91"}]})],
-        ("GET", f"{base}/products/6384K365/price"): [(200, [{"Amount": 11.6, "MinimumQuantity": 1, "UnitOfMeasure": "Each"}])],
-    })
+    api = FakeApi(
+        {
+            ("POST", f"{base}/login"): [(200, {"AuthToken": "T", "ExpirationTS": "x"})],
+            ("GET", f"{base}/products/6384K365"): [(403, None), (200, {})],
+            ("PUT", f"{base}/products"): [
+                (
+                    201,
+                    {
+                        "PartNumber": "6384K365",
+                        "ProductStatus": "Discontinued",
+                        "FamilyDescription": "Ball Bearing",
+                        "DetailDescription": "6205-2Z",
+                        "Specifications": [{"Attribute": "Shaft", "Values": ["25 mm"]}],
+                        "Links": [
+                            {"Key": "Price", "Value": "/v1/products/6384K365/price"},
+                            {"Key": "SuggestedProduct", "Value": "/5972K91"},
+                        ],
+                    },
+                )
+            ],
+            ("GET", f"{base}/products/6384K365/price"): [
+                (200, [{"Amount": 11.6, "MinimumQuantity": 1, "UnitOfMeasure": "Each"}])
+            ],
+        }
+    )
     info = McMaster({"username": "u"}, {"password": "p"}, http=api).lookup("https://www.mcmaster.com/6384K365")
     assert info.title == "Ball Bearing 6205-2Z" and info.availability == "discontinued"
-    assert info.replacement_url == "https://www.mcmaster.com/5972K91" and info.price == Decimal("11.6") and info.price_unit == "Each"
+    assert (
+        info.replacement_url == "https://www.mcmaster.com/5972K91"
+        and info.price == Decimal("11.6")
+        and info.price_unit == "Each"
+    )
     assert info.specs["Shaft"] == "25 mm"
     assert [c[0] + " " + c[1].removeprefix(base) for c in api.calls] == [
-        "POST /login", "GET /products/6384K365", "PUT /products", "GET /products/6384K365/price"]
-    assert api.calls[2][3] == {"URL": "https://mcmaster.com/6384K365"} and api.calls[1][2]["Authorization"] == "Bearer T"
+        "POST /login",
+        "GET /products/6384K365",
+        "PUT /products",
+        "GET /products/6384K365/price",
+    ]
+    assert (
+        api.calls[2][3] == {"URL": "https://mcmaster.com/6384K365"} and api.calls[1][2]["Authorization"] == "Bearer T"
+    )
 
 
 def test_connections_keep_secrets_encrypted(admin: Api, app: Any) -> None:
     specs = admin.get(f"{API}/supplier-connections").json["connectors"]
     assert {s["key"] for s in specs} == {"amazon_creators", "mcmaster", "punchout_cxml", "punchout_oci"}
     assert all(s["needs_account"] for s in specs)
-    r = admin.post(f"{API}/supplier-connections", {"connector": "amazon_creators", "settings": {"credential_id": "cid", "partner_tag": "me-20"},
-                                                   "secrets": {"credential_secret": "very-secret-123"}})
+    r = admin.post(
+        f"{API}/supplier-connections",
+        {
+            "connector": "amazon_creators",
+            "settings": {"credential_id": "cid", "partner_tag": "me-20"},
+            "secrets": {"credential_secret": "very-secret-123"},
+        },
+    )
     assert r.status_code == 201, r.json
     assert "very-secret-123" not in json.dumps(r.json) and r.json["secrets_set"] == {"credential_secret": True}
     assert r.json["secrets_masked"]["credential_secret"].endswith("-123")
@@ -394,24 +532,52 @@ def test_connections_keep_secrets_encrypted(admin: Api, app: Any) -> None:
         row = db.session.get(SupplierConnection, uuid.UUID(r.json["id"]))
         assert row is not None and "very-secret" not in row.secrets and row.secrets.startswith("enc1:")
     # blank secret keeps the stored one
-    r2 = admin.patch(f"{API}/supplier-connections/{r.json['id']}", {"settings": {"marketplace": "www.amazon.com"}, "secrets": {"credential_secret": ""}})
+    r2 = admin.patch(
+        f"{API}/supplier-connections/{r.json['id']}",
+        {"settings": {"marketplace": "www.amazon.com"}, "secrets": {"credential_secret": ""}},
+    )
     assert r2.json["secrets_set"] == {"credential_secret": True}
     t = admin.post(f"{API}/supplier-connections/{r.json['id']}/test")
     assert t.status_code == 422  # no network here: the error is recorded and shown
     assert admin.get(f"{API}/supplier-connections").json["items"][0]["last_error"]
-    assert admin.post(f"{API}/supplier-connections", {"connector": "punchout_cxml", "settings": {"setup_url": "http://insecure.example"}}).status_code == 422
+    assert (
+        admin.post(
+            f"{API}/supplier-connections",
+            {"connector": "punchout_cxml", "settings": {"setup_url": "http://insecure.example"}},
+        ).status_code
+        == 422
+    )
 
 
-def test_refresh_uses_the_connected_api_and_falls_back_to_the_page(admin: Api, app: Any, net: FakeNet, monkeypatch: Any) -> None:
+def test_refresh_uses_the_connected_api_and_falls_back_to_the_page(
+    admin: Api, app: Any, net: FakeNet, monkeypatch: Any
+) -> None:
     from mpro.suppliers import connectors
 
     pid = make_part(app)
-    admin.post(f"{API}/supplier-connections", {"connector": "amazon_creators", "settings": {"credential_id": "c", "partner_tag": "t-20"},
-                                               "secrets": {"credential_secret": "s"}})
-    fake = FakeApi({
-        ("POST", "https://api.amazon.com/auth/o2/token"): [(200, {"access_token": "tok"})],
-        ("POST", "https://creatorsapi.amazon/catalog/v1/getItems"): [(200, {"itemsResult": {"items": [{"asin": "B07PJV4WS3", "itemInfo": {"title": {"displayValue": "From the API"}}}]}})],
-    })
+    admin.post(
+        f"{API}/supplier-connections",
+        {
+            "connector": "amazon_creators",
+            "settings": {"credential_id": "c", "partner_tag": "t-20"},
+            "secrets": {"credential_secret": "s"},
+        },
+    )
+    fake = FakeApi(
+        {
+            ("POST", "https://api.amazon.com/auth/o2/token"): [(200, {"access_token": "tok"})],
+            ("POST", "https://creatorsapi.amazon/catalog/v1/getItems"): [
+                (
+                    200,
+                    {
+                        "itemsResult": {
+                            "items": [{"asin": "B07PJV4WS3", "itemInfo": {"title": {"displayValue": "From the API"}}}]
+                        }
+                    },
+                )
+            ],
+        }
+    )
     monkeypatch.setattr(connectors, "_default_http", lambda cert=None: fake)
     lk = link(admin, pid, "https://www.amazon.com/dp/B07PJV4WS3")
     p = admin.get(f"{API}/product-links/{lk['id']}").json["product"]
@@ -468,11 +634,20 @@ def test_reorder_from_a_linked_product(admin: Api, app: Any, net: FakeNet, po_ca
     net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)
     lk = link(admin, pid, "https://www.grainger.com/product/1A120", supplier_sku="1A120", unit="each")
     line = admin.get(f"{API}/product-links/{lk['id']}/po-line?quantity=4").json
-    assert line["part_id"] == pid and line["quantity"] == "4" and line["unit_cost"].startswith("14.85") and line["product_link_id"] == lk["id"]
+    assert (
+        line["part_id"] == pid
+        and line["quantity"] == "4"
+        and line["unit_cost"].startswith("14.85")
+        and line["product_link_id"] == lk["id"]
+    )
     r = admin.post(f"{API}/product-links/{lk['id']}/reorder", {"quantity": 3})
     assert r.status_code == 201, r.json
     data = po_calls[-1]
-    assert data["source"] == "reorder" and data["lines"][0]["quantity"] == "3" and data["lines"][0]["part_number"] == "1A120"
+    assert (
+        data["source"] == "reorder"
+        and data["lines"][0]["quantity"] == "3"
+        and data["lines"][0]["part_number"] == "1A120"
+    )
     assert admin.post(f"{API}/product-links/{lk['id']}/reorder", {"quantity": 0}).status_code == 422
 
 
@@ -490,15 +665,28 @@ def _order_message(cookie: str) -> str:
 <Description xml:lang="en">Gloves</Description><UnitOfMeasure>PR</UnitOfMeasure></ItemDetail></ItemIn></PunchOutOrderMessage></Message></cXML>"""
 
 
-def test_cxml_punchout_cart_becomes_a_po(admin: Api, app: Any, net: FakeNet, po_calls: list[dict[str, Any]], monkeypatch: Any) -> None:
+def test_cxml_punchout_cart_becomes_a_po(
+    admin: Api, app: Any, net: FakeNet, po_calls: list[dict[str, Any]], monkeypatch: Any
+) -> None:
     from mpro.suppliers import services as svc
 
     pid = make_part(app)
     net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)
     link(admin, pid, "https://www.grainger.com/product/1A120", supplier_sku="1A120")
-    c = admin.post(f"{API}/supplier-connections", {"connector": "punchout_cxml", "supplier_key": "grainger", "name": "Grainger PunchOut",
-                                                   "settings": {"setup_url": "https://punchout.grainger.example/setup", "from_identity": "ACME", "to_identity": "GRAINGER"},
-                                                   "secrets": {"shared_secret": "s3cret"}}).json
+    c = admin.post(
+        f"{API}/supplier-connections",
+        {
+            "connector": "punchout_cxml",
+            "supplier_key": "grainger",
+            "name": "Grainger PunchOut",
+            "settings": {
+                "setup_url": "https://punchout.grainger.example/setup",
+                "from_identity": "ACME",
+                "to_identity": "GRAINGER",
+            },
+            "secrets": {"shared_secret": "s3cret"},
+        },
+    ).json
     sent: list[bytes] = []
 
     def post(url: str, doc: bytes) -> bytes:
@@ -520,7 +708,12 @@ def test_cxml_punchout_cart_becomes_a_po(admin: Api, app: Any, net: FakeNet, po_
     data = po_calls[-1]
     assert data["source"] == "punchout" and len(data["lines"]) == 2
     first = data["lines"][0]
-    assert first["part_id"] == pid and first["quantity"] == "3" and first["unit_cost"] == "14.85" and first["product_link_id"]
+    assert (
+        first["part_id"] == pid
+        and first["quantity"] == "3"
+        and first["unit_cost"] == "14.85"
+        and first["product_link_id"]
+    )
     assert data["lines"][1]["part_id"] is None and data["lines"][1]["description"] == "Gloves"
     again = browser.post(f"{API}/punchout/return/{cookie}", data={"cxml-urlencoded": _order_message(cookie)})
     assert again.status_code == 303 and "punchout_error" in again.headers["Location"]
@@ -532,41 +725,66 @@ def test_punchout_rejects_entities_and_parses_oci() -> None:
 
     with pytest.raises(PunchOutError):
         parse_order_message('<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><cXML>&a;</cXML>')
-    lines = parse_oci({"NEW_ITEM-DESCRIPTION[1]": "Belt", "NEW_ITEM-QUANTITY[1]": "2", "NEW_ITEM-PRICE[1]": "29.70", "NEW_ITEM-PRICEUNIT[1]": "2",
-                       "NEW_ITEM-CURRENCY[1]": "usd", "NEW_ITEM-VENDORMAT[1]": "1A120", "NEW_ITEM-DESCRIPTION[2]": "Zero", "NEW_ITEM-QUANTITY[2]": "0"})
-    assert len(lines) == 1 and lines[0].unit_price == Decimal("14.85") and lines[0].currency == "USD" and lines[0].supplier_part_id == "1A120"
+    lines = parse_oci(
+        {
+            "NEW_ITEM-DESCRIPTION[1]": "Belt",
+            "NEW_ITEM-QUANTITY[1]": "2",
+            "NEW_ITEM-PRICE[1]": "29.70",
+            "NEW_ITEM-PRICEUNIT[1]": "2",
+            "NEW_ITEM-CURRENCY[1]": "usd",
+            "NEW_ITEM-VENDORMAT[1]": "1A120",
+            "NEW_ITEM-DESCRIPTION[2]": "Zero",
+            "NEW_ITEM-QUANTITY[2]": "0",
+        }
+    )
+    assert (
+        len(lines) == 1
+        and lines[0].unit_price == Decimal("14.85")
+        and lines[0].currency == "USD"
+        and lines[0].supplier_part_id == "1A120"
+    )
 
 
 def test_oci_start_gives_a_form(admin: Api) -> None:
-    c = admin.post(f"{API}/supplier-connections", {"connector": "punchout_oci", "settings": {"setup_url": "https://catalog.example/oci", "username": "acme"},
-                                                   "secrets": {"password": "pw"}}).json
+    c = admin.post(
+        f"{API}/supplier-connections",
+        {
+            "connector": "punchout_oci",
+            "settings": {"setup_url": "https://catalog.example/oci", "username": "acme"},
+            "secrets": {"password": "pw"},
+        },
+    ).json
     out = admin.post(f"{API}/punchout/start", {"connection_id": c["id"]}).json
-    assert out["form"]["action"] == "https://catalog.example/oci" and out["form"]["fields"]["HOOK_URL"].startswith("http://mpro.test/api/v1/punchout/return/")
+    assert out["form"]["action"] == "https://catalog.example/oci" and out["form"]["fields"]["HOOK_URL"].startswith(
+        "http://mpro.test/api/v1/punchout/return/"
+    )
 
 
 def test_received_items_update_last_paid_price(admin: Api, app: Any, net: FakeNet) -> None:
-    pid = make_part(app)
-    net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)
-    lk = link(admin, pid, "https://www.grainger.com/product/1A120")
-    with app.app_context():
-        from mpro.extensions import db
-        from mpro.purchasing.hooks import PO_RECEIVED_HOOKS
-        from mpro.purchasing.models import PurchaseOrder, PurchaseOrderLine
-        from mpro.suppliers import services as svc
-        from mpro.suppliers.models import ProductLink
+    from mpro.suppliers import services as svc
+    from tests.test_parts import stocked
+    from tests.test_vendors import vendor
 
-        pl = db.session.get(ProductLink, uuid.UUID(lk["id"]))
-        assert pl is not None and svc.on_po_received in PO_RECEIVED_HOOKS
-        po = PurchaseOrder(org_id=pl.org_id, number=990001, status="approved")
-        db.session.add(po)
-        db.session.flush()
-        line = PurchaseOrderLine(org_id=pl.org_id, purchase_order_id=po.id, part_id=pl.entity_id, part_number="1A120",
-                                 quantity=Decimal("2"), unit_cost=Decimal("13.00"))
-        db.session.add(line)
-        db.session.flush()
-        svc.on_po_received(pl.org_id, po, None, [SimpleNamespace(line_id=line.id, quantity=Decimal("2"), unit_cost=Decimal("13.25"))])
-        db.session.commit()
-    assert admin.get(f"{API}/product-links/{lk['id']}").json["last_paid_price"] == "13.2500"
+    p, _wh = stocked(admin, "2")
+    v = vendor(admin, "Grainger")
+    net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)
+    lk = link(admin, p["id"], "https://www.grainger.com/product/1A120", supplier_sku="1A120")
+    line = admin.get(f"{API}/product-links/{lk['id']}/po-line").json
+    assert line["vendor_id"] == v["id"]  # a vendor named like the supplier
+    assert Decimal(line["quantity"]) == 18  # up to the part's maximum (20) from 2 on hand
+    r = admin.post(f"{API}/product-links/{lk['id']}/reorder", {"quantity": "5"})
+    assert r.status_code == 201, r.json
+    po = admin.get(f"{API}/purchase-orders/{r.json['purchase_order_id']}").json
+    pol = po["lines"][0]
+    if po["status"] != "approved":
+        admin.post(f"{API}/purchase-orders/{po['id']}/approve", {})
+    got = admin.post(f"{API}/purchase-orders/{po['id']}/receive", {"lines": [{"line_id": pol["id"], "quantity": "5", "unit_cost": "13.25"}]})
+    assert got.status_code == 200, got.json
+    with app.app_context():
+        from mpro.purchasing.hooks import PO_RECEIVED_HOOKS
+
+        assert svc.on_po_received in PO_RECEIVED_HOOKS
+    assert admin.get(f"{API}/product-links/{lk['id']}").json["last_paid_price"].startswith("13.25")
 
 
 # ---------------------------------------------------------------- assets (MP-089), search, access
@@ -585,12 +803,29 @@ def test_asset_spare_parts_and_purchased_from(admin: Api, app: Any, net: FakeNet
         db.session.commit()
     net.add("https://www.mcmaster.com/2165K24", PAGE_JSONLD)
     link(admin, pid, "https://www.mcmaster.com/2165K24")
-    link(admin, a["id"], "https://www.grainger.com/product/5Z680", entity_type="asset", role="purchased_from", manual_title="Original unit")
+    link(
+        admin,
+        a["id"],
+        "https://www.grainger.com/product/5Z680",
+        entity_type="asset",
+        role="purchased_from",
+        manual_title="Original unit",
+    )
     link(admin, a["id"], "https://www.zoro.com/i/G7654321/", entity_type="asset")  # spare_part by default
     sp = admin.get(f"{API}/assets/{a['id']}/spare-parts").json
-    assert sp["parts"][0]["name"] == "Filter 20x20" and sp["parts"][0]["on_hand"].startswith("1") and sp["parts"][0]["link"]["supplier_name"] == "McMaster-Carr"
+    assert (
+        sp["parts"][0]["name"] == "Filter 20x20"
+        and sp["parts"][0]["on_hand"].startswith("1")
+        and sp["parts"][0]["link"]["supplier_name"] == "McMaster-Carr"
+    )
     assert sp["purchased_from"][0]["title"] == "Original unit" and len(sp["spare_links"]) == 1
-    assert admin.post(f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/", "role": "spare_part"}).status_code == 422
+    assert (
+        admin.post(
+            f"{API}/product-links",
+            {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/", "role": "spare_part"},
+        ).status_code
+        == 422
+    )
 
 
 def test_search_by_supplier_number(admin: Api, app: Any, net: FakeNet) -> None:
@@ -605,7 +840,10 @@ def test_other_organizations_and_roles(admin: Api, app: Any, net: FakeNet) -> No
     pid = make_part(app)
     net.add("https://www.grainger.com/product/1A120", PAGE_JSONLD)
     lk = link(admin, pid, "https://www.grainger.com/product/1A120")
-    conn = admin.post(f"{API}/supplier-connections", {"connector": "mcmaster", "settings": {"username": "u"}, "secrets": {"password": "p"}}).json
+    conn = admin.post(
+        f"{API}/supplier-connections",
+        {"connector": "mcmaster", "settings": {"username": "u"}, "secrets": {"password": "p"}},
+    ).json
     site = admin.post(f"{API}/supplier-sites", {"name": "Acme", "domains": ["acme.example"]}).json
     a = asset(admin, "Pump 9")
     other = other_org(app)
@@ -617,7 +855,12 @@ def test_other_organizations_and_roles(admin: Api, app: Any, net: FakeNet) -> No
     assert other.get(f"{API}/product-links/{lk['id']}/po-line").status_code == 404
     assert other.get(f"{API}/product-links?entity_type=part&entity_id={pid}").status_code == 404
     assert other.get(f"{API}/product-links/compare?entity_type=part&entity_id={pid}").status_code == 404
-    assert other.post(f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/"}).status_code == 404
+    assert (
+        other.post(
+            f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/"}
+        ).status_code
+        == 404
+    )
     assert other.get(f"{API}/products/{lk['product']['id']}").status_code == 404
     assert other.get(f"{API}/products/{lk['product']['id']}/prices").status_code == 404
     assert other.get(f"{API}/assets/{a['id']}/spare-parts").status_code == 404
@@ -633,27 +876,45 @@ def test_other_organizations_and_roles(admin: Api, app: Any, net: FakeNet) -> No
         assert other.get(lk["product"]["image_url"]).status_code in (403, 404)
     viewer = member(app, "viewer-sup@example.com", "viewer", admin)
     assert viewer.get(f"{API}/product-links?entity_type=part&entity_id={pid}").status_code == 200
-    assert viewer.post(f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/"}).status_code == 403
+    assert (
+        viewer.post(
+            f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G1/"}
+        ).status_code
+        == 403
+    )
     assert viewer.get(f"{API}/product-links/{lk['id']}").json["last_paid_price"] is None  # no cost visibility
     tech = member(app, "tech-sup2@example.com", "technician", admin)
     assert tech.get(f"{API}/supplier-connections").status_code == 403
-    assert tech.post(f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G2/"}).status_code == 201
+    assert (
+        tech.post(
+            f"{API}/product-links", {"entity_type": "part", "entity_id": pid, "url": "https://www.zoro.com/i/G2/"}
+        ).status_code
+        == 201
+    )
 
 
 def test_demo_products(app: Any) -> None:
+    from tests.test_vendors import seed_demo_records
+
+    seed_demo_records(app)  # vendors, parts, purchasing, the way the demo does
     with app.app_context():
-        from mpro.demo import seed_demo  # noqa: F401
+        from sqlalchemy import select
+
+        from mpro.auth.models import User
+        from mpro.demo import DEMO_EMAIL
         from mpro.extensions import db
         from mpro.orgs.models import Organization
         from mpro.suppliers.demo import seed_suppliers
-        from mpro.suppliers.models import Product
+        from mpro.suppliers.models import Product, ProductLink
 
-        org = db.session.query(Organization).first()
-        admin_user = SimpleNamespace(id=None)
-        seed_suppliers(org, admin_user)
+        admin = db.session.scalars(select(User).where(User.email == DEMO_EMAIL)).one()
+        org = db.session.scalars(select(Organization).where(Organization.slug == "acme-demo")).one()
+        seed_suppliers(org, admin)
         db.session.commit()
-        rows = db.session.query(Product).filter(Product.org_id == org.id).all()  # type: ignore[union-attr]
+        rows = db.session.scalars(select(Product).where(Product.org_id == org.id)).all()
         assert any(p.availability == "discontinued" and p.replacement_url for p in rows)
+        links = db.session.scalars(select(ProductLink).where(ProductLink.org_id == org.id)).all()
+        assert {x.role for x in links} >= {"listing", "purchased_from"}
 
 
 def test_base64_cxml_and_quote_helper() -> None:

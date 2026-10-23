@@ -277,7 +277,7 @@ def test_receipt_capture_reading_tax_flag_and_wo_cost(app: Any, admin: Api) -> N
     r = tech.post(f"{API}/finance/receipts/{rec['id']}/attach", {"target": "work_order", "id": wo["id"]})
     assert r.status_code == 200, r.json
     assert r.json["status"] == "matched"
-    costs = admin.get(f"{API}/work-orders/{wo['id']}/costs").json["costs"]
+    costs = admin.get(f"{API}/work-orders/{wo['id']}").json["costs"]["costs"]
     assert [(x["amount_cents"], len(x["receipts"])) for x in costs] == [(4168, 1)], costs
     section = tech.get(f"{API}/finance/work-orders/{wo['id']}/receipts").json["items"]
     assert [x["id"] for x in section] == [rec["id"]]
@@ -577,8 +577,9 @@ def test_vault_search_hold_retention_and_accounting_export(app: Any, admin: Api)
     for fmt, needle in (("qbo", b"Bill No"), ("xero", b"ContactName"), ("netsuite", b"External ID"), ("sage", b"")):
         ex = admin.post(f"{API}/finance/exports", {"kind": "accounting", "month": month, "format": fmt})
         assert ex.status_code == 200, (fmt, ex.json)
-        data = export_bytes(app, ex.json["id"])
-        assert data and needle in data, fmt
+        with zipfile.ZipFile(io.BytesIO(export_bytes(app, ex.json["id"]))) as zf:
+            data = b"".join(zf.read(n) for n in zf.namelist() if n.endswith(".csv"))
+        assert data and needle in data, (fmt, data[:300])
     tech = login(app, TECH)
     assert tech.post(f"{API}/finance/exports", {"kind": "accounting", "month": month}).status_code == 403
 

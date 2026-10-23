@@ -18,9 +18,10 @@ import { AssetForm } from "./AssetForm";
 import { AssetStatusPill, BarChart2, Crumbs, FilesSection, fmtSeconds, HistoryList, Lightbox, TeamChips } from "./shared";
 import { WarrantyFiles } from "./WarrantyFiles";
 import { AssetPackageSuggestions } from "./AssetHub";
+import { SparePartsTab } from "../suppliers/SpareParts";
 
 export const ASSET_TABS = [["details", "Details"], ["work-orders", "Work Orders"], ["insights", "Insights"], ["photos", "Photos"], ["downtime", "Downtime"],
-  ["lifecycle", "Lifecycle"], ["history", "History"]] as const;
+  ["spare-parts", "Spare Parts"], ["lifecycle", "Lifecycle"], ["history", "History"]] as const;
 export type AssetTab = (typeof ASSET_TABS)[number][0];
 
 export function useAsset(id: string | undefined) {
@@ -94,6 +95,7 @@ export function AssetDetailView({ id, tab, onTab }: { id: string; tab: AssetTab;
       {tab === "insights" && <InsightsTab id={a.id} />}
       {tab === "photos" && <PhotosTab id={a.id} />}
       {tab === "downtime" && <DowntimeTab a={a} tz={tz} />}
+      {tab === "spare-parts" && <SparePartsTab assetId={a.id} canEdit={manage} />}
       {tab === "lifecycle" && <LifecycleTab a={a} />}
       {tab === "history" && <HistoryList path={`/assets/${a.id}/history`} tz={tz} />}
 

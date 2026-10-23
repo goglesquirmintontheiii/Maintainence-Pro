@@ -12,6 +12,7 @@ import { useSession } from "../../lib/session";
 import { dateTime, timeAgo } from "../../lib/format";
 import { STATUS_LABEL } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
+import { DropZone } from "../../components/DropZone";
 import { Button, Dropdown, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select, StatusPill } from "../../components/ui";
 import { ProcedureBuilder } from "./Builder";
 import { PreviewForm } from "./Runner";
@@ -297,7 +298,8 @@ function ImportDialog({ onClose, onReady }: { onClose: () => void; onReady: (v: 
           Separate options with <span className="mono">|</span>; a row with type <span className="mono">section</span> starts a section.<br />
           <b>PDF:</b> numbered or bulleted lines become inspection checks or checkboxes, and headings become headings. Review everything before publishing.</p>
         <input ref={ref} type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void send(f); }} />
-        <div><Button onClick={() => ref.current?.click()} disabled={busy}><FileUp size={15} />{busy ? "Reading…" : "Choose a file"}</Button></div>
+        <DropZone multiple={false} accept=".csv,.txt,.pdf,text/csv,application/pdf" disabled={busy} label="Drop the file to read it" onFiles={(fs) => void send(fs[0])}>
+          <div className="dropzone small"><FileUp size={18} className="faint" /><span>Drag a CSV or PDF here, or <button type="button" className="linkbtn" onClick={() => ref.current?.click()} disabled={busy}>{busy ? "reading…" : "choose a file"}</button></span></div></DropZone>
         {err && <div className="banner warning small">{err}</div>}
         {res && <>
           <Field label="Name">{(id) => <Input id={id} value={res.name} maxLength={255} onChange={(e) => setRes({ ...res, name: e.target.value })} />}</Field>

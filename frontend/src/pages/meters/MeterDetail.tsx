@@ -11,6 +11,7 @@ import { toLocalInput } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
 import { Button, Dropdown, EmptyState, ListSkeleton, Modal, Pill } from "../../components/ui";
 import { ClearableDate } from "../../components/assetPickers";
+import { DropZone } from "../../components/DropZone";
 import { LabelDialog } from "../../components/LabelDialog";
 import { useFileViewer, type ViewerFile } from "../../components/FileViewer";
 import { MeterChart, fmtNum } from "./MeterChart";
@@ -189,14 +190,14 @@ function RecordReading({ meter, onSaved }: { meter: MeterDetailT; onSaved: () =>
         </label>
         <Button type="submit" variant="primary" disabled={!value.trim() || save.isPending || busy}>{save.isPending ? "Saving…" : "Record"}</Button>
       </div>
-      <div className="mread-more">
+      <DropZone className="mread-more" accept="image/*" multiple={false} label="Drop a photo of the meter" disabled={busy} onFiles={(fs) => void pick(fs[0])}>
         <ClearableDate type="datetime-local" label="time" aria-label="Reading time (leave empty for now)" value={when} max={toLocalInput(new Date().toISOString())} onChange={setWhen} />
         <input className="input" placeholder="Note (optional)" aria-label="Note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
         <input ref={fileIn} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
         {photo ? <span className="chip">{photo.thumb_url && <img src={photo.thumb_url} alt="" className="mread-thumb" />}{photo.name}
           <Button variant="ghost" size="sm" icon aria-label="Remove photo" onClick={() => setPhoto(null)}><X size={12} /></Button></span>
           : <Button onClick={() => fileIn.current?.click()} disabled={busy}><Camera size={15} />{busy ? "Uploading…" : "Photo"}</Button>}
-      </div>
+      </DropZone>
       {!when && <div className="small faint">Leave the time empty to record it now.</div>}
       {err && <div className="small" role="alert" style={{ color: "var(--c-danger)" }}>{err}</div>}
     </form>

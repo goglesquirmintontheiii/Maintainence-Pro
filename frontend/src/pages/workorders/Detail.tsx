@@ -19,6 +19,7 @@ import { AssigneeChips, CategoryChips, MentionBox, RichText, SignaturePad } from
 import { fromDetail, WorkOrderForm } from "./Form";
 import { ASSET_STATUS_LABEL } from "../../lib/assets";
 import { FileViewer } from "../../components/FileViewer";
+import { DropZone } from "../../components/DropZone";
 import { ProcedureRuns } from "../procedures/Runner";
 import { offerCloseSubs, RecurrenceChip, SubRollup } from "../pm/WOParts";
 import { WOPartsSection } from "../parts/WOParts";
@@ -274,7 +275,7 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
   const sumRule = done ? s?.completion_summary : "none";
   const ok = (!done || (!needSig || sig) && (sumRule !== "mandatory" || summary.trim())) && (rule !== "mandatory" || comment.trim());
   const subs = wo.sub_statuses?.[target] ?? [];
-  const pick = async (fl: FileList | null) => { for (const f of Array.from(fl ?? [])) { try { const up = await upload(f); setFiles((x) => [...x, up]); } catch (e) { toast((e as ApiError).message, { kind: "error" }); } } };
+  const pick = async (fl: FileList | File[] | null) => { for (const f of Array.from(fl ?? [])) { try { const up = await upload(f); setFiles((x) => [...x, up]); } catch (e) { toast((e as ApiError).message, { kind: "error" }); } } };
   const title = done ? `Complete #${wo.number}` : target === "canceled" ? `Cancel #${wo.number}` : `${STATUS_LABEL[target]} · #${wo.number}`;
   return (
     <Modal title={title} onClose={onClose} width={560}
@@ -289,7 +290,7 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
       {done && sumRule !== "none" && <Field label={"Completion summary" + (sumRule === "mandatory" ? " *" : " (optional)")}>
         {(id) => <textarea id={id} className="textarea" value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus placeholder="What was done and anything the next person should know" />}</Field>}
       {(done || target === "canceled") && <div className="field"><span className="label">{done ? "After photos and files (optional)" : "Attachments (optional)"}</span>
-        <label className="dropzone small"><ImagePlus size={18} className="faint" /><span>Add files</span><input type="file" multiple hidden onChange={(e) => void pick(e.target.files)} /></label>
+        <DropZone onFiles={(fs) => void pick(fs)}><label className="dropzone small"><ImagePlus size={18} className="faint" /><span>Add files or drag them here</span><input type="file" multiple hidden onChange={(e) => void pick(e.target.files)} /></label></DropZone>
         {files.length > 0 && <div className="row wrap">{files.map((f) => <span key={f.id} className="chip">{f.name}</span>)}</div>}</div>}
       {done && (s?.require_signature || wo.signature) && (wo.signature
         ? <p className="small muted">Already signed by {wo.signature.name}.</p>
@@ -331,7 +332,7 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
   const [busy, setBusy] = useState(0);
   const [view, setView] = useState<FileItem | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const add = async (fl: FileList | null, role = "file") => {
+  const add = async (fl: FileList | File[] | null, role = "file") => {
     for (const f of Array.from(fl ?? [])) {
       setBusy((n) => n + 1);
       try { await upload(f, { entity_type: "work_order", entity_id: wo.id, role }); } catch (e) { toast((e as ApiError).message, { kind: "error" }); }
@@ -352,7 +353,7 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
   };
   if (!wo.attachments.length && !editable) return null;
   return (
-    <section onDragOver={(e) => { if (editable) e.preventDefault(); }} onDrop={(e) => { if (editable) { e.preventDefault(); void add(e.dataTransfer.files); } }}>
+    <DropZone disabled={!editable} onFiles={(fs) => void add(fs)}><section>
       <div className="row" style={{ justifyContent: "space-between" }}><h3 className="sec-h">Pictures and files {wo.attachments.length > 0 && <span className="faint">({wo.attachments.length})</span>}</h3>
         {editable && <Button size="sm" variant="ghost" onClick={() => input.current?.click()} disabled={busy > 0}><Paperclip size={14} />{busy ? `Uploading ${busy}…` : "Add"}</Button>}
         <input ref={input} type="file" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} /></div>
@@ -374,7 +375,7 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
           ? (f.id === coverId ? <span className="small" style={{ color: "var(--c-viewer-muted)" }}>Work order image</span>
             : <Button size="sm" className="viewer-btn" aria-label="Use as work order image" title="Use as work order image" onClick={() => void setCover(f.id)}><ImagePlus size={14} /><span className="desktop-only">Use as work order image</span></Button>)
           : null} />}
-    </section>
+    </section></DropZone>
   );
 }
 
@@ -479,8 +480,9 @@ function CostModal({ wo, types, onClose, onDone }: { wo: WODetail; types: string
         <Field label="Type">{(id) => <Select id={id} value={f.cost_type} onChange={(e) => setF({ ...f, cost_type: e.target.value })}>{types.map((t) => <option key={t}>{t}</option>)}</Select>}</Field>
         <Field label="Description" className="full">{(id) => <Input id={id} value={f.description} maxLength={500} placeholder="e.g. Contractor call-out" onChange={(e) => setF({ ...f, description: e.target.value })} />}</Field>
       </div>
-      <label className="dropzone small"><Paperclip size={16} className="faint" />Attach receipts<input type="file" multiple hidden accept="image/*,.pdf"
-        onChange={async (e) => { for (const x of Array.from(e.target.files ?? [])) { try { const up = await upload(x); setReceipts((r) => [...r, up]); } catch (er) { toast((er as ApiError).message, { kind: "error" }); } } }} /></label>
+      <DropZone accept="image/*,.pdf" onFiles={async (fs) => { for (const x of fs) { try { const up = await upload(x); setReceipts((r) => [...r, up]); } catch (er) { toast((er as ApiError).message, { kind: "error" }); } } }}>
+      <label className="dropzone small"><Paperclip size={16} className="faint" />Attach receipts or drag them here<input type="file" multiple hidden accept="image/*,.pdf"
+        onChange={async (e) => { for (const x of Array.from(e.target.files ?? [])) { try { const up = await upload(x); setReceipts((r) => [...r, up]); } catch (er) { toast((er as ApiError).message, { kind: "error" }); } } }} /></label></DropZone>
       {receipts.length > 0 && <div className="row wrap">{receipts.map((r) => <span key={r.id} className="chip">{r.name}</span>)}</div>}
     </Modal>
   );
@@ -594,14 +596,14 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
         <div ref={end} />
       </div>
       {can("wo.comment") && !wo.deleted && (
-        <div className="comment-box">
+        <DropZone className="comment-box" label="Drop files to attach them" onFiles={async (fs) => { for (const x of fs) { try { const up = await upload(x); setFiles((f) => [...f, up]); } catch (er) { err(er); } } }}>
           <MentionBox value={body} onChange={setBody} options={options} placeholder="Write a comment… use @ to mention someone" onSubmit={() => { if (body.trim() || files.length) post.mutate(); }} />
           {files.length > 0 && <div className="row wrap">{files.map((f) => <span key={f.id} className="chip">{f.name}<button type="button" className="linkbtn" aria-label={`Remove ${f.name}`} onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}><X size={12} /></button></span>)}</div>}
           <div className="row"><label className="btn ghost sm" aria-label="Attach files"><Paperclip size={14} /><input type="file" multiple hidden onChange={async (e) => {
             for (const x of Array.from(e.target.files ?? [])) { try { const up = await upload(x); setFiles((f) => [...f, up]); } catch (er) { err(er); } } e.target.value = ""; }} /></label>
             <span className="small faint grow">Ctrl + Enter to send{options?.settings.mention_assigns ? " · mentioning someone assigns them" : ""}</span>
             <Button size="sm" variant="primary" disabled={(!body.trim() && !files.length) || post.isPending} onClick={() => post.mutate()}><Send size={14} />Send</Button></div>
-        </div>)}
+        </DropZone>)}
       {viewing && <FileViewer files={viewing.files} index={Math.max(0, viewing.files.findIndex((f) => f.id === viewing.id))} onClose={() => setViewing(null)} />}
     </section>
   );

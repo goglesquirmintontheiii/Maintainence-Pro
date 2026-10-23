@@ -14,6 +14,7 @@ import { useAssetList, useAssetOptions } from "../../lib/assets";
 import { ProcedurePicker } from "../procedures/Picker";
 import { applyRepeat, repeatFrom, RepeatField, type RepeatValue } from "../pm/WOParts";
 import { NumberInput } from "../../components/NumberInput";
+import { DropZone } from "../../components/DropZone";
 import { WOFormParts, type PartDraft } from "../parts/WOParts";
 import { WOVendorsField } from "./WorkOrderVendors";
 import { saveWOCustomer, useShowCustomerField, useWOCustomer, WOCustomerPicker } from "../vendors/WOCustomer";
@@ -121,7 +122,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     },
   });
 
-  const onFiles = async (list: FileList | null) => {
+  const onFiles = async (list: FileList | File[] | null) => {
     if (!list) return;
     for (const file of Array.from(list)) {
       setUploading((n) => n + 1);
@@ -168,11 +169,11 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
         onChange={(e) => set({ description: e.target.value })} />}</Field>
       {!edit && (
         <div className="field"><span className="label">Pictures and files{req("attachment")}</span>
-          <div className="dropzone" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void onFiles(e.dataTransfer.files); }}>
+          <DropZone onFiles={(fs) => void onFiles(fs)} accept={WO_FILE_ACCEPT}><div className="dropzone">
             <ImagePlus size={20} className="faint" /><span>Drag photos or files here, or <button type="button" className="linkbtn" onClick={() => fileInput.current?.click()}>browse</button></span>
             <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void onFiles(e.target.files); e.target.value = ""; }}
-              accept="image/*,.pdf,.doc,.docx,.xlsx,.csv,.txt,.mp4,.mov,.heic" />
-          </div>
+              accept={WO_FILE_ACCEPT} />
+          </div></DropZone>
           {(files.length > 0 || uploading > 0) && <div className="row wrap">{files.map((x) => (
             <span key={x.id} className="chip">{x.is_image ? <ImagePlus size={13} /> : <FileText size={13} />}{x.name}
               <button type="button" className="linkbtn" aria-label={`Remove ${x.name}`} onClick={() => setFiles((fs) => fs.filter((y) => y.id !== x.id))}><X size={12} /></button></span>))}
@@ -244,6 +245,8 @@ export function CustomInput({ def, value, onChange }: { def: CustomFieldDef; val
 
 /** "Mark the asset as…" on create/edit (MaintainX asks for the asset's status when work starts). */
 type StatusValue = { status: string; reason?: string; downtime_type?: string; asset_id?: string };
+const WO_FILE_ACCEPT = "image/*,.pdf,.doc,.docx,.xlsx,.csv,.txt,.mp4,.mov,.heic";
+
 export function AssetStatusField({ value, onChange, reasons, assets }: {
   value: StatusValue | null; onChange: (v: StatusValue | null) => void;
   reasons?: { id: string; label: string; reasons: string[] }[];

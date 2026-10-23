@@ -7,6 +7,7 @@ import { dateTime } from "../../lib/format";
 import { useWOOptions } from "../../lib/wo";
 import { SignaturePad } from "../../components/pickers";
 import { Button, Input } from "../../components/ui";
+import { DropZone } from "../../components/DropZone";
 import { FIELD_LABEL, RESULT_LABEL, type Answer, type Item } from "./types";
 
 export type SaveBody = Record<string, unknown>;
@@ -83,15 +84,16 @@ function PhotoButton({ label, onUploaded, accept = "image/*" }: { label: string;
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  return <>
-    <input ref={ref} type="file" accept={accept} hidden multiple={false} onChange={async (e) => {
-      const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
-      setBusy(true); setErr("");
-      try { onUploaded(await upload(f)); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
-    }} />
+  const go = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true); setErr("");
+    try { onUploaded(await upload(f)); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+  };
+  return <DropZone className="row-inline" multiple={false} accept={accept} disabled={busy} label="Drop to add" onFiles={(fs) => void go(fs[0])}>
+    <input ref={ref} type="file" accept={accept} hidden multiple={false} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; void go(f); }} />
     <button type="button" className="linkbtn small" disabled={busy} onClick={() => ref.current?.click()}><Camera size={13} />{busy ? "Uploading…" : label}</button>
     {err && <span className="small" style={{ color: "var(--c-danger)" }}>{err}</span>}
-  </>;
+  </DropZone>;
 }
 
 function Choice({ options, value, onPick, disabled, tone }: { options: { key: string; label: string; icon?: React.ReactNode }[]; value: unknown; onPick: (k: string) => void; disabled?: boolean; tone?: boolean }) {

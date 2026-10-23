@@ -6,6 +6,7 @@ import "../../styles/scan.css";
 import { ApiError } from "../../lib/api";
 import type { ScanResult } from "../../lib/assets";
 import { Button, Input } from "../../components/ui";
+import { DropZone } from "../../components/DropZone";
 import { ScanOutcome, resolveScan } from "./resolve";
 import { cameraError, decodeImage, startScanning, type ScanSession } from "./scanner";
 
@@ -89,7 +90,8 @@ export function ScanPage() {
           <Button type="submit" variant="primary" disabled={!typed.trim() || busy}>Find</Button>
         </div>
         <input ref={photoIn} type="file" accept="image/*" hidden onChange={(e) => { void fromPhoto(e.target.files?.[0]); e.target.value = ""; }} />
-        <Button onClick={() => photoIn.current?.click()} disabled={busy}><ImageUp size={15} />Read a code from a photo</Button>
+        <DropZone multiple={false} accept="image/*" disabled={busy} label="Drop a photo of the code" onFiles={(fs) => void fromPhoto(fs[0])}>
+          <Button onClick={() => photoIn.current?.click()} disabled={busy}><ImageUp size={15} />Read a code from a photo</Button></DropZone>
       </form>
     </div>
   );

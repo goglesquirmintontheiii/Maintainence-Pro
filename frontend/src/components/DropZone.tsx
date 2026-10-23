@@ -24,7 +24,9 @@ export function DropZone({ onFiles, accept, maxBytes, multiple = true, disabled,
   const [over, setOver] = useState(false);
   const depth = useRef(0);
   const { toast } = useToast();
-  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  // only real file drags, and only on this zone's own DOM: React bubbles events out of portals (dialogs opened from
+  // inside the zone), which must not count as dropping here
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files") && e.currentTarget.contains(e.target as Node);
 
   const take = (list: FileList) => {
     const limit = maxBytes ?? getMaxUpload() * 1024 * 1024;

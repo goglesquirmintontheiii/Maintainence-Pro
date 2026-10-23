@@ -6,11 +6,14 @@ import { api, ApiError, upload, type FileItem } from "../../lib/api";
 import { useToast } from "../../components/Toast";
 import { Button } from "../../components/ui";
 import { Lightbox } from "./shared";
+import { DropZone } from "../../components/DropZone";
 
 /**
  * With `assetId`, files upload straight onto the saved asset and removing unlinks them.
  * Without it (a new asset), the uploaded files are kept in `files`/`setFiles` and sent as `warranty_file_ids` on create.
  */
+const WARRANTY_ACCEPT = "image/*,application/pdf,.doc,.docx,.txt";
+
 export function WarrantyFiles({ files, setFiles, assetId, editable = true }: {
   files: FileItem[]; setFiles?: (f: FileItem[]) => void; assetId?: string; editable?: boolean;
 }) {
@@ -20,7 +23,7 @@ export function WarrantyFiles({ files, setFiles, assetId, editable = true }: {
   const [busy, setBusy] = useState("");
   const [view, setView] = useState<FileItem | null>(null);
   const refresh = () => assetId && void qc.invalidateQueries({ queryKey: ["asset", assetId] });
-  const add = async (list: FileList | null) => {
+  const add = async (list: FileList | File[] | null) => {
     if (!list) return;
     const out = [...files];
     for (const f of Array.from(list)) {
@@ -37,7 +40,7 @@ export function WarrantyFiles({ files, setFiles, assetId, editable = true }: {
     catch (e) { toast((e as ApiError).message, { kind: "error" }); }
   };
   return (
-    <div className="full stack" style={{ gap: 8 }}>
+    <DropZone className="full stack" disabled={!editable} accept={WARRANTY_ACCEPT} onFiles={(fs) => void add(fs)}>
       {files.length > 0 && <div className="files">{files.map((f) => (
         <div key={f.id + (f.link_id ?? "")} className="file-row">
           <FileText size={14} className="faint" aria-hidden="true" />
@@ -46,11 +49,11 @@ export function WarrantyFiles({ files, setFiles, assetId, editable = true }: {
           {editable && <Button size="sm" variant="ghost" icon aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={14} /></Button>}
         </div>))}</div>}
       {editable && <>
-        <input ref={input} type="file" multiple hidden accept="image/*,application/pdf,.doc,.docx,.txt" onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />
+        <input ref={input} type="file" multiple hidden accept={WARRANTY_ACCEPT} onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />
         <div><Button size="sm" onClick={() => input.current?.click()} disabled={!!busy}><Paperclip size={14} />{busy ? `Uploading ${busy}…` : "Add warranty document"}</Button></div>
       </>}
       {!editable && files.length === 0 && <span className="small faint">No warranty documents.</span>}
       {view && <Lightbox file={view} files={files} onClose={() => setView(null)} />}
-    </div>
+    </DropZone>
   );
 }

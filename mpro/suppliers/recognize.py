@@ -163,7 +163,8 @@ def clean_url(raw: str) -> str:
     except ValueError:
         raise RuleError("That link isn't valid.", 422) from None
     host = parts.hostname or ""
-    if parts.scheme.lower() not in ("http", "https") or not host or ("." not in host and ":" not in host and host != "localhost"):
+    dotless = "." not in host and ":" not in host and host != "localhost"
+    if parts.scheme.lower() not in ("http", "https") or not host or dotless:
         raise RuleError("Paste a web link that starts with http:// or https://.", 422)
     if len(raw) > 1000:
         raise RuleError("That link is too long.", 422)
