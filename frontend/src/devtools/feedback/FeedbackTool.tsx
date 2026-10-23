@@ -9,7 +9,7 @@ import { appInfo, encode, screenshot, type Capture, type Kind, type Priority, ty
 type Mode = "off" | "pick" | "busy" | "form";
 type Target =
   | { type: "element"; el: Element; info: ElementInfo; shot?: Shot }
-  | { type: "area"; area: Box; shot: Shot; elements: ElementInfo[] };
+  | { type: "area"; area: Box; shot: Shot; elements: ElementInfo[]; containers: ElementInfo[]; notes: string[] };
 
 const KINDS: [Kind, string][] = [["bug", "Bug"], ["feature", "Feature"], ["change", "Change"], ["note", "Note"]];
 const PRIOS: [Priority, string][] = [["high", "High"], ["med", "Medium"], ["low", "Low"], ["none", "None"]];
@@ -46,12 +46,14 @@ export function FeedbackTool() {
   const trail = useRef<Element[]>([]); // for ↓ after ↑ (back down to the child you came from)
   const codeRef = useRef<HTMLTextAreaElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const lastText = useRef("");
 
   const reset = useCallback(() => {
     setHover(null); setDrag(null); setTarget(null); setCode(""); setCopied(false); setError("");
     down.current = null; trail.current = [];
   }, []);
-  const exit = useCallback(() => { reset(); setText(""); setMode("off"); }, [reset]);
+  // Leaving keeps a half-written note for next time; it's cleared once a code has been made from it.
+  const exit = useCallback(() => { reset(); setMode("off"); }, [reset]);
   const startPick = useCallback(() => { reset(); setMode("pick"); }, [reset]);
 
   // the hotkey works everywhere, even while typing in a field
@@ -59,7 +61,7 @@ export function FeedbackTool() {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && !e.altKey && (e.code === "KeyF" || e.key.toLowerCase() === "f")) {
         e.preventDefault(); e.stopPropagation();
-        setMode((m) => { if (m === "off") { reset(); return "pick"; } reset(); setText(""); return "off"; });
+        setMode((m) => { reset(); return m === "off" ? "pick" : "off"; });
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -87,7 +89,7 @@ export function FeedbackTool() {
     try {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // let the highlight disappear
       const shot = await screenshot(area);
-      setTarget({ type: "area", area, shot, elements: elementsIn(area, shot.scale) });
+      setTarget({ type: "area", area, shot, ...elementsIn(area, shot.scale) });
       setMode("form");
     } catch (e) {
       setError("Couldn't take the screenshot: " + ((e as Error).message || e));
@@ -115,6 +117,15 @@ export function FeedbackTool() {
   }, [mode, hover, exit, pickElement]);
 
   useEffect(() => { if (mode === "form") setTimeout(() => textRef.current?.focus(), 0); }, [mode]);
+
+  // Esc closes the panel wherever focus is (after "Create code" the button that had focus is gone)
+  useEffect(() => {
+    if (mode !== "form") return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); exit(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, exit]);
+  useEffect(() => { if (code) setTimeout(() => codeRef.current?.focus(), 0); }, [code]);
 
   const under = (x: number, y: number) => document.elementsFromPoint(x, y).find((e) => !isOwn(e) && e !== document.documentElement && e !== document.body) ?? null;
 
@@ -169,14 +180,20 @@ export function FeedbackTool() {
     if (!text.trim()) { textRef.current?.focus(); return; }
     setError("");
     const cap: Capture = {
-      v: 1, tool: "mpro-feedback", created: new Date().toISOString(), kind, priority: prio, text: text.trim(),
+      v: 2, tool: "mpro-feedback", created: new Date().toISOString(), kind, priority: prio, text: text.trim(),
       app: await appInfo(), page: pageContext(), target: target.type,
     };
     if (target.type === "element") { cap.element = target.info; if (target.shot) cap.shot = target.shot; }
-    else { cap.area = target.area; cap.shot = target.shot; cap.elements = target.elements; }
+    else {
+      cap.area = target.area; cap.shot = target.shot; cap.elements = target.elements;
+      if (target.containers.length) cap.containers = target.containers;
+      if (target.notes.length) cap.notes = target.notes;
+    }
+    lastText.current = text;
     try {
       const s = await encode(cap);
       setCode(s);
+      setText("");
       setTimeout(() => copy(s), 0);
     } catch (e) { setError("Couldn't build the code: " + ((e as Error).message || e)); }
   };
@@ -222,8 +239,7 @@ export function FeedbackTool() {
           {area && <div className="fb-hl fb-picked" style={{ left: area.x, top: area.y, width: area.w, height: area.h }} />}
           <div className="fb-panel" role="dialog" aria-label="Feedback capture"
             onKeyDown={(e) => {
-              if (e.key === "Escape") { e.preventDefault(); exit(); }
-              else if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !code) { e.preventDefault(); void create(); }
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !code) { e.preventDefault(); void create(); }
             }}>
             <div className="fb-head">
               <b>{target.type === "area" ? "Area" : "Element"} captured</b>
@@ -234,6 +250,7 @@ export function FeedbackTool() {
               <div className="fb-target">
                 <code>{shortLabel(target.el)}</code>
                 {target.info.name && <div className="fb-name">“{target.info.name}”</div>}
+                {(target.info.column || target.info.row) && <div className="fb-dim">{[target.info.row && "Row: " + target.info.row, target.info.column && "Column: " + target.info.column].filter(Boolean).join(" · ")}</div>}
                 {target.info.sections?.length ? <div className="fb-dim">{[pageContext().heading, ...sectionsOf(target.el)].filter(Boolean).join(" › ")}</div> : null}
                 <label className="fb-check">
                   <input type="checkbox" checked={!!target.shot} onChange={(e) => void addElementShot(e.target.checked)} />
@@ -250,7 +267,11 @@ export function FeedbackTool() {
                       style={{ left: `${(el.box.x / target.shot.w) * 100}%`, top: `${(el.box.y / target.shot.h) * 100}%` }}>{el.n}</span>
                   ))}
                 </div>
-                <div className="fb-dim">{target.elements.length} labelled element{target.elements.length === 1 ? "" : "s"} · {target.shot.w}×{target.shot.h}px</div>
+                <div className="fb-dim">
+                  {target.elements.length} labelled element{target.elements.length === 1 ? "" : "s"} · {target.shot.w}×{target.shot.h}px
+                  {target.containers.length ? " · in " + target.containers.map((c) => c.name || c.tag).slice(-2).join(" › ") : ""}
+                </div>
+                {target.notes.map((n) => <div key={n} className="fb-err">{n}</div>)}
               </div>
             )}
 
@@ -280,8 +301,8 @@ export function FeedbackTool() {
                 </div>
                 <textarea ref={codeRef} className="fb-code" readOnly rows={4} value={code} onFocus={(e) => e.currentTarget.select()} aria-label="Capture code" />
                 <div className="fb-actions">
-                  <button type="button" onClick={() => setCode("")}>Edit note</button>
-                  <button type="button" onClick={() => { setText(""); startPick(); }}>New capture</button>
+                  <button type="button" onClick={() => { setText(lastText.current); setCode(""); }}>Edit note</button>
+                  <button type="button" onClick={startPick}>New capture</button>
                   <button type="button" className="fb-primary" onClick={() => void copy(code)}>{copied ? "Copy again" : "Copy"}</button>
                 </div>
               </>

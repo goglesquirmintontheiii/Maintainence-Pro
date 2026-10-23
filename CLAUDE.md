@@ -47,8 +47,9 @@ cd frontend && npm run build             # typecheck + production build
 
 ## Temporary features
 
-- Ctrl+Shift+F feedback capture (`frontend/src/devtools/feedback/`, added 0.4.2): remove by 1.9.0 (2.0.0 at the latest).
-  Steps in its README; `tests/test_temporary_features.py` fails when the version reaches the deadline.
+- Ctrl+Shift+F feedback capture (`frontend/src/devtools/feedback/`, added 0.4.2): remove by 1.9.0 (2.0.0 at the latest;
+  checklist item MP-120). Steps in its README; `tests/test_temporary_features.py` fails when the version reaches the
+  deadline. Capture codes pasted into a chat: `python scripts/decode_capture.py CODE_OR_FILE`.
 
 ## Conventions that matter
 

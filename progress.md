@@ -1,9 +1,41 @@
-# MPro 0.4.0 — Preventive maintenance, procedures & automations (and 0.4.1, 0.4.2)
+# MPro 0.4.0 — Preventive maintenance, procedures & automations (and 0.4.1–0.4.3)
 
 **Status: released** · Checklist milestone 0.4.0 · Started 2026-10-22 · Released 2026-10-22
 
 Scheduled and meter-triggered work (repeating work orders and Maintenance Plans with nested PMs), the procedure
 builder with every MaintainX field type, and automations. Also the changes requested in the 0.3.0 review.
+
+## 0.4.3 (2026-10-23): feedback capture fixes
+
+Follow-up to 0.4.2's temporary Ctrl+Shift+F tool after testing it with real captures. Removal is now checklist item
+**MP-120** in the 2.0.0 milestone (due around 1.9.0).
+
+- **Shorter codes (about 30–40% for the same area).** New `MPRO-FB2:` format: the screenshot travels as raw bytes
+  instead of base64 inside the JSON, the whole thing is deflate-compressed and written in base85 (6% shorter than base64;
+  its alphabet leaves out `" & ' * < > \ _` and the backtick so it survives Markdown and chat boxes). Screenshots are
+  1.5× instead of 2× at WebP quality 0.72 instead of 0.86, which is still sharp enough for 1px borders and small text.
+  Your four test captures: 16,653 → 11,489, 13,333 → 8,231, 6,353 → 4,043 and 2,877 → 2,033 characters.
+  The checklist still reads 0.4.2's `MPRO-FB1:` codes.
+- **Table cells say which column and row they're in** (from the header and the row's first real cell, skipping
+  checkboxes), for element and area captures, in HTML tables and ARIA grids (the PM calendar gives the weekday).
+- **Scrolled lists:** the screenshot showed the top of a scrolled list instead of what was on screen. Fixed.
+- **Hidden elements:** area captures listed things hidden behind a panel (the work order details under the edit panel).
+  They're left out now; elements cut by the edge of the area are still listed.
+- **Panels and dialogs that hold the whole area** are listed once as "inside" instead of as a numbered element that
+  covers the whole screenshot.
+- Areas that include an embedded document (PDF frame) get a note that its contents aren't in the screenshot.
+- **Esc** didn't close the panel after "Create code" when the copy worked (focus had left the panel). Fixed; focus now
+  goes to the code.
+- A half-written note is kept if you close the panel or press Ctrl+Shift+F, and cleared once a code is made from it.
+- Removed the page dimming around the picked area, which never showed.
+- New `scripts/decode_capture.py` unpacks codes pasted into a chat (summary, JSON and screenshot), for both formats.
+
+Screenshots:
+- [Picking a table cell](docs/screenshots/0.4.3/01-pick-table-cell.png)
+- [Its row and column in the capture](docs/screenshots/0.4.3/02-table-cell-row-and-column.png)
+- [Area over a scrolled list](docs/screenshots/0.4.3/03-scrolled-list-area.png)
+- [The shorter code](docs/screenshots/0.4.3/04-shorter-code.png)
+- [Checklist: captures with row and column](docs/screenshots/0.4.3/05-checklist-row-and-column.png)
 
 ## 0.4.2 (2026-10-22): temporary feedback capture
 

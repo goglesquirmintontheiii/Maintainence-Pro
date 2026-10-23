@@ -312,11 +312,47 @@ def capture_042(ctx: Any, shot: Any, url: str) -> None:
     c.close()
 
 
+def capture_043(ctx: Any, shot: Any, url: str) -> None:
+    """0.4.3: feedback capture fixes (remove these with the tool, by 1.9.0)."""
+    note = "What's the bug, feature, change or note?"
+    c, pg = ctx("light")
+    login(pg, url)
+    pg.goto(url + "/categories")
+    pg.wait_for_timeout(1200)
+    pg.keyboard.press("Control+Shift+F")
+    cell = pg.locator("table tbody tr").nth(1).locator("td").nth(2).bounding_box()
+    assert cell
+    pg.mouse.move(cell["x"] + cell["width"] / 2, cell["y"] + cell["height"] / 2)
+    shot(pg, "01-pick-table-cell", 300)
+    pg.mouse.click(cell["x"] + cell["width"] / 2, cell["y"] + cell["height"] / 2)
+    pg.get_by_label(note).fill("Link this count to a filtered work order list")
+    pg.get_by_role("radio", name="Feature").click()
+    shot(pg, "02-table-cell-row-and-column", 300)
+    pg.keyboard.press("Escape")
+    pg.goto(url + "/work-orders?view=todo")
+    pg.wait_for_timeout(1500)
+    pg.evaluate(
+        """() => { const el = [...document.querySelectorAll('*')].find(e => /(auto|scroll)/.test(getComputedStyle(e).overflowY)
+          && e.scrollHeight > e.clientHeight + 200 && e.querySelector('.wo-row')); if (el) el.scrollTop = 400; }"""
+    )
+    pg.keyboard.press("Control+Shift+F")
+    pg.mouse.move(260, 300)
+    pg.mouse.down()
+    pg.mouse.move(820, 600, steps=10)
+    pg.mouse.up()
+    pg.get_by_label(note).fill("Scrolled list: the screenshot shows what's on screen")
+    shot(pg, "03-scrolled-list-area", 300)
+    pg.keyboard.press("Control+Enter")
+    shot(pg, "04-shorter-code", 600)
+    pg.keyboard.press("Escape")
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
     ap.add_argument("--out", default="docs/screenshots/0.4.0")
-    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2"))
+    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2", "0.4.3"))
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -337,8 +373,9 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
-        if a.release in ("0.3.0", "0.4.0", "0.4.2"):
-            {"0.3.0": capture_030, "0.4.0": capture_040, "0.4.2": capture_042}[a.release](ctx, shot, url)
+        if a.release in ("0.3.0", "0.4.0", "0.4.2", "0.4.3"):
+            runs = {"0.3.0": capture_030, "0.4.0": capture_040, "0.4.2": capture_042, "0.4.3": capture_043}
+            runs[a.release](ctx, shot, url)
             b.close()
             if errors:
                 print("Console errors:\n" + "\n".join(errors))

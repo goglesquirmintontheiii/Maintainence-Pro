@@ -18,7 +18,7 @@
 .fb-hl { position: fixed; z-index: calc(var(--fb-z) + 1); pointer-events: none; border: 2px solid var(--fb-hl); background: color-mix(in srgb, var(--fb-hl) 12%, transparent); border-radius: 2px; }
 .fb-area { border-style: dashed; }
 .fb-area span { position: absolute; right: 0; bottom: -22px; font: var(--fw-semibold) var(--fs-xs) var(--font-mono); background: var(--fb-hl); color: #fff; padding: 1px 6px; border-radius: var(--r-sm); }
-.fb-picked { background: transparent; box-shadow: 0 0 0 9999px rgba(10, 15, 25, .28); }
+.fb-picked { background: transparent; }
 .fb-tip {
   position: fixed; z-index: calc(var(--fb-z) + 2); pointer-events: none; display: flex; gap: var(--s-2); align-items: center; max-width: 320px; white-space: nowrap; overflow: hidden;
   padding: 3px var(--s-2); border-radius: var(--r-sm); background: var(--c-text); color: var(--c-panel); font-size: var(--fs-xs); box-shadow: var(--shadow-2);

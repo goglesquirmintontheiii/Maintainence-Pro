@@ -5,7 +5,7 @@ export type Box = { x: number; y: number; w: number; h: number };
 
 export type ElementInfo = {
   selector: string;          // a CSS selector that finds this element on the page
-  path: string;              // readable ancestry, e.g. "main.page > section.card > button.btn"
+  path?: string;             // readable ancestry, e.g. "main.page > section.card > button.btn"
   tag: string;
   id?: string;
   classes?: string[];
@@ -14,7 +14,9 @@ export type ElementInfo = {
   text?: string;             // visible text (trimmed)
   attrs?: Record<string, string>;
   sections?: string[];       // headings of the sections it sits in, outermost first
-  rect: Box;                 // CSS pixels in the viewport
+  rect?: Box;                // CSS pixels in the viewport (element captures)
+  column?: string;           // in a table or grid: its column header ("Work orders")
+  row?: string;              // …and its row's label ("Damage")
   style?: Record<string, string>;
   html?: string;             // outerHTML, shortened
   within?: { selector: string; tag: string; name?: string; href?: string; role?: string }; // the link/button it sits in
@@ -135,6 +137,76 @@ function shortHtml(el: Element): string {
   return h.length > 1500 ? h.slice(0, 1499) + "…" : h;
 }
 
+// ---- tables and grids: which column (header text) and row (its first cell or row header) an element sits in
+
+const CELL = "td,th,[role=cell],[role=gridcell],[role=columnheader],[role=rowheader]";
+
+// The cell that names a row: a row header, else the first other cell with real text (not just a checkbox or a picture).
+function rowLabelCell(cells: Element[], mine: Element): Element | null {
+  const head = cells.find((c) => c.matches("th[scope=row],[role=rowheader]"));
+  if (head && head !== mine) return head;
+  for (const c of cells) {
+    if (c === mine) return null;
+    if (c.querySelector("input[type=checkbox],input[type=radio]") && !cellText(c, 60).replace(/^select\b.*/i, "")) continue;
+    if (cellText(c)) return c;
+  }
+  return null;
+}
+
+function cellText(c: Element | null | undefined, n = 60) {
+  return c ? clip((c as HTMLElement).innerText?.split("\n").find((l) => l.trim()) ?? c.textContent, n) : "";
+}
+
+export function tableContext(el: Element): { column?: string; row?: string } {
+  const out: { column?: string; row?: string } = {};
+  const cell = el.closest(CELL);
+  if (cell && (cell.tagName === "TD" || cell.tagName === "TH") && cell.closest("table")) {
+    const tr = cell.parentElement as HTMLTableRowElement;
+    const table = cell.closest("table") as HTMLTableElement;
+    let idx = 0;
+    for (const c of tr.cells) { if (c === cell) break; idx += (c as HTMLTableCellElement).colSpan || 1; }
+    const headRow = table.tHead?.rows[table.tHead.rows.length - 1] ?? [...table.rows].find((r) => [...r.cells].every((c) => c.tagName === "TH"));
+    if (headRow && headRow !== tr) {
+      let at = 0;
+      for (const h of headRow.cells) {
+        const span = (h as HTMLTableCellElement).colSpan || 1;
+        if (idx >= at && idx < at + span) { const t = cellText(h) || h.getAttribute("aria-label") || ""; if (t) out.column = clip(t, 60); break; }
+        at += span;
+      }
+      const rt = cellText(rowLabelCell([...tr.cells], cell));
+      if (rt) out.row = rt;
+    }
+    return out;
+  }
+  const grid = el.closest("[role=grid],[role=table],[role=treegrid]");
+  if (!grid) return out;
+  const row = el.closest("[role=row]");
+  if (row && grid.contains(row)) {
+    const cells = [...row.children].filter((c) => c.matches(CELL));
+    const mine = cells.find((c) => c.contains(el));
+    const headRow = [...grid.querySelectorAll("[role=row]")].find((r) => r.querySelector(":scope > [role=columnheader]"));
+    if (mine && headRow && headRow !== row) {
+      const heads = [...headRow.children].filter((c) => c.matches(CELL));
+      const t = cellText(heads[cells.indexOf(mine)]);
+      if (t) out.column = t;
+      const rt = cellText(rowLabelCell(cells, mine));
+      if (rt) out.row = rt;
+    }
+    return out;
+  }
+  // a grid without rows (the PM calendar): columns repeat every N cells
+  const heads = [...grid.children].filter((c) => c.getAttribute("role") === "columnheader");
+  const cells = [...grid.children].filter((c) => c.getAttribute("role") !== "columnheader");
+  const mine = cells.find((c) => c.contains(el));
+  if (mine && heads.length) {
+    const t = cellText(heads[cells.indexOf(mine) % heads.length]);
+    if (t) out.column = t;
+    const rt = cellText(mine, 40);
+    if (rt && mine !== el) out.row = rt;
+  }
+  return out;
+}
+
 export function describe(el: Element, opts: { html?: boolean; style?: boolean } = {}): ElementInfo {
   const cs = getComputedStyle(el);
   const attrs: Record<string, string> = {};
@@ -167,6 +239,9 @@ export function describe(el: Element, opts: { html?: boolean; style?: boolean } 
     display: cs.display, ...(cs.opacity !== "1" ? { opacity: cs.opacity } : {}), ...(cs.visibility !== "visible" ? { visibility: cs.visibility } : {}),
   };
   if (opts.html !== false) info.html = shortHtml(el);
+  const cell = tableContext(el);
+  if (cell.column) info.column = cell.column;
+  if (cell.row) info.row = cell.row;
   const host = el.parentElement?.closest(INTERACTIVE);
   if (host && host !== document.body && !isOwn(host)) {
     info.within = { selector: selectorFor(host), tag: host.tagName.toLowerCase() };
@@ -200,19 +275,50 @@ function ownText(el: Element) {
   return t.replace(/\s+/g, " ").trim();
 }
 
-/** Up to `max` elements inside `area` (viewport CSS px), with their place in the screenshot (scaled by `scale`). */
-export function elementsIn(area: Box, scale: number, max = 60): ElementInfo[] {
-  const inside = (rc: DOMRect) => rc.left < area.x + area.w && rc.right > area.x && rc.top < area.y + area.h && rc.bottom > area.y;
+// Is any part of the element inside the area actually on top (not hidden behind a panel or dialog)?
+function onTop(el: Element, x1: number, y1: number, x2: number, y2: number) {
+  const pts: [number, number][] = [[(x1 + x2) / 2, (y1 + y2) / 2], [x1 + 1, y1 + 1], [x2 - 1, y1 + 1], [x1 + 1, y2 - 1], [x2 - 1, y2 - 1]];
+  for (const [px, py] of pts) {
+    const top = document.elementsFromPoint(px, py).find((e) => !isOwn(e));
+    if (!top || top === el || el.contains(top) || top.contains(el)) return true;
+    if (!covers(top, el)) return true;
+  }
+  return false;
+}
+// Does `top` (or a parent of it short of a shared ancestor) paint something opaque over `el`?
+function covers(top: Element, el: Element) {
+  for (let n: Element | null = top; n && !n.contains(el); n = n.parentElement) {
+    if (/^(IMG|CANVAS|VIDEO|IFRAME|EMBED|OBJECT|svg)$/.test(n.tagName)) return true;
+    const bg = getComputedStyle(n).backgroundColor;
+    if (bg && bg !== "transparent" && !/rgba?\([^)]*,\s*0\)$/.test(bg)) return true;
+  }
+  return false;
+}
+
+export type AreaContents = { elements: ElementInfo[]; containers: ElementInfo[]; notes: string[] };
+
+/** Elements inside `area` (viewport CSS px), with their place in the screenshot (scaled by `scale`).
+ * Elements partly inside count (they're cut at the edge in the screenshot); elements hidden behind something don't.
+ * Elements that hold the whole area (a panel, a card, a dialog) are listed separately as containers. */
+export function elementsIn(area: Box, scale: number, max = 60): AreaContents {
+  const ax2 = area.x + area.w, ay2 = area.y + area.h;
+  const inside = (rc: DOMRect) => rc.left < ax2 && rc.right > area.x && rc.top < ay2 && rc.bottom > area.y;
+  const holds = (rc: DOMRect) => rc.left <= area.x && rc.top <= area.y && rc.right >= ax2 && rc.bottom >= ay2;
   const picked: Element[] = [];
-  const all = document.body.querySelectorAll("*");
-  for (const el of all) {
+  const containers: Element[] = [];
+  const notes = new Set<string>();
+  for (const el of document.body.querySelectorAll("*")) {
     if (isOwn(el)) continue;
     const rc = el.getBoundingClientRect();
     if (!inside(rc) || !visible(el, rc)) continue;
+    if (/^(IFRAME|EMBED|OBJECT)$/.test(el.tagName)) notes.add("Part of the area shows an embedded document (" + el.tagName.toLowerCase() + "); its contents aren't in the screenshot.");
     const meaningful = el.matches(MEANINGFUL) || (ownText(el).length > 0 && ownText(el).length < 200);
     if (!meaningful) continue;
+    if (holds(rc) && (rc.width > area.w + 4 || rc.height > area.h + 4)) { containers.push(el); continue; }
     // skip text inside something already picked (a button's label span, a link's text)
     if (picked.some((p) => p.contains(el) && p.matches(INTERACTIVE))) continue;
+    const x1 = Math.max(rc.left, area.x), y1 = Math.max(rc.top, area.y), x2 = Math.min(rc.right, ax2), y2 = Math.min(rc.bottom, ay2);
+    if (!onTop(el, x1, y1, x2, y2)) continue;
     picked.push(el);
     if (picked.length >= max * 2) break;
   }
@@ -220,15 +326,22 @@ export function elementsIn(area: Box, scale: number, max = 60): ElementInfo[] {
     .map((el) => ({ el, rc: el.getBoundingClientRect() }))
     .sort((a, b) => (Math.round(a.rc.top / 8) - Math.round(b.rc.top / 8)) || (a.rc.left - b.rc.left))
     .slice(0, max);
-  return chosen.map(({ el, rc }, i) => {
+  const elements = chosen.map(({ el, rc }, i) => {
     const info = describe(el, { html: false, style: false });
-    delete info.sections; // the page-level sections cover these
+    delete info.sections; delete info.path; delete info.rect; // the page context and the box cover these
     const x = Math.max(rc.left, area.x), y = Math.max(rc.top, area.y);
-    const x2 = Math.min(rc.right, area.x + area.w), y2 = Math.min(rc.bottom, area.y + area.h);
+    const x2 = Math.min(rc.right, ax2), y2 = Math.min(rc.bottom, ay2);
     info.box = { x: r((x - area.x) * scale), y: r((y - area.y) * scale), w: r((x2 - x) * scale), h: r((y2 - y) * scale) };
     info.n = i + 1;
     return info;
   });
+  const holders = containers.slice(-4).map((el) => {
+    const info = describe(el, { html: false, style: false });
+    delete info.sections; delete info.path; delete info.rect; delete info.attrs;
+    if (info.text) info.text = clip(info.text, 120);
+    return info;
+  });
+  return { elements, containers: holders, notes: [...notes] };
 }
 
 /** What page this is: route, title, main heading, the open dialog, the selected tabs and the active nav item. */
