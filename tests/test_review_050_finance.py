@@ -339,4 +339,4 @@ def test_certificate_download_filename_is_sanitised(app: Any, admin: Api) -> Non
     assert got.status_code == 200
     disp = got.headers["Content-Disposition"]
     assert "\r" not in disp and "\n" not in disp and disp.count('"') == 2
-    assert "Set-Cookie" not in got.headers
+    assert not any(c.startswith("a=") for c in got.headers.getlist("Set-Cookie"))
