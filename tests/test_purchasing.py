@@ -484,3 +484,23 @@ def test_demo_purchasing(app: Any, admin: Api) -> None:
     assert len(items) == 5
     assert {x["status"] for x in items} >= {"partially_fulfilled", "approved", "pending", "requested", "complete"}
     assert admin.get(f"{API}/approval-rules").json["items"] and admin.get(f"{API}/budgets").json["items"]
+
+
+def test_po_line_rejects_another_orgs_product_link(app: Any, admin: Api) -> None:
+    """A PO line can't point at a supplier listing from another organization (0.5.0 review, G-15)."""
+    p, _wh = stocked(admin, "1")
+    link = admin.post(
+        f"{API}/product-links",
+        {"entity_type": "part", "entity_id": p["id"], "url": "https://www.grainger.com/product/4YRF7"},
+    ).json
+    assert link.get("id"), link
+    other = other_org(app)
+    r = other.post(
+        f"{API}/purchase-orders",
+        {"lines": [{"description": "X", "quantity": "1", "product_link_id": link["id"]}]},
+    )
+    assert r.status_code == 422, r.status_code
+    ok = admin.post(
+        f"{API}/purchase-orders", {"lines": [{"description": "X", "quantity": "1", "product_link_id": link["id"]}]}
+    )
+    assert ok.status_code == 201, ok.json

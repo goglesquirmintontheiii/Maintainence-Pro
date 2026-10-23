@@ -776,11 +776,20 @@ def _clean_lines(
                 "quantity": qty,
                 "unit_cost": cost,
                 "location_id": loc.id if loc else None,
-                "product_link_id": uid(ln["product_link_id"], "product link") if ln.get("product_link_id") else None,
+                "product_link_id": _link_in_org(org_id, ln.get("product_link_id")),
                 "taxable": bool(ln.get("taxable", True)),
             }
         )
     return out
+
+
+def _link_in_org(org_id: uuid.UUID, raw: Any) -> uuid.UUID | None:
+    """A supplier listing on a line must belong to this organization (G-15)."""
+    if raw in (None, ""):
+        return None
+    from mpro.suppliers.models import ProductLink
+
+    return one_in_org(ProductLink, org_id, raw, "product link").id  # type: ignore[no-any-return]
 
 
 def _apply_lines(org_id: uuid.UUID, po: PurchaseOrder, raw: Any) -> None:

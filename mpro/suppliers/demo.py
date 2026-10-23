@@ -65,6 +65,9 @@ DEMO: list[dict[str, Any]] = [
 
 
 def seed_suppliers(org: Any, admin: Any) -> None:
+    # seeding runs once per demo org; a second call (re-seed) must not duplicate listings
+    if db.session.scalars(select(Product.id).where(Product.org_id == org.id).limit(1)).first() is not None:
+        return
     parts = db.session.scalars(
         select(Part).where(Part.org_id == org.id, Part.deleted_at.is_(None)).order_by(Part.created_at).limit(len(DEMO))
     ).all()
