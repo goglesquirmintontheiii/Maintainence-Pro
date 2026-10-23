@@ -107,3 +107,15 @@ def _seed_work(org: Organization) -> None:
         from mpro.automations.demo import seed_automations
 
         seed_automations(org, admin)
+        # 0.5.0
+        from mpro.finance.demo import seed_finance
+        from mpro.parts.demo import seed_parts
+        from mpro.purchasing.demo import seed_purchasing
+        from mpro.suppliers.demo import seed_suppliers
+        from mpro.vendors.demo import seed_vendors
+
+        seed_vendors(org, admin)
+        seed_parts(org, admin)
+        seed_purchasing(org, admin)
+        seed_suppliers(org, admin)
+        seed_finance(org, admin)
