@@ -76,7 +76,8 @@ export function AutomationTree({ doc, targetNames, defaultOpen = true }: { doc: 
       {open && <ul className="atree-root">
         <Node icon={<Zap size={14} aria-hidden />} title="When" empty="">
           {[<Leaf key="t" text={triggerText(doc)} missing={doc.trigger.type === "meter_reading" && !String(doc.trigger.value ?? "").trim()} />,
-            doc.trigger.type === "work_order_status" ? null
+            doc.trigger.type === "work_order_status"
+              ? <Leaf key="g" text={targets ? `Work orders on ${targets}` : "Work orders on any asset"} />
               : <Leaf key="g" text={targets ? `On ${targets}` : `Missing: pick one or more ${kind}s`} missing={!targets} />,
             doc.trigger.type === "meter_reading" ? <Leaf key="s" text={sensitivityText(doc)} /> : null]}
         </Node>

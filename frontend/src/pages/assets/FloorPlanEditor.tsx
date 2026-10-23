@@ -234,7 +234,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
     kept.splice(Math.min(at, kept.length), 0, merged);
     commit(kept); setSel([merged.id]);
     const skipped = parts.length - used.size;
-    toast(skipped ? `Merged ${used.size} shapes. ${skipped} line${skipped === 1 ? "" : "s"} or label${skipped === 1 ? "" : "s"} can't be merged and stayed as they are.` : `Merged ${used.size} shapes into one`);
+    toast(skipped ? `Merged ${used.size} shapes. ${skipped} other item${skipped === 1 ? "" : "s"} (lines, text or parts lists) can't be merged and stayed as ${skipped === 1 ? "it is" : "they are"}.` : `Merged ${used.size} shapes into one`);
   };
   const ungroup = () => {
     const groups = sel.filter((id) => byId.get(id)?.type === "group");
