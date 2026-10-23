@@ -1093,11 +1093,22 @@ def parts_cost(wo_id: uuid.UUID) -> Decimal:
             InventoryTransaction.work_order_id == wo_id, InventoryTransaction.kind.in_(("use", "return"))
         )
     ).all()
+    # what was taken out, at the cost then (use rows are negative); returns go back at that same cost
+    out_qty: dict[uuid.UUID, Decimal] = {}
+    out_amt: dict[uuid.UUID, Decimal] = {}
+    back: dict[uuid.UUID, Decimal] = {}
+    for pid, q, c in ledger_rows:
+        if (q or ZERO) < ZERO:
+            out_qty[pid] = out_qty.get(pid, ZERO) - q
+            out_amt[pid] = out_amt.get(pid, ZERO) - q * (c or ZERO)
+        else:
+            back[pid] = back.get(pid, ZERO) + (q or ZERO)
     led_qty: dict[uuid.UUID, Decimal] = {}
     led_amt: dict[uuid.UUID, Decimal] = {}
-    for pid, q, c in ledger_rows:
-        led_qty[pid] = led_qty.get(pid, ZERO) - (q or ZERO)  # use rows are negative
-        led_amt[pid] = led_amt.get(pid, ZERO) - (q or ZERO) * (c or ZERO)
+    for pid, oq in out_qty.items():
+        net = max(oq - back.get(pid, ZERO), ZERO)
+        led_qty[pid] = net
+        led_amt[pid] = out_amt[pid] * net / oq if oq > ZERO else ZERO
     total = ZERO
     plain: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}  # part → (used without an override, current unit cost)
     for pid, used, override, current in lines:

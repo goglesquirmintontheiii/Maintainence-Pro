@@ -160,7 +160,7 @@ def test_punchout_cart_is_a_request_that_runs_the_rules(app: Any, admin: Api, ne
     with app.app_context():
         from sqlalchemy import select
 
-        from mpro.core.models import AuditEvent
+        from mpro.core.events import DomainEvent as AuditEvent
         from mpro.extensions import db
 
         ev = db.session.scalars(
@@ -420,7 +420,7 @@ def test_work_order_part_cost_uses_ledger_cost(admin: Api) -> None:
     assert admin.get(f"{API}/work-orders/{wo['id']}").json["costs"]["parts_cents"] == 1000  # history doesn't move
     line = r.json["items"][0]
     admin.post(f"{API}/work-orders/{wo['id']}/parts/{line['id']}/return", {"quantity": "1"})
-    assert admin.get(f"{API}/work-orders/{wo['id']}").json["costs"]["parts_cents"] in (750, 0 + 750)
+    assert admin.get(f"{API}/work-orders/{wo['id']}").json["costs"]["parts_cents"] == 750
     admin.patch(f"{API}/work-orders/{wo['id']}/parts/{line['id']}", {"unit_cost_override": "1"})
     assert admin.get(f"{API}/work-orders/{wo['id']}").json["costs"]["parts_cents"] == 300
 
@@ -476,7 +476,7 @@ def test_public_quote_links_are_rate_limited_and_have_no_user(app: Any, admin: A
     with app.app_context():
         from sqlalchemy import select
 
-        from mpro.core.models import AuditEvent
+        from mpro.core.events import DomainEvent as AuditEvent
         from mpro.extensions import db
 
         evs = db.session.scalars(
@@ -497,7 +497,7 @@ def test_external_work_order_links_have_no_user(app: Any, admin: Api) -> None:
     share = admin.post(f"{API}/work-orders/{wo['id']}/external-shares", {})
     if share.status_code not in (200, 201):
         pytest.skip("external sharing isn't enabled on this plan")
-    token = share.json["url"].rsplit("/", 1)[1]
+    token = share.json["token"]
     with app.test_request_context():
         from flask import g
 
@@ -518,6 +518,7 @@ def test_editing_a_sent_quote_goes_back_to_draft_and_recomputes_tax(app: Any, ad
     assert (r.json["subtotal"], r.json["tax"], r.json["total"]) == ("600", "60", "660")
     token = admin.post(f"{API}/quotes/{q['id']}/send", {}).json["url"].rsplit("/", 1)[1]
     anon = Api(app.test_client())
+    anon.session()
     assert anon.get(f"{API}/public/quotes/{token}").status_code == 200
     r = admin.patch(
         f"{API}/quotes/{q['id']}",
@@ -574,10 +575,13 @@ def test_auto_reserve_skips_deleted_parts_and_survives_a_bad_org(app: Any, admin
         db.session.get(Part, uuid.UUID(p["id"])).deleted_at = datetime.now(UTC)  # deleted behind the guard's back
         db.session.commit()
         org, _m = _ctx()
+        org_id = org.id
         real = ps._auto_reserve_org
 
+        mine = org_id
+
         def flaky(org_id: Any, now: Any) -> int:
-            if org_id != org.id:
+            if org_id != mine:
                 raise RuntimeError("bad data in another org")
             return real(org_id, now)
 
@@ -591,4 +595,4 @@ def test_auto_reserve_skips_deleted_parts_and_survives_a_bad_org(app: Any, admin
     with app.app_context():
         from mpro.parts import services as ps
 
-        ps.refresh_reserved(org.id, uuid.UUID(p["id"]), uuid.UUID(wh))  # a deleted part is skipped, not an error
+        ps.refresh_reserved(mine, uuid.UUID(p["id"]), uuid.UUID(wh))  # a deleted part is skipped, not an error
