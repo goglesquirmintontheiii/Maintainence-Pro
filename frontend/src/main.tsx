@@ -28,6 +28,14 @@ import { PMPage } from "./pages/pm/PM";
 import { ProceduresPage } from "./pages/procedures/Procedures";
 import { AutomationsPage } from "./pages/automations/Automations";
 import { RolesPage } from "./pages/roles/Roles";
+import { PartsPage } from "./pages/parts/Parts";
+import { PartsSettingsPage } from "./pages/parts/PartsSettings";
+import { PurchaseOrdersPage } from "./pages/purchasing/PurchaseOrders";
+import { PurchasingSettingsPage } from "./pages/purchasing/PurchasingSettings";
+import { VendorsPage } from "./pages/vendors/Vendors";
+import { CustomersPage } from "./pages/vendors/Customers";
+import { FinancePage } from "./pages/finance/Finance";
+import { SupplierSettingsPage } from "./pages/suppliers/SupplierSettings";
 import "./devtools/feedback"; // TEMPORARY Ctrl+Shift+F feedback capture (0.4.2). Remove by 1.9.0, see devtools/feedback/README.md
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
@@ -78,6 +86,20 @@ function Gate() {
         <Route path="procedures/:id/:mode" element={<ProceduresPage />} />
         <Route path="automations" element={<AutomationsPage />} />
         <Route path="automations/:id" element={<AutomationsPage />} />
+        <Route path="parts" element={<PartsPage />} />
+        <Route path="parts/:id" element={<PartsPage />} />
+        <Route path="parts/:id/:tab" element={<PartsPage />} />
+        <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+        <Route path="purchase-orders/:id" element={<PurchaseOrdersPage />} />
+        <Route path="vendors" element={<VendorsPage />} />
+        <Route path="vendors/:id" element={<VendorsPage />} />
+        <Route path="vendors/:id/:tab" element={<VendorsPage />} />
+        <Route path="customers" element={<CustomersPage />} />
+        <Route path="customers/:id" element={<CustomersPage />} />
+        <Route path="customers/:id/:tab" element={<CustomersPage />} />
+        <Route path="finance" element={<FinancePage />} />
+        <Route path="finance/:tab" element={<FinancePage />} />
+        <Route path="finance/:tab/:id" element={<FinancePage />} />
         <Route path="scan" element={<ScanPage />} />
         <Route path="q/:code" element={<QrResolve />} />
         <Route path="categories" element={<Categories />} />
@@ -88,6 +110,9 @@ function Gate() {
           <Route path="work-orders" element={<WorkOrderSettings />} />
           <Route path="assets" element={<AssetSettingsPage />} />
           <Route path="qr-codes" element={<QrCodesPage />} />
+          <Route path="parts" element={<PartsSettingsPage />} />
+          <Route path="purchasing" element={<PurchasingSettingsPage />} />
+          <Route path="suppliers" element={<SupplierSettingsPage />} />
           <Route path="roles" element={<RolesPage />} />
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="jobs" element={<Jobs />} />

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import current_app, g
-from sqlalchemy import JSON, BigInteger, ForeignKey, Integer, String, Text, Uuid, select
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Integer, String, Text, Uuid, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mpro.core.models import IdMixin, OrgScopedMixin, SoftDeleteMixin, TimestampMixin, UTCDateTime, iso, utcnow
@@ -64,6 +64,7 @@ class FileObject(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mo
     uploaded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     # a browser-friendly rendering made in the background (PSD -> PNG, DOCX/XLSX -> PDF, …) for the viewer (MP-107)
     preview_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("files.id"), nullable=True)
+    encrypted: Mapped[bool] = mapped_column(Boolean, default=False)  # stored with mpro.core.crypto (0.5.0, MP-090)
 
     @property
     def is_image(self) -> bool:

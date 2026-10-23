@@ -101,6 +101,7 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("work_orders.id"), nullable=True, index=True)
     template_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # the first (primary) asset; all of them are in work_order_assets (MP-124)
     asset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("assets.id"), nullable=True, index=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("locations.id"), nullable=True, index=True)
     # what created it automatically, e.g. ("meter_trigger", <id>); used to avoid duplicate open work orders
@@ -108,6 +109,8 @@ class WorkOrder(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mod
     source_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # custom field id -> value
     cover_file_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("files.id"), nullable=True)  # MP-112
+    # MP-046
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("customers.id"), nullable=True, index=True)
 
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
     status_changed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
@@ -308,3 +311,46 @@ class ReadMark(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
     entity_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), index=True)
     read_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class WorkOrderAsset(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """Every asset on a work order (MP-124). `WorkOrder.asset_id` stays the first one, for filters and old clients."""
+
+    __tablename__ = "work_order_assets"
+    __table_args__ = (UniqueConstraint("work_order_id", "asset_id", name="uq_work_order_assets"),)
+
+    work_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("work_orders.id"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("assets.id"), index=True)
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WorkOrderVendor(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """Vendors linked to a work order (r075)."""
+
+    __tablename__ = "work_order_vendors"
+    __table_args__ = (UniqueConstraint("work_order_id", "vendor_id", name="uq_work_order_vendors"),)
+
+    work_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("work_orders.id"), index=True)
+    vendor_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("vendors.id"), index=True)
+
+
+class ExternalShare(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """A work order shared outside the organization by link (r058–r060, r088, r092).
+
+    The link token is shown once; only its sha256 is stored. `fields` sets each field to hidden | view | interact
+    (interact is only possible for procedures and comments). The link turns off when the work order is Done.
+    """
+
+    __tablename__ = "external_shares"
+
+    work_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("work_orders.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | disabled | revoked
+    fields: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("vendors.id"), nullable=True)
+    recipients: Mapped[list[str]] = mapped_column(JSON, default=list)  # emails it was sent to
+    message: Mapped[str] = mapped_column(Text, default="")
+    last_viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # external contact marked finished
+    finished_by_name: Mapped[str] = mapped_column(String(200), default="")
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)

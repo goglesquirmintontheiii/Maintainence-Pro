@@ -53,16 +53,26 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.core.admin_api import bp as admin_bp
     from mpro.core.admin_api import health_bp
     from mpro.core.files_api import bp as files_bp
+    from mpro.finance import models as _finance_models  # noqa: F401
+    from mpro.finance.api import bp as finance_bp
     from mpro.meters import models as _meter_models  # noqa: F401
     from mpro.meters.api import bp as meters_bp
     from mpro.orgs import models as _org_models  # noqa: F401
     from mpro.orgs.api import bp as orgs_bp
+    from mpro.parts import models as _parts_models  # noqa: F401
+    from mpro.parts.api import bp as parts_bp
     from mpro.pm import models as _pm_models  # noqa: F401
     from mpro.pm.api import bp as pm_bp
     from mpro.procedures import models as _procedure_models  # noqa: F401
     from mpro.procedures.api import bp as procedures_bp
+    from mpro.purchasing import models as _purchasing_models  # noqa: F401
+    from mpro.purchasing.api import bp as purchasing_bp
     from mpro.qr import models as _qr_models  # noqa: F401
     from mpro.qr.api import bp as qr_bp
+    from mpro.suppliers import models as _supplier_models  # noqa: F401
+    from mpro.suppliers.api import bp as suppliers_bp
+    from mpro.vendors import models as _vendor_models  # noqa: F401
+    from mpro.vendors.api import bp as vendors_bp
     from mpro.workorders import exports as _wo_exports  # noqa: F401
     from mpro.workorders import models as _wo_models  # noqa: F401
     from mpro.workorders.api import bp as wo_bp
@@ -133,6 +143,11 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
         procedures_bp,
         pm_bp,
         automations_bp,
+        vendors_bp,
+        parts_bp,
+        purchasing_bp,
+        suppliers_bp,
+        finance_bp,
         files_bp,
         admin_bp,
         health_bp,

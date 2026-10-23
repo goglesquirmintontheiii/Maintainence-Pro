@@ -40,6 +40,8 @@ class Location(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Mode
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    # r234
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("customers.id"), nullable=True, index=True)
 
 
 class TeamInCharge(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
@@ -177,3 +179,34 @@ class CatalogEntry(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defi
     kind: Mapped[str] = mapped_column(String(16))  # manufacturer | model
     parent: Mapped[str] = mapped_column(String(120), default="")  # manufacturer of a model
     name: Mapped[str] = mapped_column(String(120))
+
+
+class AssetPackage(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """An OEM equipment template (Asset Hub, roadmap r115): asset data, spare parts, procedures and work order
+    templates for one manufacturer and model. Installing it creates or links those and matches existing assets by
+    manufacturer and model. Built-in packages ship in `mpro/assets/packages/`; organizations can import their own.
+    """
+
+    __tablename__ = "asset_packages"
+
+    key: Mapped[str] = mapped_column(String(120))  # e.g. "carrier-30xa-chiller@1"
+    name: Mapped[str] = mapped_column(String(255))
+    manufacturer: Mapped[str] = mapped_column(String(200), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    version: Mapped[str] = mapped_column(String(40), default="1")
+    description: Mapped[str] = mapped_column(Text, default="")
+    contents: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # fields, parts, procedures, templates
+    source: Mapped[str] = mapped_column(String(12), default="builtin")  # builtin | imported
+    installed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    installed_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    # what the install created, so it can be shown and updated: {"part_ids": [...], "procedure_ids": [...], ...}
+    created_records: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class AssetPackageMatch(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    __tablename__ = "asset_package_matches"
+    __table_args__ = (UniqueConstraint("package_id", "asset_id", name="uq_asset_package_matches"),)
+
+    package_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("asset_packages.id"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("assets.id"), index=True)
+    status: Mapped[str] = mapped_column(String(10), default="suggested")  # suggested | applied | dismissed
