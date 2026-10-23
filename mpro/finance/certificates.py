@@ -481,7 +481,7 @@ def add_scan(org_id: uuid.UUID, c: TaxCertificate, name: str, data: bytes, user:
 def log_access(org_id: uuid.UUID, c: TaxCertificate, user: Any, action: str) -> None:
     ip = ""
     if has_request_context():
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()[:60]
+        ip = (request.remote_addr or "")[:60]  # ProxyFix (MPRO_TRUSTED_PROXIES) makes this the real client
     db.session.add(
         CertificateAccess(
             org_id=org_id, certificate_id=c.id, user_id=getattr(user, "id", None), action=action, ip=ip, at=utcnow()

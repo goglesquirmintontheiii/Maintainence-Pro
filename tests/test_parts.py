@@ -300,7 +300,9 @@ def test_qr_label_and_barcode_scan(admin: Api) -> None:
     assert r.status_code in (200, 201), r.json
     assert admin.get(f"{API}/qr-codes/for/part/{p['id']}").json["items"]
     r = admin.c.post(
-        f"{API}/labels", json={"entity_type": "part", "query": {"q": p["name"]}, "format": "sheet", "template": "avery_5160"}, headers=admin._h()
+        f"{API}/labels",
+        json={"entity_type": "part", "query": {"q": p["name"]}, "format": "sheet", "template": "avery_5160"},
+        headers=admin._h(),
     )
     assert r.status_code == 200 and r.data[:5] == b"%PDF-", r.data[:200]
 
