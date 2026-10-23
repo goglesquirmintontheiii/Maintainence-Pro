@@ -6,10 +6,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Camera, Check, Copy, FileUp, Mail, Plus, Search, Trash2, Wand2, X } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
+import { useSession } from "../../lib/session";
 import { useToast } from "../../components/Toast";
 import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../../components/ui";
 import { preparePage, readPages, type Page } from "./capture";
-import { day, money, postForm, RECEIPT_STATUS, todayISO, useFinanceMe, type FinanceMe, type Paged, type Receipt } from "./types";
+import { day, money, postForm, RECEIPT_STATUS, todayISO, type FinanceMe, type Paged, type Receipt } from "./types";
 
 const FILTERS: [string, string][] = [["", "All"], ["new", "To review"], ["matched", "Matched"], ["to_reclaim", "Tax to reclaim"],
   ["requested", "Reimbursements"]];
@@ -321,9 +322,9 @@ function Reimbursement({ r, me, mine, run }: { r: Receipt; me: FinanceMe; mine: 
 
 // ---- the Receipts section on a work order -------------------------------------------------------------------
 export function WOReceipts({ woId }: { woId: string }) {
-  const me = useFinanceMe();
+  const { can } = useSession();
   const [open, setOpen] = useState(false);
-  const allowed = !!me.data?.can["finance.receipts"];
+  const allowed = can("finance.receipts");
   const q = useQuery({ queryKey: ["finance", "wo-receipts", woId], enabled: allowed,
     queryFn: () => api<{ items: Receipt[] }>(`/finance/work-orders/${woId}/receipts`) });
   const qc = useQueryClient();

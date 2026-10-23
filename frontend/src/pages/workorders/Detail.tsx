@@ -25,6 +25,7 @@ import { offerCloseSubs, RecurrenceChip, SubRollup } from "../pm/WOParts";
 import { WOPartsSection } from "../parts/WOParts";
 import { WorkOrderOutside } from "./WorkOrderVendors";
 import { WOCustomerRow } from "../vendors/WOCustomer";
+import { WOReceipts } from "../finance/Receipts";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -221,6 +222,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
       <WOPartsSection wo={wo} />
       <WorkOrderOutside wo={wo} editable={editable} />
       <TimeAndCosts wo={wo} editable={editable} onChange={(w) => refresh(w)} />
+      <WOReceipts woId={wo.id} />
       <SubsAndLinks wo={wo} editable={editable} onAddSub={() => setNewSub(true)} onChange={(w) => refresh(w)} />
       <SubRollup wo={wo} />
       <ActivityFeed wo={wo} options={opts.data} />
