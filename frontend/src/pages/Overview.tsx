@@ -8,6 +8,11 @@ import { Button, EmptyState, ListSkeleton } from "../components/ui";
 import { WORow } from "./workorders/WorkOrders";
 
 const SHIPPED = [
+  "Parts and inventory: stock per location, reservations, restocking, cycle counts and a transactions log",
+  "Purchase orders with approval rules, budgets, partial receiving and supplier PunchOut carts",
+  "Vendors and customers with contacts, quotes, and supplier product links that track price and stock",
+  "Finance: receipts, vendor invoice matching, customer invoices, tax exemption certificates and cards",
+  "Work orders shared outside the company by link, several assets and vendors per work order",
   "Maintenance plans with nested PMs, repeating work orders, a PM calendar and compliance",
   "Procedures with every field type, conditional logic, scoring, versions and reporting",
   "Automations: meter, asset and work-order triggers that create work, change status or email",

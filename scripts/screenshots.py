@@ -348,13 +348,147 @@ def capture_043(ctx: Any, shot: Any, url: str) -> None:
     c.close()
 
 
+def capture_050(ctx: Any, shot: Any, url: str) -> None:
+    """0.5.0: parts, purchase orders, vendors and customers, supplier links, finance, and the 0.4 testing requests."""
+
+    def first(pg: Page, path: str, key: str = "items", pick: Any = None) -> dict[str, Any] | None:
+        data = api(pg, "GET", path) or {}
+        rows = data.get(key, []) if isinstance(data, dict) else []
+        if pick:
+            rows = [r for r in rows if pick(r)] or rows
+        return rows[0] if rows else None
+
+    c, pg = ctx()
+    login(pg, url)
+    shot(pg, "01-overview-test-build", 1200)
+    # parts & inventory
+    pg.goto(url + "/parts")
+    shot(pg, "02-parts", 1500)
+    part = first(pg, "/parts?per_page=50", pick=lambda r: r.get("min_qty") or r.get("needs_restock"))
+    if part:
+        pg.goto(url + f"/parts/{part['id']}")
+        shot(pg, "03-part-detail", 1800)
+        shot(pg, "04-part-detail-full", 300, True)
+    pg.goto(url + "/parts/cycle-counts")
+    shot(pg, "05-cycle-counts", 1500)
+    pg.goto(url + "/parts/transactions")
+    shot(pg, "06-part-transactions", 1500)
+    pg.goto(url + "/settings/parts")
+    shot(pg, "07-parts-settings", 1200)
+    # purchase orders
+    pg.goto(url + "/purchase-orders")
+    shot(pg, "08-purchase-orders", 1500)
+    po = first(pg, "/purchase-orders?per_page=50", pick=lambda r: r.get("status") == "partially_fulfilled")
+    if po:
+        pg.goto(url + f"/purchase-orders/{po['id']}")
+        shot(pg, "09-purchase-order-detail", 1800)
+        _try(
+            "receive dialog",
+            lambda: (pg.get_by_role("button", name="Receive").first.click(), shot(pg, "10-receive-items", 800)),
+        )
+        pg.keyboard.press("Escape")
+    pg.goto(url + "/settings/purchasing")
+    shot(pg, "11-purchasing-settings", 1500)
+    # vendors and customers
+    pg.goto(url + "/vendors")
+    shot(pg, "12-vendors", 1500)
+    v = first(pg, "/vendors?per_page=20")
+    if v:
+        pg.goto(url + f"/vendors/{v['id']}")
+        shot(pg, "13-vendor-detail", 1500)
+    cu = first(pg, "/customers?per_page=20")
+    if cu:
+        pg.goto(url + f"/customers/{cu['id']}")
+        shot(pg, "14-customer-detail", 1500)
+    # supplier links
+    linked = next((p for p in (api(pg, "GET", "/parts?per_page=50") or {}).get("items", [])
+                   if (api(pg, "GET", f"/product-links?entity_type=part&entity_id={p['id']}") or {}).get("items")), None)  # fmt: skip
+    if linked:
+        pg.goto(url + f"/parts/{linked['id']}")
+        _try("product cards", lambda: pg.get_by_text("Supplier", exact=False).first.scroll_into_view_if_needed())
+        shot(pg, "15-supplier-product-cards", 1500)
+    asset = first(pg, "/assets?per_page=50", pick=lambda r: "Compressor" in r.get("name", ""))
+    if asset:
+        pg.goto(url + f"/assets/{asset['id']}/spare-parts")
+        shot(pg, "16-asset-spare-parts", 1500)
+    pg.goto(url + "/settings/suppliers")
+    shot(pg, "17-supplier-connections", 1200)
+    # finance
+    for i, tab in enumerate(("receipts", "vendor-invoices", "customer-invoices", "certificates", "cards", "documents",
+                             "reports")):  # fmt: skip
+        pg.goto(url + f"/finance/{tab}")
+        shot(pg, f"{18 + i:02d}-finance-{tab}", 1500)
+    inv = first(pg, "/finance/vendor-invoices?per_page=20")
+    if inv:
+        pg.goto(url + f"/finance/vendor-invoices/{inv['id']}")
+        shot(pg, "25-vendor-invoice-match", 1500)
+    # work orders: parts, vendors, receipts, several assets, external share, upcoming
+    wo = first(pg, "/work-orders?tab=todo&per_page=50", pick=lambda r: "Conveyor 3" in r.get("title", ""))
+    if wo:
+        pg.goto(url + f"/work-orders/{wo['id']}")
+        shot(pg, "26-work-order-parts-vendors", 1800)
+        share = api(pg, "POST", f"/work-orders/{wo['id']}/external-shares",
+                    {"fields": {"description": "view", "procedures": "interact", "comments": "interact"}})  # fmt: skip
+        link = (share or {}).get("path") or ""
+        if link:
+            c2 = pg.context.browser.new_context(viewport={"width": 1280, "height": 860})  # type: ignore[union-attr]
+            p2 = c2.new_page()
+            p2.goto(link if link.startswith("http") else url + link)
+            shot(p2, "27-external-work-order", 1500)
+            c2.close()
+    pg.goto(url + "/work-orders?view=todo&tab=upcoming")
+    _try("upcoming", lambda: pg.get_by_role("tab", name="Upcoming").first.click())
+    shot(pg, "28-upcoming", 1500)
+    pg.goto(url + "/work-orders?new=1")
+    shot(pg, "29-work-order-form", 1500)
+    pg.goto(url + "/asset-hub")
+    shot(pg, "30-asset-hub", 1500)
+    pg.goto(url + "/settings/roles")
+    _try("custom role", lambda: pg.get_by_text("Own", exact=False).first.scroll_into_view_if_needed())
+    shot(pg, "31-roles-own-vs-any", 1500)
+    pg.goto(url + "/categories")
+    _try("colour", lambda: (pg.get_by_role("button", name="Edit").first.click(), pg.wait_for_timeout(500),
+                            pg.get_by_role("button", name="Custom colour").first.click()))  # fmt: skip
+    shot(pg, "32-custom-colour", 800)
+    pg.keyboard.press("Escape")
+    au = first(pg, "/automations?per_page=10")
+    if au:
+        pg.goto(url + f"/automations/{au['id']}")
+        shot(pg, "33-automation-tree", 1500)
+    me = first(pg, "/meters?per_page=10")
+    if me:
+        pg.goto(url + f"/meters/{me['id']}")
+        _try("2 yr", lambda: pg.get_by_role("radio", name="2 yr").first.click())
+        shot(pg, "34-meter-two-years", 1500)
+    c.close()
+    # phones
+    c, pg = ctx(mobile=True)
+    login(pg, url)
+    pg.goto(url + "/work-orders")
+    shot(pg, "35-phone-work-orders", 1500)
+    pg.goto(url + "/assets")
+    shot(pg, "36-phone-assets", 1500)
+    pg.goto(url + "/parts")
+    shot(pg, "37-phone-parts", 1500)
+    pg.goto(url + "/purchase-orders")
+    shot(pg, "38-phone-purchase-orders", 1500)
+    pg.goto(url + "/finance/receipts")
+    _try("add receipt", lambda: pg.get_by_role("button", name="Add receipt").first.click())
+    shot(pg, "39-phone-receipt-capture", 1000)
+    cert = first(pg, "/finance/tax-certificates?per_page=20", pick=lambda r: r.get("card_user_ids"))
+    if cert:
+        pg.goto(url + f"/finance/certificates/{cert['id']}?card=1")
+        shot(pg, "40-phone-exemption-card", 1500)
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
-    ap.add_argument("--out", default="docs/screenshots/0.4.0")
-    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2", "0.4.3"))
+    ap.add_argument("--out", default="")
+    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0"))
     a = ap.parse_args()
-    out = Path(a.out)
+    out = Path(a.out or f"docs/screenshots/{a.release}")
     out.mkdir(parents=True, exist_ok=True)
     errors: list[str] = []
     url = a.url
@@ -373,8 +507,14 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
-        if a.release in ("0.3.0", "0.4.0", "0.4.2", "0.4.3"):
-            runs = {"0.3.0": capture_030, "0.4.0": capture_040, "0.4.2": capture_042, "0.4.3": capture_043}
+        if a.release in ("0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0"):
+            runs = {
+                "0.3.0": capture_030,
+                "0.4.0": capture_040,
+                "0.4.2": capture_042,
+                "0.4.3": capture_043,
+                "0.5.0": capture_050,
+            }
             runs[a.release](ctx, shot, url)
             b.close()
             if errors:

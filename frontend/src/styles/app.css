@@ -118,6 +118,8 @@ p { margin: 0; }
 .tabs { display: flex; gap: var(--s-1); border-bottom: 1px solid var(--c-border); }
 .tab { border: 0; background: none; padding: var(--s-2) var(--s-3); color: var(--c-text-2); font-weight: var(--fw-semibold);
   border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; text-decoration: none !important; display: inline-flex; gap: 6px; align-items: center; }
+.tabs.tabs-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.tabs.tabs-scroll .tab { white-space: nowrap; flex: 0 0 auto; }
 .tab[aria-selected="true"], .tab.active { color: var(--c-primary); border-bottom-color: var(--c-primary); }
 .table-wrap { overflow-x: auto; }
 table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
@@ -182,6 +184,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .list-row.active { background: var(--c-primary-soft); border-left-color: var(--c-primary); }
 .list-row .t { font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .s { font-size: var(--fs-sm); color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row span.t, .list-row span.s { display: block; }
+.list-row > span.grow { min-width: 0; }
 .detail { padding: var(--s-6); display: flex; flex-direction: column; gap: var(--s-5); max-width: 900px; }
 .detail-head { display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; }
 .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s-4) var(--s-6); }

@@ -16,7 +16,7 @@ export function SettingsLayout() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Settings</h1><p className="sub">Organization details, the audit trail and what MPro is doing in the background.</p></div></div>
-      <div className="tabs" role="tablist">
+      <div className="tabs tabs-scroll" role="tablist">
         {SETTINGS_NAV.filter((s) => !s.perm || can(s.perm)).map((s) => { const Icon = s.icon; return (
           <NavLink key={s.path} to={s.path} className={({ isActive }) => "tab" + (isActive ? " active" : "")}><Icon size={15} />{s.label}</NavLink>); })}
       </div>

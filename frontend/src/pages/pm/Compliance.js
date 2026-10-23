@@ -1,0 +1,27 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+// PM compliance (MP-033): share of visits done by their due day. Postponed visits are judged against the original date,
+// skipped ones count against compliance, and open ones that aren't due yet don't count either way.
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../lib/api";
+import { Select, ListSkeleton } from "../../components/ui";
+import { pctLabel, pctTone } from "./types";
+const PERIODS = [[30, "Last 30 days"], [90, "Last 90 days"], [180, "Last 6 months"], [365, "Last 12 months"]];
+export function CompliancePage() {
+    const [days, setDays] = useState(90);
+    const from = new Date(Date.now() - days * 86400000);
+    from.setHours(0, 0, 0, 0);
+    const q = useQuery({
+        queryKey: ["pm-compliance", days],
+        queryFn: () => api(`/pm/compliance?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 86400000).toISOString())}`),
+        placeholderData: (p) => p,
+    });
+    const r = q.data;
+    const plans = [...(r?.plans ?? [])].sort((a, b) => (a.percent ?? 101) - (b.percent ?? 101));
+    return (_jsxs("div", { className: "stack", style: { gap: "var(--s-4)" }, children: [_jsxs("div", { className: "row", style: { justifyContent: "space-between" }, children: [_jsx("p", { className: "small muted", style: { maxWidth: "70ch" }, children: "Done by the end of the due day counts as on time. Postponed visits are judged against their original date, and skipped visits count against compliance." }), _jsx(Select, { "aria-label": "Period", value: days, onChange: (e) => setDays(Number(e.target.value)), style: { width: 170 }, children: PERIODS.map(([n, l]) => _jsx("option", { value: n, children: l }, n)) })] }), q.isError && _jsx("div", { className: "banner warning", children: q.error.message }), q.isLoading || !r ? _jsx(ListSkeleton, { rows: 4 }) : _jsxs(_Fragment, { children: [_jsxs("div", { className: "tiles", children: [_jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "PM compliance" }), _jsx("div", { className: "v " + pctTone(r.percent), children: pctLabel(r.percent) })] }), _jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "On time" }), _jsx("div", { className: "v", children: r.on_time })] }), _jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "Late" }), _jsx("div", { className: "v" + (r.late ? " warning" : ""), children: r.late })] }), _jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "Missed" }), _jsx("div", { className: "v" + (r.missed ? " danger" : ""), children: r.missed })] }), _jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "Skipped" }), _jsx("div", { className: "v", children: r.skipped })] }), _jsxs("div", { className: "card tile", children: [_jsx("div", { className: "k", children: "Open, not due yet" }), _jsx("div", { className: "v", children: r.open })] })] }), _jsxs("section", { className: "card", children: [_jsxs("div", { className: "card-head", children: [_jsx("h2", { children: "By plan" }), _jsx("span", { className: "small muted", children: "Lowest first" })] }), plans.length === 0 ? _jsx("div", { className: "card-body small faint", children: "No preventive work was due in this period." }) : (_jsx("div", { className: "table-wrap", children: _jsxs("table", { className: "table pm-comp-table", children: [_jsx("thead", { children: _jsxs("tr", { children: [_jsx("th", { children: "Plan" }), _jsx("th", { className: "pm-bar-col", children: "Done on time" }), _jsx("th", { className: "num", children: "On time" }), _jsx("th", { className: "num", children: "Late" }), _jsx("th", { className: "num", children: "Missed" }), _jsx("th", { className: "num", children: "Skipped" })] }) }), _jsx("tbody", { children: plans.map((p) => {
+                                                const tot = p.on_time + p.late + p.missed + p.skipped;
+                                                const w = (n) => (tot ? `${(n / tot) * 100}%` : "0");
+                                                return (_jsxs("tr", { className: p.deleted ? "deleted" : "", children: [_jsxs("td", { className: "t", children: [p.deleted ? p.name : _jsx(Link, { to: `/preventive-maintenance/${p.id}`, children: p.name }), p.kind === "repeat" && _jsx("span", { className: "small faint", children: " \u00B7 repeating" })] }), _jsx("td", { className: "pm-bar-col", children: _jsxs("div", { className: "row", style: { gap: 8 }, children: [_jsxs("div", { className: "pm-bar", role: "img", "aria-label": `${p.on_time} on time, ${p.late} late, ${p.missed} missed, ${p.skipped} skipped`, children: [_jsx("span", { className: "on", style: { width: w(p.on_time) } }), _jsx("span", { className: "late", style: { width: w(p.late) } }), _jsx("span", { className: "missed", style: { width: w(p.missed) } }), _jsx("span", { className: "skipped", style: { width: w(p.skipped) } })] }), _jsx("span", { className: "pm-pct " + pctTone(p.percent), children: pctLabel(p.percent) })] }) }), _jsx("td", { className: "num", children: p.on_time }), _jsx("td", { className: "num", children: p.late }), _jsx("td", { className: "num", children: p.missed }), _jsx("td", { className: "num", children: p.skipped })] }, p.id));
+                                            }) })] }) }))] })] })] }));
+}

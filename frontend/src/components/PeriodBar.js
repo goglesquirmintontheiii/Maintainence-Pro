@@ -1,0 +1,6 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "./ui";
+export function PeriodBar({ label, onToday, onMove, range, ranges, onRange, rangeLabel = "Range", children }) {
+    return (_jsxs("div", { className: "period-bar", children: [_jsxs("div", { className: "period-nav", children: [_jsx(Button, { size: "sm", onClick: onToday, children: "Today" }), _jsxs("span", { className: "period-arrows", children: [_jsx(Button, { size: "sm", variant: "ghost", icon: true, "aria-label": "Previous", onClick: () => onMove(-1), children: _jsx(ChevronLeft, { size: 16 }) }), _jsx(Button, { size: "sm", variant: "ghost", icon: true, "aria-label": "Next", onClick: () => onMove(1), children: _jsx(ChevronRight, { size: 16 }) })] }), _jsx("h2", { className: "period-label", "aria-live": "polite", children: label })] }), _jsx("div", { className: "seg period-seg", role: "group", "aria-label": rangeLabel, children: ranges.map((r) => (_jsx("button", { type: "button", "aria-pressed": r.id === range, className: "seg-btn" + (r.id === range ? " on" : ""), onClick: () => onRange(r.id), children: r.label }, String(r.id)))) }), children && _jsx("div", { className: "period-side", children: children })] }));
+}

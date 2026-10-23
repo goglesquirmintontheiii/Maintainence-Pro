@@ -330,3 +330,15 @@ def test_share_email_vendor_filter_and_email_pdf(app: Any, admin: Api) -> None:
     last = outbox(app, "jo@acme.test")[-1]
     assert last["attachments"] and last["attachments"][0]["name"].endswith(".pdf") and "Quote please" in last["body"]
     assert admin.post(f"{API}/work-orders/{wo['id']}/email-pdf", {}).status_code == 422
+
+
+def test_outsiders_see_mention_names_not_internal_ids(app: Any, admin: Api) -> None:
+    wo = create(admin)
+    me = admin.get(f"{API}/auth/session").json["user"]
+    body = f"@[{me['name']}](user:{me['id']}) can you check this?"
+    r = admin.post(f"{API}/work-orders/{wo['id']}/comments", {"body": body})
+    assert r.status_code == 201, r.json
+    s = share(admin, wo["id"], fields={"comments": "view"})
+    v = anon(app, "10.0.0.77").get(f"{API}/external/{s['token']}").json
+    assert v["comments"][-1]["body"] == f"@{me['name']} can you check this?"
+    assert me["id"] not in json.dumps(v["comments"])

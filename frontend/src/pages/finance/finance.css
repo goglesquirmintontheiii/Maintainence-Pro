@@ -92,7 +92,7 @@
 
 @media (max-width: 1000px) {
   .fin-back { display: inline-flex; }
-  .fin-split { grid-template-columns: 1fr; }
+  .fin-split { grid-template-columns: minmax(0, 1fr); }
   .fin-receipt-grid { grid-template-columns: 1fr; }
   .fin-images { flex-direction: row; overflow-x: auto; }
   .fin-images img, .fin-images a { max-width: 240px; flex: none; }

@@ -31,6 +31,7 @@ from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization
 from mpro.orgs.services import RuleError
 from mpro.workorders.models import Comment, ExternalHit, ExternalShare, WorkOrder
+from mpro.workorders.services import MENTION_RE
 
 # field -> (label, default access)
 FIELDS: dict[str, tuple[str, str]] = {
@@ -516,7 +517,7 @@ def public_view(token: str, s: ExternalShare, wo: WorkOrder, org: Organization) 
         out["comments"] = [
             {
                 "id": str(c.id),
-                "body": c.body,
+                "body": MENTION_RE.sub(r"@\1", c.body or ""),  # outsiders see names, not internal ids
                 "author": c.external_name + " (outside)"
                 if c.external_name
                 else (c.author.name if c.author else "Someone"),

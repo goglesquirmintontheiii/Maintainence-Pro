@@ -1,0 +1,198 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+// Receipts (MP-091): snap pages with the phone camera (auto-crop, straighten, read on the device), upload a picture
+// or PDF, or forward to the receipts email address. Review the fields, then attach to a work order (adds a cost),
+// a purchase order, a part restock or a general expense. Tax charged despite an exemption is flagged to reclaim.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DropZone } from "../../components/DropZone";
+import { Link, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ArrowLeft, Camera, Check, Copy, FileUp, Mail, Plus, Search, Trash2, Wand2, X } from "lucide-react";
+import { api } from "../../lib/api";
+import { useSession } from "../../lib/session";
+import { useToast } from "../../components/Toast";
+import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../../components/ui";
+import { preparePage, readPages } from "./capture";
+import { day, money, postForm, RECEIPT_STATUS, todayISO } from "./types";
+const FILTERS = [["", "All"], ["new", "To review"], ["matched", "Matched"], ["to_reclaim", "Tax to reclaim"],
+    ["requested", "Reimbursements"]];
+export function ReceiptsTab({ me, id, single }) {
+    const [filter, setFilter] = useState("");
+    const [q, setQ] = useState("");
+    const [capture, setCapture] = useState(false);
+    const nav = useNavigate();
+    const params = new URLSearchParams();
+    if (filter === "new" || filter === "matched")
+        params.set("status", filter === "new" ? "new,duplicate" : "matched");
+    if (filter === "to_reclaim")
+        params.set("tax_reclaim", "to_reclaim");
+    if (filter === "requested")
+        params.set("reimbursement", "requested");
+    if (q.trim())
+        params.set("q", q.trim());
+    const list = useQuery({ queryKey: ["finance", "receipts", params.toString()], queryFn: () => api(`/finance/receipts?${params}`) });
+    const filters = me.can["finance.view"] ? FILTERS : FILTERS.filter(([k]) => k !== "to_reclaim" && k !== "requested");
+    return (_jsxs("div", { className: "split fin-split" + (id ? " has-detail" : ""), children: [_jsxs("div", { className: "split-list", children: [_jsxs("div", { className: "list-tools", children: [_jsxs("div", { className: "row", style: { justifyContent: "space-between" }, children: [_jsx("h1", { children: single ? "My receipts" : "Receipts" }), _jsxs(Button, { variant: "primary", onClick: () => setCapture(true), children: [_jsx(Plus, { size: 16 }), "Add receipt"] })] }), me.receipts_address && _jsx(EmailIn, { address: me.receipts_address }), _jsx("div", { className: "seg fin-seg", role: "tablist", "aria-label": "Filter", children: filters.map(([k, l]) => _jsx("button", { type: "button", role: "tab", "aria-selected": filter === k, className: "seg-btn" + (filter === k ? " on" : ""), onClick: () => setFilter(k), children: l }, k)) }), _jsxs("div", { className: "search-in", children: [_jsx(Search, { size: 15, className: "faint" }), _jsx(Input, { placeholder: "Search vendor or category", value: q, onChange: (e) => setQ(e.target.value), "aria-label": "Search receipts" })] })] }), _jsx("div", { className: "list", "aria-label": "Receipts", children: list.isLoading ? _jsx(ListSkeleton, {}) : !list.data?.items.length
+                            ? _jsxs(EmptyState, { icon: _jsx(Camera, { size: 28 }), title: "No receipts yet", children: ["Snap a receipt with your phone, upload a picture or PDF", me.receipts_address ? ", or email it" : "", "."] })
+                            : list.data.items.map((r) => _jsx(ReceiptRow, { r: r, active: r.id === id }, r.id)) })] }), _jsx("div", { className: "split-detail", children: id ? _jsx(ReceiptDetail, { id: id, me: me, onBack: () => nav("/finance/receipts") })
+                    : _jsx(EmptyState, { title: "Pick a receipt", children: "Or add one: the camera straightens and reads it right on your phone." }) }), capture && _jsx(CaptureModal, { onClose: () => setCapture(false), onDone: (r) => { setCapture(false); nav(`/finance/receipts/${r.id}`); } })] }));
+}
+function EmailIn({ address }) {
+    const { toast } = useToast();
+    return _jsxs("button", { type: "button", className: "fin-email", onClick: () => { void navigator.clipboard?.writeText(address); toast("Address copied"); }, title: "Forward receipts to this address", children: [_jsx(Mail, { size: 14 }), _jsx("span", { className: "grow", children: address }), _jsx(Copy, { size: 13 })] });
+}
+function ReceiptRow({ r, active }) {
+    const [label, tone] = RECEIPT_STATUS[r.status];
+    return (_jsxs(Link, { to: `/finance/receipts/${r.id}`, className: "list-row" + (active ? " active" : ""), children: [_jsx("div", { className: "fin-thumb", "aria-hidden": true, children: r.file?.thumb_url ? _jsx("img", { src: r.file.thumb_url, alt: "", loading: "lazy" }) : _jsx(FileUp, { size: 18 }) }), _jsxs("div", { className: "grow", children: [_jsx("div", { className: "t", children: r.vendor?.name || r.vendor_name || "Receipt" }), _jsxs("div", { className: "s", children: [day(r.purchased_on || r.created_at), r.expense_category ? ` · ${r.expense_category}` : "", r.submitted_by ? ` · ${r.submitted_by.name}` : ""] }), _jsxs("div", { className: "row wrap fin-pills", children: [_jsx(Pill, { tone: tone, children: label }), r.tax_reclaim_status === "to_reclaim" && _jsx(Pill, { tone: "warning", children: "Tax to reclaim" }), r.reimbursement_status && _jsxs(Pill, { tone: r.reimbursement_status === "rejected" ? "danger" : "neutral", children: ["Reimbursement ", r.reimbursement_status] })] })] }), _jsx("div", { className: "fin-amt", children: money(r.total, r.currency) })] }));
+}
+// ---- capture -------------------------------------------------------------------------------------------------
+export function CaptureModal({ onClose, onDone, workOrderId }) {
+    const { toast } = useToast();
+    const qc = useQueryClient();
+    const cam = useRef(null);
+    const pick = useRef(null);
+    const [pages, setPages] = useState([]);
+    const [files, setFiles] = useState([]); // PDFs and plain uploads, sent as they are
+    const [busy, setBusy] = useState("");
+    const [progress, setProgress] = useState(0);
+    const [straighten, setStraighten] = useState(true);
+    useEffect(() => () => pages.forEach((p) => URL.revokeObjectURL(p.url)), [pages]);
+    const addPhotos = async (list) => {
+        if (!list?.length)
+            return;
+        setBusy("Straightening…");
+        const out = [];
+        for (const f of Array.from(list)) {
+            if (f.type === "application/pdf") {
+                setFiles((x) => [...x, f]);
+                continue;
+            }
+            if (!f.type.startsWith("image/")) {
+                toast(`${f.name} isn't a picture or PDF.`, { kind: "error" });
+                continue;
+            }
+            out.push(await preparePage(f, { crop: straighten, deskew: straighten }));
+        }
+        setPages((p) => [...p, ...out].slice(0, 20));
+        setBusy("");
+    };
+    const save = useMutation({
+        mutationFn: async () => {
+            let text = "";
+            if (pages.length) {
+                setBusy("Reading the receipt…");
+                try {
+                    text = await readPages(pages.map((p) => p.blob), (f) => setProgress(f));
+                }
+                catch {
+                    text = ""; /* reader unavailable: type it in */
+                }
+            }
+            setBusy("Uploading…");
+            const blobs = [...pages.map((p, i) => new File([p.blob], `receipt-page-${i + 1}.jpg`, { type: "image/jpeg" })), ...files];
+            return postForm("/finance/receipts", { files: blobs, source: pages.length ? "camera" : "upload", ocr_text: text || undefined,
+                work_order_id: workOrderId });
+        },
+        onSuccess: (r) => {
+            void qc.invalidateQueries({ queryKey: ["finance"] });
+            toast(r.status === "duplicate" ? "Saved. It looks like a receipt you already added — check it." : "Receipt saved");
+            onDone(r);
+        },
+        onError: (e) => { setBusy(""); toast(e.message, { kind: "error" }); },
+    });
+    const count = pages.length + files.length;
+    return (_jsx(Modal, { title: "Add a receipt", onClose: onClose, width: 560, footer: _jsxs(_Fragment, { children: [_jsx(Button, { onClick: onClose, children: "Cancel" }), _jsx(Button, { variant: "primary", disabled: !count || !!busy, onClick: () => save.mutate(), children: busy || "Save receipt" })] }), children: _jsxs("div", { className: "stack", children: [_jsx(DropZone, { accept: "image/*,application/pdf", label: "Drop receipt pictures or PDFs", onFiles: (fs) => { const dt = new DataTransfer(); fs.forEach((f) => dt.items.add(f)); void addPhotos(dt.files); }, children: _jsxs("div", { className: "fin-capture-btns", children: [_jsxs(Button, { size: "lg", variant: "primary", onClick: () => cam.current?.click(), disabled: !!busy, children: [_jsx(Camera, { size: 18 }), pages.length ? "Add a page" : "Take a photo"] }), _jsxs(Button, { size: "lg", onClick: () => pick.current?.click(), disabled: !!busy, children: [_jsx(FileUp, { size: 18 }), "Upload picture or PDF"] })] }) }), _jsx("input", { ref: cam, type: "file", accept: "image/*", capture: "environment", hidden: true, onChange: (e) => { void addPhotos(e.target.files); e.target.value = ""; } }), _jsx("input", { ref: pick, type: "file", accept: "image/*,application/pdf", multiple: true, hidden: true, onChange: (e) => { void addPhotos(e.target.files); e.target.value = ""; } }), _jsx(Checkbox, { checked: straighten, onChange: setStraighten, label: "Crop to the paper and straighten photos" }), count > 0 && (_jsxs("div", { className: "fin-pages", "aria-label": "Pages", children: [pages.map((p, i) => (_jsxs("figure", { className: "fin-page", children: [_jsx("img", { src: p.url, alt: `Page ${i + 1}` }), _jsxs("figcaption", { children: ["Page ", i + 1, p.cropped || p.angle ? _jsxs("span", { className: "faint", children: [" \u00B7 ", _jsx(Wand2, { size: 11 }), " ", p.cropped ? "cropped" : "", p.cropped && p.angle ? ", " : "", p.angle ? `straightened ${p.angle}°` : ""] }) : null] }), _jsx("button", { type: "button", className: "fin-page-x", "aria-label": `Remove page ${i + 1}`, onClick: () => setPages((x) => x.filter((_, j) => j !== i)), children: _jsx(X, { size: 14 }) })] }, p.url))), files.map((f, i) => (_jsxs("figure", { className: "fin-page file", children: [_jsx(FileUp, { size: 22 }), _jsx("figcaption", { children: f.name }), _jsx("button", { type: "button", className: "fin-page-x", "aria-label": `Remove ${f.name}`, onClick: () => setFiles((x) => x.filter((_, j) => j !== i)), children: _jsx(X, { size: 14 }) })] }, f.name + i)))] })), busy.startsWith("Reading") && _jsx("div", { className: "fin-progress", role: "progressbar", "aria-valuenow": Math.round(progress * 100), "aria-valuemin": 0, "aria-valuemax": 100, children: _jsx("div", { style: { width: `${Math.round(progress * 100)}%` } }) }), _jsx("p", { className: "faint fin-small", children: "Long receipt? Take one photo per section; they're kept as pages of the same receipt. Reading happens on this device." })] }) }));
+}
+function ReceiptDetail({ id, me, onBack }) {
+    const qc = useQueryClient();
+    const { toast } = useToast();
+    const q = useQuery({ queryKey: ["finance", "receipt", id], queryFn: () => api(`/finance/receipts/${id}`) });
+    const [f, setF] = useState({});
+    const r = q.data;
+    useEffect(() => {
+        if (!r)
+            return;
+        setF({ vendor_name: r.vendor?.name || r.vendor_name, purchased_on: r.purchased_on ?? "", subtotal: r.subtotal ?? "", tax: r.tax ?? "",
+            total: r.total ?? "", card_last4: r.card_last4, region: r.region, expense_category: r.expense_category, paid_personally: r.paid_personally });
+    }, [r]);
+    const done = (x, msg) => {
+        qc.setQueryData(["finance", "receipt", id], x);
+        void qc.invalidateQueries({ queryKey: ["finance", "receipts"] });
+        void qc.invalidateQueries({ queryKey: ["finance", "summary"] });
+        if (msg)
+            toast(msg);
+    };
+    const err = (e) => toast(e.message, { kind: "error" });
+    const patch = useMutation({ mutationFn: (body) => api(`/finance/receipts/${id}`, { method: "PATCH", body }),
+        onSuccess: (x) => done(x, "Saved"), onError: err });
+    const act = useMutation({ mutationFn: ({ path, body }) => api(`/finance/receipts/${id}/${path}`, { method: "POST", body: body ?? {} }),
+        onSuccess: (x) => done(x), onError: err });
+    const del = useMutation({ mutationFn: () => api(`/finance/receipts/${id}`, { method: "DELETE" }),
+        onSuccess: () => { void qc.invalidateQueries({ queryKey: ["finance"] }); onBack(); }, onError: err });
+    if (q.isLoading)
+        return _jsx("div", { className: "detail", children: _jsx(ListSkeleton, { rows: 4 }) });
+    if (!r)
+        return _jsx("div", { className: "detail", children: _jsx(EmptyState, { title: "Receipt not found" }) });
+    const ro = r.locked;
+    const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+    const dirty = Object.entries(f).some(([k, v]) => String(v ?? "") !== String((k === "vendor_name" ? (r.vendor?.name || r.vendor_name) : r[k]) ?? ""));
+    const [label, tone] = RECEIPT_STATUS[r.status];
+    const mine = r.submitted_by?.id && !me.can["finance.view"];
+    return (_jsxs("div", { className: "detail fin-detail", children: [_jsxs("div", { className: "detail-head", children: [_jsx(Button, { icon: true, className: "fin-back", "aria-label": "Back to receipts", onClick: onBack, children: _jsx(ArrowLeft, { size: 18 }) }), _jsx("h2", { className: "grow", children: r.vendor?.name || r.vendor_name || "Receipt" }), _jsx(Pill, { tone: tone, children: label }), !ro && _jsx(Button, { icon: true, "aria-label": "Delete receipt", title: "Delete", onClick: () => { if (confirm("Delete this receipt?"))
+                            del.mutate(); }, children: _jsx(Trash2, { size: 16 }) })] }), r.status === "duplicate" && (_jsxs("div", { className: "fin-banner warn", children: [_jsx(AlertTriangle, { size: 16 }), _jsxs("span", { className: "grow", children: ["This looks like a receipt that was already added", r.duplicate_of_id ? _jsxs(_Fragment, { children: [" (", _jsx(Link, { to: `/finance/receipts/${r.duplicate_of_id}`, children: "open it" }), ")"] }) : null, "."] }), _jsx(Button, { size: "sm", onClick: () => act.mutate({ path: "not-duplicate" }), children: "Not a duplicate" })] })), r.tax_flagged && (_jsxs("div", { className: "fin-banner warn", children: [_jsx(AlertTriangle, { size: 16 }), _jsxs("span", { className: "grow", children: ["Sales tax of ", money(r.tax, r.currency), " was charged, but a tax exemption certificate is on file with this vendor.", r.tax_reclaim_status === "to_reclaim" ? " Ask the vendor for a refund." : r.tax_reclaim_status ? ` Marked ${r.tax_reclaim_status}.` : ""] }), me.can["finance.view"] && r.tax_reclaim_status === "to_reclaim" && _jsxs(_Fragment, { children: [_jsx(Button, { size: "sm", onClick: () => act.mutate({ path: "reclaim", body: { status: "reclaimed" } }), children: "Reclaimed" }), _jsx(Button, { size: "sm", variant: "ghost", onClick: () => act.mutate({ path: "reclaim", body: { status: "waived" } }), children: "Waive" })] })] })), r.source === "email" && r.sender_verified === false && _jsxs("div", { className: "fin-banner warn", children: [_jsx(AlertTriangle, { size: 16 }), "Sender not verified: emailed from ", r.email_from || "an unknown address", ", which its mail server didn't confirm."] }), ro && _jsxs("div", { className: "fin-banner", children: [_jsx(Check, { size: 16 }), "Approved for reimbursement \u2014 this receipt is read-only now."] }), _jsxs("div", { className: "fin-receipt-grid", children: [_jsxs("div", { className: "fin-images", children: [(r.pages ?? (r.file ? [r.file] : [])).map((p) => p.content_type.startsWith("image/")
+                                ? _jsx("a", { href: p.url, target: "_blank", rel: "noreferrer", children: _jsx("img", { src: p.url, alt: p.name, loading: "lazy" }) }, p.id)
+                                : _jsxs("a", { href: p.url, target: "_blank", rel: "noreferrer", className: "fin-pdf", children: [_jsx(FileUp, { size: 20 }), p.name] }, p.id)), !r.file && _jsx(EmptyState, { title: "No picture", children: "Typed in by hand." })] }), _jsxs("form", { className: "stack", onSubmit: (e) => { e.preventDefault(); patch.mutate({ ...f, confirm: true }); }, children: [_jsxs("div", { className: "fin-form-grid", children: [_jsx(Field, { label: "Vendor", children: (fid) => _jsx(Input, { id: fid, value: String(f.vendor_name ?? ""), onChange: set("vendor_name"), disabled: ro }) }), _jsx(Field, { label: "Date", children: (fid) => _jsx(Input, { id: fid, type: "date", max: todayISO(), value: String(f.purchased_on ?? ""), onChange: set("purchased_on"), disabled: ro }) }), _jsx(Field, { label: "Subtotal", children: (fid) => _jsx(Input, { id: fid, inputMode: "decimal", value: String(f.subtotal ?? ""), onChange: set("subtotal"), disabled: ro }) }), _jsx(Field, { label: "Tax", children: (fid) => _jsx(Input, { id: fid, inputMode: "decimal", value: String(f.tax ?? ""), onChange: set("tax"), disabled: ro }) }), _jsx(Field, { label: `Total (${r.currency})`, children: (fid) => _jsx(Input, { id: fid, inputMode: "decimal", value: String(f.total ?? ""), onChange: set("total"), disabled: ro }) }), _jsx(Field, { label: "Card (last 4)", children: (fid) => _jsx(Input, { id: fid, inputMode: "numeric", maxLength: 4, value: String(f.card_last4 ?? ""), onChange: set("card_last4"), disabled: ro }) }), _jsx(Field, { label: "State / province", hint: "Where it was bought", children: (fid) => _jsx(Input, { id: fid, value: String(f.region ?? ""), onChange: set("region"), disabled: ro }) }), _jsx(Field, { label: "Category", children: (fid) => _jsxs(Select, { id: fid, value: String(f.expense_category ?? ""), onChange: set("expense_category"), disabled: ro, children: [_jsx("option", { value: "", children: "\u2014" }), [...new Set([...me.expense_categories, String(f.expense_category || "")])].filter(Boolean).map((c) => _jsx("option", { children: c }, c))] }) })] }), _jsx(Checkbox, { checked: !!f.paid_personally, onChange: (v) => setF((x) => ({ ...x, paid_personally: v })), disabled: ro, label: "I paid with my own money" }), r.extracted && Object.keys(r.extracted).length > 0 && _jsxs("p", { className: "faint fin-small", children: ["Filled in from the ", r.reader === "pdf_text" ? "PDF" : "photo", ": check the amounts."] }), !ro && _jsx("div", { className: "row", children: _jsx(Button, { variant: "primary", type: "submit", disabled: patch.isPending, children: r.status === "new" ? "Confirm" : dirty ? "Save" : "Saved" }) })] })] }), _jsx(AttachPanel, { r: r, me: me, onDone: done }), _jsx(Reimbursement, { r: r, me: me, mine: !!mine, run: (action) => act.mutate({ path: "reimbursement", body: { action } }) })] }));
+}
+function AttachPanel({ r, me, onDone }) {
+    const { toast } = useToast();
+    const sug = useQuery({ queryKey: ["finance", "receipt", r.id, "suggest"], queryFn: () => api(`/finance/receipts/${r.id}/suggestions`) });
+    const [target, setTarget] = useState("work_order");
+    const [woNumber, setWoNumber] = useState("");
+    const [partQ, setPartQ] = useState("");
+    const [qty, setQty] = useState("1");
+    const [cat, setCat] = useState(r.expense_category);
+    const attach = useMutation({ mutationFn: (body) => api(`/finance/receipts/${r.id}/attach`, { method: "POST", body }),
+        onSuccess: (x) => onDone(x, "Attached"), onError: (e) => toast(e.message, { kind: "error" }) });
+    const parts = useQuery({ queryKey: ["finance", "parts", partQ], enabled: target === "part" && partQ.trim().length > 1,
+        queryFn: () => api(`/parts?q=${encodeURIComponent(partQ.trim())}&per_page=8`) });
+    const byNumber = async () => {
+        try {
+            const wo = await api(`/work-orders/${encodeURIComponent(woNumber.replace(/^#/, ""))}`);
+            attach.mutate({ target: "work_order", id: wo.id });
+        }
+        catch (e) {
+            toast(e.message || "Work order not found", { kind: "error" });
+        }
+    };
+    const linked = r.work_order_id ? "a work order" : r.purchase_order_id ? "a purchase order" : r.part_id ? "a part restock" : r.status === "matched" && r.expense_category ? `${r.expense_category} expenses` : "";
+    if (r.locked)
+        return null;
+    return (_jsxs("section", { className: "card card-pad stack", children: [_jsxs("div", { className: "row", children: [_jsx("h3", { className: "sec-h grow", children: "What was it for?" }), linked && _jsxs(Pill, { tone: "success", children: ["Attached to ", linked] })] }), _jsx("div", { className: "seg fin-seg", role: "tablist", "aria-label": "Attach to", children: [["work_order", "Work order"], ["purchase_order", "Purchase order"], ["part", "Part restock"], ["expense", "Expense"]].map(([k, l]) => _jsx("button", { type: "button", role: "tab", "aria-selected": target === k, className: "seg-btn" + (target === k ? " on" : ""), onClick: () => setTarget(k), children: l }, k)) }), target === "work_order" && _jsxs(_Fragment, { children: [!!sug.data?.work_orders.length && _jsx("div", { className: "fin-chips", children: sug.data.work_orders.map((w) => _jsxs("button", { type: "button", className: "fin-chip" + (r.work_order_id === w.id ? " on" : ""), onClick: () => attach.mutate({ target: "work_order", id: w.id }), children: ["#", w.number, " ", w.title] }, w.id)) }), _jsxs("div", { className: "row", children: [_jsx(Input, { placeholder: "Work order #", value: woNumber, onChange: (e) => setWoNumber(e.target.value), "aria-label": "Work order number", inputMode: "numeric" }), _jsx(Button, { disabled: !woNumber.trim() || attach.isPending, onClick: () => void byNumber(), children: "Attach" })] }), _jsx("p", { className: "faint fin-small", children: "Adds the total as a cost on the work order, with this receipt." })] }), target === "purchase_order" && (sug.data?.purchase_orders.length
+                ? _jsx("div", { className: "fin-chips", children: sug.data.purchase_orders.map((p) => _jsxs("button", { type: "button", className: "fin-chip" + (r.purchase_order_id === p.id ? " on" : ""), onClick: () => attach.mutate({ target: "purchase_order", id: p.id }), children: [p.number, " \u00B7 ", p.vendor?.name ?? "", " \u00B7 ", money(p.total, r.currency)] }, p.id)) })
+                : _jsx("p", { className: "muted", children: "No purchase order matches this vendor and amount." })), target === "part" && _jsxs(_Fragment, { children: [_jsxs("div", { className: "row", children: [_jsx(Input, { placeholder: "Search parts", value: partQ, onChange: (e) => setPartQ(e.target.value), "aria-label": "Search parts" }), _jsx(Input, { style: { width: 90 }, inputMode: "decimal", value: qty, onChange: (e) => setQty(e.target.value), "aria-label": "Quantity bought" })] }), _jsx("div", { className: "fin-chips", children: parts.data?.items.map((p) => _jsxs("button", { type: "button", className: "fin-chip", onClick: () => attach.mutate({ target: "part", id: p.id, quantity: qty }), children: [p.name, p.part_number ? ` (${p.part_number})` : ""] }, p.id)) }), _jsx("p", { className: "faint fin-small", children: "Restocks the part at the receipt's price (before tax)." })] }), target === "expense" && _jsxs("div", { className: "row", children: [_jsxs(Select, { value: cat, onChange: (e) => setCat(e.target.value), "aria-label": "Expense category", children: [_jsx("option", { value: "", children: "Pick a category" }), me.expense_categories.map((c) => _jsx("option", { children: c }, c))] }), _jsx(Button, { disabled: !cat || attach.isPending, onClick: () => attach.mutate({ target: "expense", category: cat }), children: "Save" })] })] }));
+}
+function Reimbursement({ r, me, mine, run }) {
+    const approver = me.can["finance.invoices.approve"];
+    if (!r.paid_personally && !r.reimbursement_status)
+        return null;
+    return (_jsxs("section", { className: "card card-pad row wrap", children: [_jsxs("div", { className: "grow", children: [_jsx("h3", { className: "sec-h", children: "Reimbursement" }), _jsx("p", { className: "muted", children: { "": "Not requested yet.", requested: "Waiting for approval.", approved: "Approved; it'll be in the next payout.",
+                            rejected: "Rejected.", exported: "Sent to payroll.", paid: "Paid." }[r.reimbursement_status] })] }), (r.reimbursement_status === "" || r.reimbursement_status === "rejected") && (mine || r.submitted_by) &&
+                _jsx(Button, { variant: "primary", onClick: () => run("request"), children: "Ask to be reimbursed" }), approver && r.reimbursement_status === "requested" && _jsxs(_Fragment, { children: [_jsx(Button, { onClick: () => run("reject"), children: "Reject" }), _jsx(Button, { variant: "primary", onClick: () => run("approve"), children: "Approve" })] }), approver && (r.reimbursement_status === "approved" || r.reimbursement_status === "exported") && _jsx(Button, { onClick: () => run("paid"), children: "Mark paid" })] }));
+}
+// ---- the Receipts section on a work order -------------------------------------------------------------------
+export function WOReceipts({ woId }) {
+    const { can } = useSession();
+    const [open, setOpen] = useState(false);
+    const allowed = can("finance.receipts");
+    const q = useQuery({ queryKey: ["finance", "wo-receipts", woId], enabled: allowed,
+        queryFn: () => api(`/finance/work-orders/${woId}/receipts`) });
+    const qc = useQueryClient();
+    const nav = useNavigate();
+    const items = useMemo(() => q.data?.items ?? [], [q.data]);
+    if (!allowed)
+        return null;
+    return (_jsxs("section", { className: "card", children: [_jsxs("div", { className: "card-head", children: [_jsx("h3", { className: "sec-h", children: "Receipts" }), _jsxs(Button, { size: "sm", onClick: () => setOpen(true), children: [_jsx(Camera, { size: 15 }), "Add receipt"] })] }), items.length > 0 && _jsx("div", { className: "fin-wo-receipts", children: items.map((r) => (_jsxs(Link, { to: `/finance/receipts/${r.id}`, className: "list-row", children: [_jsx("div", { className: "fin-thumb", "aria-hidden": true, children: r.file?.thumb_url ? _jsx("img", { src: r.file.thumb_url, alt: "", loading: "lazy" }) : _jsx(FileUp, { size: 16 }) }), _jsxs("div", { className: "grow", children: [_jsx("div", { className: "t", children: r.vendor?.name || r.vendor_name || "Receipt" }), _jsxs("div", { className: "s", children: [day(r.purchased_on || r.created_at), " \u00B7 ", RECEIPT_STATUS[r.status][0]] })] }), _jsx("div", { className: "fin-amt", children: money(r.total, r.currency) })] }, r.id))) }), open && _jsx(CaptureModal, { workOrderId: woId, onClose: () => setOpen(false), onDone: (r) => {
+                    setOpen(false);
+                    void qc.invalidateQueries({ queryKey: ["finance", "wo-receipts", woId] });
+                    nav(`/finance/receipts/${r.id}`);
+                } })] }));
+}
