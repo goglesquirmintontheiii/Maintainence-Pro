@@ -22,6 +22,7 @@ import {
   scale, textLines, topOf, translate, union, UNITS, type Box, type Pt, type Shape, type ShapeType,
 } from "./floorplanShapes";
 import "../../styles/viewer.css";
+import { ColorPicker } from "../../components/ColorPicker";
 
 type Tool = "select" | "pin" | Exclude<ShapeType, "group">;
 const TOOLS: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
@@ -658,13 +659,7 @@ const HELP: Record<Tool, string> = {
 };
 
 function Swatches({ value, onPick, none, label }: { value: string; onPick: (c: string) => void; none?: boolean; label: string }) {
-  return (
-    <span className="fp-swatches" role="group" aria-label={label}>
-      {none && <button type="button" className={"fp-sw none" + (value === "none" ? " on" : "")} aria-label="No fill" aria-pressed={value === "none"} onClick={() => onPick("none")} />}
-      {PALETTE.map((c) => <button key={c} type="button" className={"fp-sw" + (value === c ? " on" : "")} style={{ background: c }} aria-label={c} aria-pressed={value === c} onClick={() => onPick(c)} />)}
-      <input type="color" className="fp-color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#1b5bd4"} onChange={(e) => onPick(e.target.value)} aria-label={`Custom ${label.toLowerCase()}`} />
-    </span>
-  );
+  return <span className="fp-swatches"><ColorPicker value={value} onChange={onPick} presets={PALETTE} allowNone={none} label={label} size="sm" /></span>;
 }
 
 function PinButton({ p, editing, onDown, onOpen, onDelete }: { p: FloorPlanPin; editing: boolean; onDown: (e: React.PointerEvent) => void; onOpen: () => void; onDelete: () => void }) {

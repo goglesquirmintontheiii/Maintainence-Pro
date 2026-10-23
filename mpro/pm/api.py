@@ -220,8 +220,8 @@ def plan_history(pid: str) -> dict[str, Any]:
 @bp.get("/pm/calendar")
 @require("pm.view")
 def calendar() -> dict[str, Any]:
-    """PM forecast between from and to (≤ 100 days): generated, planned and computed occurrences of active plans."""
-    start, end = _range(default_days=35, max_days=100)
+    """PM forecast between from and to (≤ 366 days): generated, planned and computed occurrences of active plans."""
+    start, end = _range(default_days=35, max_days=366)  # 366: Upcoming tab windows up to a year (MP-125)
     now = datetime.now(UTC)
     plans = list(db.session.scalars(scoped(MaintenancePlan).where(MaintenancePlan.active.is_(True))).all())
     out = []

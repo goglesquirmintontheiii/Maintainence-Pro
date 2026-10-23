@@ -29,9 +29,16 @@ export function SessionProvider({ children, fallback }: { children: ReactNode; f
     <button className="btn primary" onClick={() => q.refetch()}>Try again</button></div>;
   if (!q.data) return <>{fallback}</>;
   const s = q.data;
-  const can = (perm: string) => !!s.permissions?.includes(perm);
+  // Own vs any (MP-130): someone with only the "…_own" half sees the controls; the server (and per-record `you`
+  // flags on detail responses) decides for each record.
+  const can = (perm: string) => !!s.permissions?.includes(perm) || (perm in OWN_OF && !!s.permissions?.includes(OWN_OF[perm]));
   return <SessionCtx.Provider value={{ session: s, refresh, set, can }}>{children}</SessionCtx.Provider>;
 }
+
+export const OWN_OF: Record<string, string> = {
+  "wo.edit": "wo.edit_own", "wo.delete": "wo.delete_own", "assets.manage": "assets.manage_own",
+  "procedures.manage": "procedures.manage_own", "po.manage": "po.manage_own",
+};
 
 export function useSession(): Ctx {
   const c = useContext(SessionCtx);

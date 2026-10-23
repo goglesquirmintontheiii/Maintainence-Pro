@@ -14,9 +14,9 @@ from sqlalchemy import func, select
 
 from mpro.core.files import FileError, register_entity, request_export
 from mpro.core.models import utcnow
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on
 from mpro.core.search import like, provider
-from mpro.core.tenancy import get_scoped, require, scoped
+from mpro.core.tenancy import enforce_own_scope, get_scoped, require, scoped
 from mpro.extensions import db
 from mpro.orgs.models import Membership
 from mpro.orgs.services import RuleError, members_query
@@ -80,6 +80,7 @@ def _wo(wo_id: str, include_deleted: bool = False) -> WorkOrder:
     wo = db.session.scalars(q).first()
     if wo is None or not svc.can_see(g.membership, wo):
         abort(404)
+    enforce_own_scope(wo)
     return wo
 
 
@@ -554,6 +555,9 @@ CF_PERMS = {
     "work_order": ("wo.view", "wo.settings"),
     "asset": ("assets.view", "assets.settings"),
     "location": ("locations.view", "assets.settings"),
+    "part": ("parts.view", "parts.settings"),
+    "vendor": ("vendors.view", "vendors.manage"),
+    "purchase_order": ("po.view", "po.settings"),
 }
 
 
@@ -788,7 +792,7 @@ def _wo_can_view(wo_id: uuid.UUID) -> bool:
 
 def _wo_can_edit(wo_id: uuid.UUID) -> bool:
     wo = _wo_visible(wo_id)
-    return wo is not None and can(g.membership, "wo.edit")
+    return wo is not None and can_on(g.membership, "wo.edit", wo)
 
 
 def _wo_changed(wo_id: uuid.UUID) -> None:
@@ -824,3 +828,8 @@ register_entity(
 )
 
 _ = timedelta  # keep import for type checkers
+
+# 0.5.0: outside links, vendors on work orders, emailing the PDF (routes on this blueprint)
+from mpro.workorders import external_api as _external_api  # noqa: E402
+
+_external_api.register()

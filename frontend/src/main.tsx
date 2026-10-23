@@ -36,6 +36,9 @@ import { VendorsPage } from "./pages/vendors/Vendors";
 import { CustomersPage } from "./pages/vendors/Customers";
 import { FinancePage } from "./pages/finance/Finance";
 import { SupplierSettingsPage } from "./pages/suppliers/SupplierSettings";
+import { ExternalWorkOrder } from "./pages/external/ExternalWorkOrder";
+import { AssetHubPage } from "./pages/assets/AssetHub";
+import { PublicQuotePage } from "./pages/vendors/PublicQuote";
 import "./devtools/feedback"; // TEMPORARY Ctrl+Shift+F feedback capture (0.4.2). Remove by 1.9.0, see devtools/feedback/README.md
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
@@ -49,6 +52,8 @@ function Gate() {
   const loc = useLocation();
   const publicPaths = ["/login", "/forgot-password", "/reset-password"];
   const isPublic = publicPaths.some((p) => loc.pathname.startsWith(p));
+  // a customer's quote link (r235) works signed in or out
+  if (loc.pathname.startsWith("/quote/")) return <Routes><Route path="/quote/:token" element={<PublicQuotePage />} /></Routes>;
   if (!session.authenticated) {
     return (
       <Routes>
@@ -74,6 +79,7 @@ function Gate() {
         <Route path="assets" element={<AssetsPage />} />
         <Route path="assets/:id" element={<AssetsPage />} />
         <Route path="assets/:id/:tab" element={<AssetsPage />} />
+        <Route path="asset-hub" element={<AssetHubPage />} />
         <Route path="locations" element={<LocationsPage />} />
         <Route path="locations/:id" element={<LocationsPage />} />
         <Route path="locations/:id/:tab" element={<LocationsPage />} />
@@ -132,7 +138,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={qc}>
       <BrowserRouter>
         <ToastProvider>
-          <SessionProvider fallback={<Splash />}><Gate /></SessionProvider>
+          {window.location.pathname.startsWith("/x/") ? <ExternalWorkOrder /> /* public work order link, no login (0.5.0) */ : <SessionProvider fallback={<Splash />}><Gate /></SessionProvider>}
         </ToastProvider>
       </BrowserRouter>
     </QueryClientProvider>

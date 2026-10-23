@@ -43,6 +43,8 @@ export function fieldDefs(o: WOOptions | undefined): FieldDef[] {
     { id: "procedure_result", label: "Procedure result", kind: "list", options: () => [{ id: "fail", label: "A step failed" }, { id: "flag", label: "A step flagged" }, { id: "pass", label: "A step passed" }] },
     ...(o?.assets?.length ? [{ id: "asset", label: "Asset", kind: "tree" as const, options: (x: WOOptions) => (x.assets ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
     ...(o?.locations?.length ? [{ id: "location", label: "Location", kind: "tree" as const, options: (x: WOOptions) => (x.locations ?? []).map((a) => ({ id: a.id, label: a.name, sub: a.path })) }] : []),
+    ...(o?.vendors?.length ? [{ id: "vendor", label: "Vendor", kind: "list" as const, options: (x: WOOptions) => (x.vendors ?? []).map((v) => ({ id: v.id, label: v.name, color: v.color })) }] : []),
+    ...(o?.can_share_external ? [{ id: "shared", label: "Shared externally", kind: "bool" as const }] : []),
   ];
   const custom: FieldDef[] = (o?.custom_fields ?? []).map((f) => ({
     id: `custom.${f.id}`, label: f.name,
@@ -56,7 +58,7 @@ function describe(f: Filter, def: FieldDef | undefined, o: WOOptions | undefined
   if (!def) return f.field;
   const op = (OPS[def.kind] ?? []).find((x) => x.id === f.op)?.label ?? f.op;
   if (["empty", "not_empty", "overdue"].includes(f.op) || def.kind === "parent") return `${def.label}: ${op}`;
-  if (def.kind === "bool") return f.value ? "Unread" : "Read";
+  if (def.kind === "bool") return def.id === "shared" ? (f.value ? "Shared externally" : "Not shared externally") : f.value ? "Unread" : "Read";
   if ((def.kind === "list" || def.kind === "tree") && o && def.options) {
     const opts = def.options(o);
     const names = ((f.value as string[]) ?? []).map((v) => opts.find((x) => x.id === v)?.label ?? v);
@@ -96,7 +98,7 @@ function FilterEditor({ filter, def, options, onChange, onRemove, close }: { fil
             <Input type="date" aria-label="To" value={((f.value as string[]) ?? [])[1] ?? ""} onChange={(e) => setF({ ...f, value: [((f.value as string[]) ?? [])[0] ?? "", e.target.value] })} /></div>
         : <Input type="date" aria-label="Date" value={(f.value as string) ?? ""} onChange={(e) => setF({ ...f, value: e.target.value })} />)}
       {!noValue && def.kind === "text" && <Input aria-label="Text" value={(f.value as string) ?? ""} onChange={(e) => setF({ ...f, value: e.target.value })} autoFocus />}
-      {def.kind === "bool" && <Select value={f.value ? "1" : "0"} aria-label="Value" onChange={(e) => setF({ ...f, value: e.target.value === "1" })}><option value="1">Unread</option><option value="0">Read</option></Select>}
+      {def.kind === "bool" && <Select value={f.value ? "1" : "0"} aria-label="Value" onChange={(e) => setF({ ...f, value: e.target.value === "1" })}>{def.id === "shared" ? <><option value="1">Shared externally</option><option value="0">Not shared</option></> : <><option value="1">Unread</option><option value="0">Read</option></>}</Select>}
       <div className="row" style={{ justifyContent: "flex-end" }}><Button size="sm" onClick={close}>Cancel</Button><Button size="sm" variant="primary" onClick={() => { onChange(f); close(); }}>Apply</Button></div>
     </div>
   );

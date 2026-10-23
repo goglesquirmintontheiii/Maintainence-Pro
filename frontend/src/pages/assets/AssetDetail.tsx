@@ -17,6 +17,7 @@ import { WORow } from "../workorders/WorkOrders";
 import { AssetForm } from "./AssetForm";
 import { AssetStatusPill, BarChart2, Crumbs, FilesSection, fmtSeconds, HistoryList, Lightbox, TeamChips } from "./shared";
 import { WarrantyFiles } from "./WarrantyFiles";
+import { AssetPackageSuggestions } from "./AssetHub";
 
 export const ASSET_TABS = [["details", "Details"], ["work-orders", "Work Orders"], ["insights", "Insights"], ["photos", "Photos"], ["downtime", "Downtime"],
   ["lifecycle", "Lifecycle"], ["history", "History"]] as const;
@@ -46,13 +47,14 @@ export function AssetDetailView({ id, tab, onTab }: { id: string; tab: AssetTab;
   const a = q.data;
   if (!a) return <div className="detail"><ListSkeleton rows={5} /></div>;
   const tz = session.org?.timezone;
-  const manage = can("assets.manage") && !a.deleted;
+  const manage = (a.you?.edit ?? can("assets.manage")) && !a.deleted;
 
   return (
     <div className="detail asset-detail">
       <Link to="/assets" className="row small mobile-only"><ArrowLeft size={14} />All assets</Link>
       {a.deleted && <div className="banner warning"><Trash2 size={18} /><div className="grow">This asset was deleted.</div>
         {can("assets.delete") && <Button size="sm" onClick={() => restore.mutate()}><RotateCcw size={14} />Restore</Button>}</div>}
+      {!a.deleted && <AssetPackageSuggestions assetId={a.id} />}
       <div className="wo-head">
         {a.thumb_url ? <img className="asset-hero" src={a.thumb_url} alt="" /> : <span className="asset-hero ph" aria-hidden="true"><Boxes size={26} /></span>}
         <div className="grow">

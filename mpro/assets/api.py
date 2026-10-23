@@ -25,9 +25,9 @@ from mpro.assets.models import (
 from mpro.core.events import DomainEvent
 from mpro.core.files import FileError, exporter, register_entity, request_export
 from mpro.core.models import iso
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on, can_some
 from mpro.core.search import like, provider
-from mpro.core.tenancy import get_scoped, require, scoped
+from mpro.core.tenancy import enforce_own_scope, get_scoped, require, scoped
 from mpro.extensions import db
 from mpro.orgs.services import RuleError
 
@@ -63,6 +63,7 @@ def _asset(aid: str, include_deleted: bool = False) -> Asset:
     a = db.session.scalars(scoped(Asset, include_deleted=include_deleted).where(Asset.id == uid)).first()
     if a is None:
         abort(404)
+    enforce_own_scope(a)
     return a
 
 
@@ -463,12 +464,13 @@ def asset_photos(aid: str) -> dict[str, Any]:
     from mpro.core.files import FileLink, FileObject, file_dict
     from mpro.workorders.models import Comment, WorkOrder
     from mpro.workorders.services import visibility_filter
+    from mpro.workorders.wo_assets import on_assets
 
     a = _asset(aid, include_deleted=True)
     wo_rows = (
         db.session.execute(
             select(WorkOrder.id, WorkOrder.number, WorkOrder.title).where(
-                WorkOrder.asset_id == a.id, WorkOrder.deleted_at.is_(None), visibility_filter(g.membership)
+                on_assets([a.id]), WorkOrder.deleted_at.is_(None), visibility_filter(g.membership)
             )
         ).all()
         if can(g.membership, "wo.view")
@@ -537,8 +539,9 @@ def bulk_assets() -> dict[str, Any]:
     }.get(str(action))
     if need is None:
         abort(422, message="Action is edit, status, delete or restore.")
-    if not can(g.membership, need):
+    if not can_some(g.membership, need):
         abort(403, message="You don't have permission to do that.")
+    g.own_scope = {}  # "own only" roles (MP-130) are checked per asset below, so one foreign asset doesn't fail all
     allowed = {"location_id", "parent_id", "criticality", "types", "manufacturer", "model", "teams"}
     if action == "edit" and (not patch or set(patch) - allowed):
         abort(422, message="Bulk edit can change " + ", ".join(sorted(allowed)) + ".")
@@ -546,6 +549,8 @@ def bulk_assets() -> dict[str, Any]:
     done, failed = [], []
     for a in assets:
         try:
+            if not can_on(g.membership, need, a):
+                raise RuleError("You can only change assets you created or that your team is in charge of.", 403)
             if action == "edit":
                 svc.update_asset(g.org, g.membership, a, patch)
             elif action == "status":
@@ -739,7 +744,7 @@ def _search_locations(q: str, limit: int) -> list[dict[str, Any]]:
 
 def _visible(model: Any, perm: str, rid: uuid.UUID) -> Any:
     rec = db.session.get(model, rid)
-    if rec is None or rec.org_id != g.org.id or rec.deleted_at is not None or not can(g.membership, perm):
+    if rec is None or rec.org_id != g.org.id or rec.deleted_at is not None or not can_on(g.membership, perm, rec):
         return None
     return rec
 
@@ -773,3 +778,7 @@ def _register_qr() -> None:
 
 
 _register_qr()
+
+from mpro.assets import hub_api as _hub_api  # noqa: E402  Asset Hub (0.5.0)
+
+_hub_api.register()

@@ -18,7 +18,7 @@
 .switch:checked { background: var(--c-primary); }
 .switch:checked::after { transform: translateX(16px); }
 .switch:disabled { opacity: .5; cursor: not-allowed; }
-.seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-sunken); padding: 2px; gap: 2px; flex-wrap: wrap; }
+.seg { display: inline-flex; width: fit-content; max-width: 100%; align-self: flex-start; border: 1px solid var(--c-border); border-radius: var(--r-md); background: var(--c-sunken); padding: 2px; gap: 2px; flex-wrap: wrap; }
 .seg-btn { border: 0; background: none; border-radius: calc(var(--r-md) - 2px); height: 28px; padding: 0 10px; font-weight: var(--fw-semibold); color: var(--c-text-2);
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); }
 .seg-btn:hover { color: var(--c-text); }
@@ -235,3 +235,31 @@ th:hover .grip { opacity: 1; }
 .seg.sm .seg-btn { height: 26px; padding: 0 8px; font-size: var(--fs-sm); }
 .seg-btn.task-open.on { color: var(--c-open); } .seg-btn.task-on_hold.on { color: var(--c-hold); }
 .seg-btn.task-in_progress.on { color: var(--c-progress); } .seg-btn.task-done.on { color: var(--c-done); }
+
+/* Upcoming tab (0.5.0, MP-125) */
+.upcoming-head { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-border-soft); }
+.upcoming-window .seg { flex-wrap: wrap; }
+.upcoming-day { display: block; }
+.upcoming-date { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; margin: 0;
+  padding: var(--s-2) var(--s-4); background: var(--c-bg); border-bottom: 1px solid var(--c-border-soft);
+  font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--c-text-2); }
+.upcoming-date.today { color: var(--c-primary); }
+.upcoming-pm .t { color: var(--c-text); }
+.upcoming-pill { background: var(--c-hover); color: var(--c-text-2); }
+
+/* Phone layout for Work Orders (0.5.0, MP-126): Calendar · Search · Filter, then To Do · Done · Upcoming */
+.wo-phone-head { display: none; }
+@media (max-width: 640px) {
+  .wo-phone-head { display: flex; align-items: center; gap: var(--s-2); }
+  .wo-phone-head .search-in { flex: 1 1 auto; min-width: 0; }
+  .wo-phone-head .search-in .input { height: 44px; }
+  .wo-phone-btn { width: 44px; height: 44px; flex: none; position: relative; }
+  .wo-phone-btn.on { color: var(--c-primary); background: var(--c-primary-soft); border-color: var(--c-primary); }
+  .wo-phone-count { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill);
+    background: var(--c-primary); color: var(--c-on-primary); font-size: 10px; line-height: 16px; font-weight: var(--fw-bold); }
+  .wo-toolbar .wo-wide-head { display: none !important; }
+  .wo-toolbar:not(.phone-filters) .wo-search-row { display: none; }
+  .wo-list-tools .tabs { flex: 1 1 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wo-list-tools .tabs .tab { min-height: 44px; justify-content: center; text-align: center; }
+  .upcoming-window .seg-btn { min-height: 36px; }
+}

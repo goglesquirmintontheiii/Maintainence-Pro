@@ -1,0 +1,17 @@
+/* Outside sharing (0.5.0): public work order page and the vendors card. */
+.vdot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.ext-access td, .ext-access th { padding: 6px 8px; vertical-align: middle; }
+.ext-page { min-height: 100%; background: var(--c-bg); }
+.ext-top { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); background: var(--c-panel); border-bottom: 1px solid var(--c-border); font-weight: var(--fw-semibold); }
+.ext-main { max-width: 760px; margin: 0 auto; padding: var(--s-4); gap: var(--s-4); }
+.ext-field { display: flex; flex-direction: column; gap: 6px; padding: var(--s-3) 0; border-top: 1px solid var(--c-border); }
+.ext-field .req { color: var(--c-danger); }
+.ext-comment { padding: var(--s-2) 0; border-top: 1px solid var(--c-border); }
+.ext-thumb img { width: 72px; height: 72px; object-fit: cover; border-radius: var(--r-md); border: 1px solid var(--c-border); display: block; }
+@media (max-width: 600px) { .ext-main { padding: var(--s-3); } }
+/* Asset Hub (0.5.0, r115) */
+.hub-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--s-3); }
+.hub-card { text-align: left; display: flex; flex-direction: column; gap: 6px; cursor: pointer; font: inherit; color: inherit; }
+.hub-card:hover { border-color: var(--c-primary); }
+.hub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s-3); }
+.hub-grid ul { margin: 4px 0 0; padding-left: 18px; }

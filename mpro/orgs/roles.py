@@ -12,8 +12,10 @@ from mpro.core.models import iso, utcnow
 from mpro.core.permissions import (
     ACTION_INFO,
     ACTIONS,
+    ANY_OF_OWN,
     AREAS,
     FORCED_LIMITED_VISIBILITY,
+    OWN_ACTIONS,
     ROLES,
     role_permissions,
 )
@@ -133,6 +135,9 @@ def catalogue() -> dict[str, Any]:
                 "area": ACTION_INFO.get(k, ("data", k))[0],
                 "label": ACTION_INFO.get(k, ("data", k))[1],
                 "owner_only": k in OWNER_ONLY,
+                # own vs any (MP-130): the editor shows the pair as one "No / Their own only / Any" choice
+                "own": OWN_ACTIONS.get(k),
+                "own_of": ANY_OF_OWN.get(k),
             }
             for k in ACTIONS
         ],
@@ -162,6 +167,7 @@ def _clean_permissions(actor: Membership, perms: Any) -> list[str]:
     if clean & OWNER_ONLY:
         raise RuleError("Organization settings, billing and roles stay with Owners.", 422)
     mine = role_permissions(actor)
+    mine |= {OWN_ACTIONS[a] for a in mine if a in OWN_ACTIONS}  # whoever may act on any record may grant "own only"
     beyond = sorted(clean - mine)
     if beyond:  # nobody hands out more than they have themselves
         raise RuleError(

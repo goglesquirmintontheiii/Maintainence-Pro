@@ -119,3 +119,7 @@ def _seed_work(org: Organization) -> None:
         seed_purchasing(org, admin)
         seed_suppliers(org, admin)
         seed_finance(org, admin)
+        from mpro.assets.asset_hub import seed_demo as seed_asset_packages
+
+        am = db.session.scalars(select(Membership).filter_by(org_id=org.id, user_id=admin.id)).one()
+        seed_asset_packages(org, am)

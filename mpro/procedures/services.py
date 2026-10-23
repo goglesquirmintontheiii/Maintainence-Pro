@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from mpro.core.events import emit
 from mpro.core.files import FileLink, FileObject, attach, file_dict, save_file
 from mpro.core.models import iso, utcnow
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on
 from mpro.core.settings import get_settings, register_defaults, save_settings
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, TeamMember
@@ -613,9 +613,9 @@ def remove_run(org: Organization, m: Membership, wo: WorkOrder, run: ProcedureRu
         db.session.scalar(select(func.count()).select_from(ProcedureAnswer).where(ProcedureAnswer.run_id == run.id))
         or 0
     )
-    if n and not can(m, "procedures.manage"):
-        raise RuleError("This procedure has answers. Ask someone who manages procedures to remove it.", 403)
     p = db.session.get(Procedure, run.procedure_id)
+    if n and not (p is not None and can_on(m, "procedures.manage", p)):
+        raise RuleError("This procedure has answers. Ask someone who manages procedures to remove it.", 403)
     for a in db.session.scalars(select(ProcedureAnswer).where(ProcedureAnswer.run_id == run.id)).all():
         db.session.delete(a)
     db.session.delete(run)

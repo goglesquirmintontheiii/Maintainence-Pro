@@ -41,7 +41,12 @@ const BASE_COLS: Col[] = [
   { id: "start_at", label: "Start date", sort: "start_at", cell: (w, tz) => w.start_at ? shortDate(w.start_at, tz) : <span className="faint">—</span> },
   { id: "categories", label: "Categories", cell: (w) => <CategoryChips items={w.categories} /> },
   { id: "work_type", label: "Work type", cell: (w) => WORK_TYPE_LABEL[w.work_type] },
-  { id: "asset", label: "Asset", cell: (w) => w.asset ? <span className="row" style={{ gap: 6 }}><span className={"astat-dot " + w.asset.status} />{w.asset.name}</span> : <span className="faint">—</span> },
+  { id: "asset", label: "Asset", cell: (w) => {
+    const list = w.assets?.length ? w.assets : w.asset ? [w.asset] : [];
+    if (!list.length) return <span className="faint">—</span>;
+    return <span className="row" style={{ gap: 6 }} title={list.map((a) => a.name).join(", ")}><span className={"astat-dot " + list[0].status} />{list[0].name}
+      {list.length > 1 && <span className="small faint">+{list.length - 1}</span>}</span>;
+  } },
   { id: "location", label: "Location", cell: (w) => w.location?.name ?? <span className="faint">—</span> },
   { id: "estimated", label: "Estimated", sort: "estimated_minutes", num: true, cell: (w) => (w.estimated_minutes ? fmtMinutes(w.estimated_minutes) : <span className="faint">—</span>) },
   { id: "created_by", label: "Created by", cell: (w) => w.created_by?.name ?? "—" },

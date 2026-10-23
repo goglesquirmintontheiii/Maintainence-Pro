@@ -13,12 +13,16 @@ import { AssetPicker, ClearableDate, LocationPicker } from "../../components/ass
 import { useAssetList, useAssetOptions } from "../../lib/assets";
 import { ProcedurePicker } from "../procedures/Picker";
 import { applyRepeat, repeatFrom, RepeatField, type RepeatValue } from "../pm/WOParts";
+import { NumberInput } from "../../components/NumberInput";
+import { WOFormParts, type PartDraft } from "../parts/WOParts";
+import { WOVendorsField } from "./WorkOrderVendors";
+import { saveWOCustomer, useShowCustomerField, useWOCustomer, WOCustomerPicker } from "../vendors/WOCustomer";
 
 export type FormInit = Partial<{
   title: string; description: string; priority: string; work_type: string; start_at: string | null; due_at: string | null; estimated_minutes: number | null;
   assignees: string[]; categories: string[]; custom: Record<string, unknown>; parent_id: string | null; template_id: string | null;
-  asset_id: string | null; location_id: string | null; asset_tasks: string[];
-  asset_status: { status: string; reason?: string; downtime_type?: string } | null; procedures: string[];
+  asset_id: string | null; asset_ids: string[]; location_id: string | null; asset_tasks: string[];
+  asset_status: { status: string; reason?: string; downtime_type?: string; asset_id?: string } | null; procedures: string[];
 }>;
 
 const PRIOS = [["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]] as const;
@@ -28,6 +32,7 @@ export function fromDetail(wo: WODetail): FormInit {
     title: wo.title, description: wo.description, priority: wo.priority, work_type: wo.work_type, start_at: wo.start_at, due_at: wo.due_at,
     estimated_minutes: wo.estimated_minutes, assignees: wo.assignees.map((a) => `${a.type}:${a.id}`), categories: wo.categories.map((c) => c.id),
     custom: wo.custom, parent_id: wo.parent_id, asset_id: wo.asset?.id ?? null, location_id: wo.location?.id ?? null,
+    asset_ids: wo.assets ? wo.assets.map((a) => a.id) : wo.asset ? [wo.asset.id] : [],
     asset_tasks: (wo.asset_tasks ?? []).map((t) => t.asset.id),
   };
 }
@@ -43,6 +48,10 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
   const [files, setFiles] = useState<FileItem[]>([]);
   const repeatBefore = useMemo(() => repeatFrom(edit?.recurrence), [edit]);
   const [repeat, setRepeat] = useState<RepeatValue>(repeatBefore);
+  const [parts, setParts] = useState<PartDraft[]>([]); // 0.5.0: parts the job needs (new work orders)
+  const [customer, setCustomer] = useState<string | null | undefined>(undefined); // 0.5.0 Customer field; undefined = unchanged
+  const woCustomer = useWOCustomer(edit?.id);
+  const showCustomer = useShowCustomerField();
   const [uploading, setUploading] = useState(0);
   const [pct, setPct] = useState(0);
   const [err, setErr] = useState("");
@@ -51,12 +60,16 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
   const assetOpts = useAssetOptions();
   const assetList = useAssetList();
   const [showTasks, setShowTasks] = useState(() => !!(edit?.asset_tasks?.length || init?.asset_tasks?.length));
-  const pickAsset = (id: string | null) => {
-    // MaintainX fills in the asset's location when you pick an asset
-    const a = id ? assetList.data?.items.find((x) => x.id === id) : null;
-    set({ asset_id: id, ...(a?.location ? { location_id: a.location.id } : {}), ...(id ? {} : { asset_status: null }) });
+  // Several assets (MP-124); the first is the primary one. Older callers pass asset_id only.
+  const assetIds = f.asset_ids ?? (f.asset_id ? [f.asset_id] : []);
+  const pickAssets = (ids: string[]) => {
+    // MaintainX fills in the asset's location when you pick an asset (the first one's)
+    const first = ids[0] ?? null;
+    const a = first && first !== assetIds[0] ? assetList.data?.items.find((x) => x.id === first) : null;
+    const st = f.asset_status?.asset_id && !ids.includes(f.asset_status.asset_id) ? null : f.asset_status;
+    set({ asset_ids: ids, asset_id: first, ...(a?.location ? { location_id: a.location.id } : {}), asset_status: first ? st : null });
   };
-  const askStatus = !!f.asset_id && can("assets.status") && (assetOpts.data?.settings.ask_status_on_work_orders ?? true);
+  const askStatus = assetIds.length > 0 && can("assets.status") && (assetOpts.data?.settings.ask_status_on_work_orders ?? true);
   const required = new Set(opts.data?.settings.required_fields ?? []);
   const s = opts.data?.settings;
 
@@ -72,7 +85,7 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     if (appliedInit.current || !init?.template_id || !templates.data) return;
     const t = templates.data.items.find((x) => x.id === init.template_id);
     appliedInit.current = true;
-    if (t) applyTemplate(t, { ...(init.asset_id ? { asset_id: init.asset_id } : {}), ...(init.location_id ? { location_id: init.location_id } : {}) });
+    if (t) applyTemplate(t, { ...(init.asset_id ? { asset_id: init.asset_id, asset_ids: [init.asset_id] } : {}), ...(init.asset_ids ? { asset_ids: init.asset_ids } : {}), ...(init.location_id ? { location_id: init.location_id } : {}) });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templates.data, init?.template_id]);
 
@@ -81,13 +94,19 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
     if (edit) { delete body.template_id; body.version = edit.version; }
     if (!f.asset_status?.status) delete body.asset_status;
     if (edit || !f.procedures?.length) delete body.procedures;
-    if (!can("assets.view")) { delete body.asset_id; delete body.asset_tasks; }
+    if (f.asset_ids || f.asset_id) { body.asset_ids = assetIds; delete body.asset_id; }
+    if (!can("assets.view")) { delete body.asset_id; delete body.asset_ids; delete body.asset_tasks; }
     if (!can("locations.view")) delete body.location_id;
+    if (!edit && parts.length) body.parts = parts.map((p) => ({ part_id: p.part_id, quantity: p.quantity }));
     return body;
   };
   const save = useMutation({
-    mutationFn: async () => applyRepeat(await (edit ? api<WODetail>(`/work-orders/${edit.id}`, { method: "PATCH", body: payload() }) : api<WODetail>("/work-orders", { method: "POST", body: payload() })),
-      can("wo.edit") ? repeat : undefined, repeatBefore, (m) => toast(m, { kind: "error" })),
+    mutationFn: async () => {
+      const wo = await applyRepeat(await (edit ? api<WODetail>(`/work-orders/${edit.id}`, { method: "PATCH", body: payload() }) : api<WODetail>("/work-orders", { method: "POST", body: payload() })),
+        can("wo.edit") ? repeat : undefined, repeatBefore, (m) => toast(m, { kind: "error" }));
+      await saveWOCustomer(wo.id, customer).catch((e: ApiError) => toast(e.message, { kind: "error" }));
+      return wo;
+    },
     onSuccess: (wo) => {
       qc.invalidateQueries({ queryKey: ["work-orders"] }); qc.invalidateQueries({ queryKey: ["wo-stats"] });
       qc.setQueryData(["work-order", wo.id], wo);
@@ -171,16 +190,23 @@ export function WorkOrderForm({ edit, init, onClose, onSaved }: { edit?: WODetai
             {!f.due_at && <Button size="sm" variant="ghost" onClick={() => set({ due_at: atTime(new Date().toISOString().slice(0, 10), s?.default_due_time ?? "12:00") })}>Today</Button>}</div>)}</Field>
         <Field label="Start date" hint="Hidden from To Do until this date.">{(id) => <ClearableDate id={id} label="start date" type="datetime-local" value={startDate} onChange={(v) => set({ start_at: fromLocalInput(v) })} />}</Field>
         {can("wo.edit") && <RepeatField value={repeat} onChange={setRepeat} rec={edit?.recurrence} dueAt={f.due_at} isSub={!!f.parent_id} />}
+        {!edit && can("parts.use") && <Field label="Parts">{() => <WOFormParts value={parts} onChange={setParts} />}</Field>}
         <Field label={"Estimated time" + req("estimated_time")}>{(id) => (
-          <div className="row"><Input id={id} type="number" min={0} step={1} aria-label="Hours" placeholder="0" value={f.estimated_minutes ? Math.floor(f.estimated_minutes / 60) : ""}
-            onChange={(e) => set({ estimated_minutes: (Number(e.target.value) || 0) * 60 + ((f.estimated_minutes ?? 0) % 60) || null })} /><span className="small muted">h</span>
-            <Input type="number" min={0} max={59} step={5} aria-label="Minutes" placeholder="0" value={f.estimated_minutes ? f.estimated_minutes % 60 : ""}
-              onChange={(e) => set({ estimated_minutes: Math.floor((f.estimated_minutes ?? 0) / 60) * 60 + (Number(e.target.value) || 0) || null })} /><span className="small muted">min</span></div>)}</Field>
+          <div className="row"><NumberInput id={id} min={0} step={1} integer aria-label="Hours" placeholder="0" empty={0}
+            value={f.estimated_minutes ? Math.floor(f.estimated_minutes / 60) : null}
+            onValue={(h) => set({ estimated_minutes: (h ?? 0) * 60 + ((f.estimated_minutes ?? 0) % 60) || null })} /><span className="small muted">h</span>
+            <NumberInput min={0} max={59} step={5} integer aria-label="Minutes" placeholder="0" empty={0}
+              value={f.estimated_minutes ? f.estimated_minutes % 60 : null}
+              onValue={(m) => set({ estimated_minutes: Math.floor((f.estimated_minutes ?? 0) / 60) * 60 + (m ?? 0) || null })} /><span className="small muted">min</span></div>)}</Field>
         <Field label={"Categories" + req("categories")}>{(id) => <CategoryPicker id={id} options={opts.data} value={f.categories ?? []} onChange={(v) => set({ categories: v })} />}</Field>
         {!edit && can("procedures.view") && <Field label="Procedures">{(id) => <ProcedurePicker id={id} value={f.procedures ?? []} onChange={(v) => set({ procedures: v })} />}</Field>}
-        {can("assets.view") && <Field label="Asset">{(id) => <AssetPicker id={id} value={f.asset_id ? [f.asset_id] : []} onChange={(v) => pickAsset(v[0] ?? null)} />}</Field>}
+        {can("assets.view") && <Field label={assetIds.length > 1 ? "Assets" : "Asset"}>{(id) => <AssetPicker id={id} multi placeholder="Pick one or more assets" value={assetIds} onChange={pickAssets} />}</Field>}
         {can("locations.view") && <Field label="Location">{(id) => <LocationPicker id={id} value={f.location_id ?? null} onChange={(v) => set({ location_id: v })} />}</Field>}
-        {askStatus && <AssetStatusField value={f.asset_status ?? null} onChange={(v) => set({ asset_status: v })} reasons={assetOpts.data?.statuses} />}
+        {showCustomer && <Field label="Customer">{(id) => <WOCustomerPicker id={id} value={customer !== undefined ? customer : woCustomer.data?.customer?.id ?? null}
+          onChange={(cid, loc) => { setCustomer(cid); if (loc && !f.location_id && can("locations.view")) set({ location_id: loc }); }} />}</Field>}
+        {can("vendors.view") && <WOVendorsField edit={edit} value={(f as { vendor_ids?: string[] }).vendor_ids} onChange={(vendor_ids) => set({ vendor_ids } as FormInit)} />}
+        {askStatus && <AssetStatusField value={f.asset_status ?? null} onChange={(v) => set({ asset_status: v })} reasons={assetOpts.data?.statuses}
+          assets={assetIds.map((id) => ({ id, name: assetList.data?.items.find((a) => a.id === id)?.name ?? "Asset" }))} />}
         {can("assets.view") && (showTasks
           ? <Field label="Asset task list" hint="Each asset gets its own status and notes on the work order." className="full">{(id) => (
               <AssetPicker id={id} multi value={f.asset_tasks ?? []} onChange={(v) => set({ asset_tasks: v })} placeholder="Add assets to work through" />)}</Field>
@@ -217,16 +243,23 @@ export function CustomInput({ def, value, onChange }: { def: CustomFieldDef; val
 }
 
 /** "Mark the asset as…" on create/edit (MaintainX asks for the asset's status when work starts). */
-export function AssetStatusField({ value, onChange, reasons }: {
-  value: { status: string; reason?: string; downtime_type?: string } | null; onChange: (v: { status: string; reason?: string; downtime_type?: string } | null) => void;
+type StatusValue = { status: string; reason?: string; downtime_type?: string; asset_id?: string };
+export function AssetStatusField({ value, onChange, reasons, assets }: {
+  value: StatusValue | null; onChange: (v: StatusValue | null) => void;
   reasons?: { id: string; label: string; reasons: string[] }[];
+  /** the work order's assets when there are several: pick which one changes (MP-124) */
+  assets?: { id: string; name: string }[];
 }) {
   const cur = reasons?.find((r) => r.id === value?.status);
+  const many = (assets?.length ?? 0) > 1;
   return (
-    <Field label="Asset status" hint="Optional: changes the asset's status when you save.">{(id) => (
+    <Field label="Asset status" hint={many ? "Optional: changes the chosen asset's status when you save." : "Optional: changes the asset's status when you save."}>{(id) => (
       <div className="row wrap">
+        {many && <Select aria-label="Which asset" value={value?.asset_id ?? assets![0].id} style={{ maxWidth: 200 }}
+          onChange={(e) => onChange({ ...(value ?? { status: "" }), asset_id: e.target.value })}>
+          {assets!.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>}
         <Select id={id} value={value?.status ?? ""} style={{ maxWidth: 170 }}
-          onChange={(e) => onChange(e.target.value ? { status: e.target.value, downtime_type: e.target.value === "offline" ? "unplanned" : undefined } : null)}>
+          onChange={(e) => onChange(e.target.value ? { status: e.target.value, downtime_type: e.target.value === "offline" ? "unplanned" : undefined, ...(value?.asset_id ? { asset_id: value.asset_id } : {}) } : null)}>
           <option value="">Don't change</option>{reasons?.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
         </Select>
         {value?.status === "offline" && <Select aria-label="Downtime" value={value.downtime_type ?? "unplanned"} style={{ maxWidth: 140 }}

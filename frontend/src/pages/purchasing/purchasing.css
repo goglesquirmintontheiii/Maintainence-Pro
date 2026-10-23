@@ -1,0 +1,52 @@
+/* Purchase orders, vendors, customers and quotes (0.5.0). Uses the design tokens only. */
+.po-tabs { overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+.po-tabs .seg-btn { white-space: nowrap; }
+.po-row { align-items: flex-start; }
+.po-row-total { font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); white-space: nowrap; }
+.po-actions { flex-wrap: wrap; justify-content: flex-end; }
+.po-lines-table td.num, .po-lines-table th.num { white-space: nowrap; }
+.po-done { color: var(--c-success); font-weight: var(--fw-semibold); }
+.po-part { color: var(--c-warning); font-weight: var(--fw-semibold); }
+.po-totals { display: grid; gap: 4px; padding: var(--s-3) var(--s-4); margin-left: auto; width: min(320px, 100%); font-variant-numeric: tabular-nums; }
+.po-totals > div { display: flex; justify-content: space-between; gap: var(--s-4); }
+.po-totals .tot { border-top: 1px solid var(--c-border); padding-top: 6px; font-weight: var(--fw-semibold); }
+
+.po-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3) var(--s-4); }
+.po-lines { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-2); }
+.po-line { border: 1px solid var(--c-border); border-radius: var(--r-md, 8px); padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-2); background: var(--c-panel); }
+.po-line.locked { background: var(--c-hover); }
+.po-line-fields { display: grid; grid-template-columns: minmax(80px, 1.2fr) minmax(60px, .7fr) minmax(60px, .7fr) minmax(80px, 1fr) minmax(70px, auto) 32px; gap: var(--s-2); align-items: center; }
+.po-line-amt { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.po-line-loc { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; }
+.po-line-loc .picker { min-width: 200px; flex: 1; }
+.po-part-search { position: relative; }
+.po-part-menu { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 30; max-height: 260px; overflow-y: auto; }
+.po-cost-row { display: grid; grid-template-columns: minmax(100px, 1.4fr) minmax(110px, 1fr) 70px minmax(70px, .8fr) auto 32px; gap: var(--s-2); align-items: center; margin-bottom: var(--s-2); }
+.po-sum { display: grid; grid-template-columns: auto auto; justify-content: end; gap: 2px var(--s-4); margin-top: var(--s-2); font-variant-numeric: tabular-nums; }
+.po-receive { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0; }
+.po-receive-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 100px; gap: var(--s-2); align-items: center; padding: var(--s-2) 0; border-bottom: 1px solid var(--c-border-soft); }
+.po-receive-loc { grid-column: 1 / -1; }
+.po-approvals { align-items: flex-start; }
+
+.vd-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.vd-avatar { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-weight: var(--fw-semibold); flex: none; object-fit: cover; }
+.vd-avatar.lg { width: 56px; height: 56px; font-size: 1.25rem; border-radius: 12px; }
+.contact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); padding: var(--s-3) var(--s-4); }
+.contact-card { border: 1px solid var(--c-border-soft); border-radius: var(--r-md, 8px); padding: var(--s-3); display: flex; flex-direction: column; gap: 2px; }
+.quote-line { display: grid; grid-template-columns: 100px minmax(0, 1fr) 70px 90px 70px 32px; gap: var(--s-2); align-items: center; margin-bottom: var(--s-2); }
+
+/* the customer's public quote page */
+.pq-page { min-height: 100%; background: var(--c-bg); padding: var(--s-6) var(--s-4); }
+.pq-card { max-width: 760px; margin: 0 auto; background: var(--c-panel); border: 1px solid var(--c-border); border-radius: 12px; padding: var(--s-6); display: flex; flex-direction: column; gap: var(--s-4); }
+.pq-total { font-size: 1.4rem; font-weight: var(--fw-semibold); text-align: right; }
+
+@media (max-width: 760px) {
+  .po-line-fields { grid-template-columns: 1fr 1fr 1fr; }
+  .po-line-amt { grid-column: 1 / 3; text-align: left; }
+  .po-cost-row { grid-template-columns: 1fr 1fr; }
+  .po-receive-row { grid-template-columns: 1fr 80px; }
+  .po-receive-row > :nth-child(3) { grid-column: 2; }
+  .quote-line { grid-template-columns: 1fr 1fr 1fr; }
+  .pq-card { padding: var(--s-4); }
+  .po-actions .btn { padding-inline: 10px; }
+}

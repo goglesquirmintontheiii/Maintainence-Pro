@@ -26,6 +26,7 @@ from mpro.workorders.models import (
     STATUS_LABELS,
     WORK_TYPE_LABELS,
     Category,
+    ExternalShare,
     ReadMark,
     StatusChange,
     WorkOrder,
@@ -56,6 +57,8 @@ FILTER_FIELDS = {
     "asset": ("in", "not_in", "within", "empty", "not_empty"),
     "location": ("in", "not_in", "within", "empty", "not_empty"),
     "procedure_result": ("in", "not_in"),  # work orders with a procedure step marked fail / flag / pass (r085)
+    "vendor": ("in", "not_in", "empty", "not_empty"),  # r075
+    "shared": ("is",),  # shared outside the organization by link (r088)
 }
 CUSTOM_OPS = ("in", "not_in", "empty", "not_empty", "contains", "not_contains", "between", "before", "after")
 SORTS = {
@@ -197,6 +200,17 @@ def _apply_filter(q: Select[Any], f: dict[str, Any], m: Membership) -> Select[An
             cond = col.is_(None)
         elif op == "not_empty":
             cond = col.is_not(None)
+        elif field == "asset":  # any of the work order's assets counts (MP-124)
+            from mpro.workorders.wo_assets import on_assets
+
+            if op == "within":  # the asset and everything under it
+                cond = on_assets(
+                    select(TreePath.descendant_id).where(
+                        TreePath.kind == "asset", TreePath.ancestor_id.in_(ids or [uuid.uuid4()])
+                    )
+                )
+            else:
+                cond = on_assets(ids) if op == "in" else ~on_assets(ids)
         elif op == "within":  # the record and everything under it
             cond = col.in_(
                 select(TreePath.descendant_id).where(
@@ -211,6 +225,20 @@ def _apply_filter(q: Select[Any], f: dict[str, Any], m: Membership) -> Select[An
         results = [str(v) for v in vals if str(v) in ("fail", "flag", "pass")] or ["fail", "flag"]
         sub = select(ProcedureAnswer.work_order_id).where(ProcedureAnswer.result.in_(results))
         cond = WorkOrder.id.not_in(sub) if op == "not_in" else WorkOrder.id.in_(sub)
+    elif field == "vendor":
+        from mpro.workorders.models import WorkOrderVendor
+
+        if op in ("empty", "not_empty"):
+            sub = select(WorkOrderVendor.work_order_id)
+            cond = WorkOrder.id.not_in(sub) if op == "empty" else WorkOrder.id.in_(sub)
+        else:
+            sub = select(WorkOrderVendor.work_order_id).where(WorkOrderVendor.vendor_id.in_(_ids(vals)))
+            cond = WorkOrder.id.in_(sub) if op == "in" else WorkOrder.id.not_in(sub)
+    elif field == "shared":
+        from mpro.workorders.external import shared_filter_ids
+
+        sub = shared_filter_ids(m.org_id)
+        cond = WorkOrder.id.in_(sub) if value in (True, "true", "1", 1) else WorkOrder.id.not_in(sub)
     elif field == "unread":
         read = select(ReadMark.entity_id).where(
             ReadMark.user_id == m.user_id, ReadMark.read_at >= WorkOrder.activity_at
@@ -298,6 +326,28 @@ def todo_clause(org_id: uuid.UUID) -> Any:
     return and_(WorkOrder.status.in_(ACTIVE_STATUSES), started)
 
 
+def upcoming_window(params: dict[str, Any]) -> tuple[datetime, datetime]:
+    """(start, end) for the Upcoming tab: `days` 1–365 from `from` (ISO date-time, default now)."""
+    try:
+        days = int(params.get("days") or 30)
+    except (TypeError, ValueError):
+        raise RuleError("days must be a number.", 422) from None
+    if not 1 <= days <= 365:
+        raise RuleError("Pick 1 to 365 days.", 422)
+    raw = str(params.get("from") or "").strip()
+    start = utcnow()
+    if raw:
+        try:
+            start = datetime.fromisoformat(raw.replace("Z", "+00:00").replace(" ", "+"))
+        except ValueError:
+            raise RuleError("from must be a date and time.", 422) from None
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if abs((start - utcnow()).days) > 2:
+            raise RuleError("from must be today.", 422)
+    return start, start + timedelta(days=days)
+
+
 def build_query(m: Membership, params: dict[str, Any]) -> Select[Any]:
     include_deleted = str(params.get("include_deleted", "")).lower() in ("1", "true", "yes")
     q = base_query(m, include_deleted=include_deleted)
@@ -309,6 +359,17 @@ def build_query(m: Membership, params: dict[str, Any]) -> Select[Any]:
         q = q.where(WorkOrder.status.in_(ACTIVE_STATUSES) if upcoming else todo_clause(m.org_id))
     elif tab == "done":
         q = q.where(WorkOrder.status.in_(CLOSED_STATUSES))
+    elif tab == "upcoming" and params.get("days"):
+        # Upcoming tab (MP-125): open work orders due or starting between `from` (the person's local midnight,
+        # default now) and `days` days later
+        start, end = upcoming_window(params)
+        q = q.where(
+            WorkOrder.status.in_(ACTIVE_STATUSES),
+            or_(
+                and_(WorkOrder.due_at >= start, WorkOrder.due_at < end),
+                and_(WorkOrder.start_at >= start, WorkOrder.start_at < end),
+            ),
+        )
     elif tab == "upcoming":
         q = q.where(WorkOrder.status.in_(ACTIVE_STATUSES), not_(todo_clause(m.org_id)))
     scope = params.get("scope") or "all"
@@ -328,9 +389,16 @@ def build_query(m: Membership, params: dict[str, Any]) -> Select[Any]:
     text = str(params.get("q") or "").strip()
     if text:
         num = text.lstrip("#")
+        from mpro.assets.models import Asset
+        from mpro.workorders.wo_assets import on_assets
+
+        named_assets = select(Asset.id).where(
+            Asset.org_id == m.org_id, func.lower(Asset.name).like(like(text), escape="\\")
+        )
         cond = or_(
             func.lower(WorkOrder.title).like(like(text), escape="\\"),
             func.lower(WorkOrder.description).like(like(text), escape="\\"),
+            on_assets(named_assets),  # any of its assets by name (MP-124)
         )
         if num.isdigit():
             cond = or_(cond, WorkOrder.number == int(num))
@@ -418,6 +486,10 @@ def summary_dict(wo: WorkOrder, read_at: datetime | None = None, extra: dict[str
         "asset": {"id": str(wo.asset.id), "name": wo.asset.name, "status": wo.asset.status}
         if wo.asset is not None and wo.asset.deleted_at is None
         else None,
+        # every asset, primary first (MP-124); lists pass the real list in `extra`
+        "assets": [{"id": str(wo.asset.id), "name": wo.asset.name, "status": wo.asset.status}]
+        if wo.asset is not None and wo.asset.deleted_at is None
+        else [],
         "location": {"id": str(wo.location.id), "name": wo.location.name}
         if wo.location is not None and wo.location.deleted_at is None
         else None,
@@ -450,6 +522,9 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
 
     covers = cover_map(list(rows))
     parents = _parent_map(m, list(rows))  # sub-work orders show their parent's name in the Table (MP-118)
+    from mpro.workorders.wo_assets import assets_map
+
+    assets = assets_map(list(rows))
     return {
         "items": [
             summary_dict(
@@ -460,6 +535,7 @@ def list_page(m: Membership, params: dict[str, Any]) -> dict[str, Any]:
                     "sub_work_orders": sub_counts.get(w.id),
                     "cover_url": covers.get(w.id),
                     "parent": parents.get(w.parent_id) if w.parent_id else None,
+                    "assets": assets.get(w.id, []),
                 },  # fmt: skip
             )
             for w in rows
@@ -514,11 +590,26 @@ def time_in_status(wo: WorkOrder) -> dict[str, int]:
 
 
 def detail_dict(m: Membership, wo: WorkOrder) -> dict[str, Any]:
+    from mpro.core.permissions import can_on
     from mpro.workorders.activity import attachments_for, costs_summary
     from mpro.workorders.cover import cover_info
 
     reads = read_map(m, [wo.id])
-    d = summary_dict(wo, reads.get(wo.id), cover_info(wo))
+    from mpro.workorders.wo_assets import assets_map
+
+    d = summary_dict(wo, reads.get(wo.id), {**cover_info(wo), "assets": assets_map([wo]).get(wo.id, [])})
+    # what this person may do to this work order (own vs any, MP-130)
+    d["you"] = {"edit": can_on(m, "wo.edit", wo), "delete": can_on(m, "wo.delete", wo)}
+    from mpro.workorders.wo_vendors import vendors_of
+
+    d["vendors"] = vendors_of([wo.id]).get(wo.id, [])  # r075
+    d["shared_externally"] = bool(
+        db.session.scalar(
+            select(func.count())
+            .select_from(ExternalShare)
+            .where(ExternalShare.work_order_id == wo.id, ExternalShare.status == "active")
+        )
+    )
     s = wo_settings(m.org_id)
     children = db.session.scalars(
         select(WorkOrder).where(WorkOrder.parent_id == wo.id, WorkOrder.deleted_at.is_(None)).order_by(WorkOrder.number)
@@ -735,7 +826,21 @@ def filter_options(m: Membership) -> dict[str, Any]:
         ],
         "assets": _tree_options(m, "asset") if can(m, "assets.view") else [],
         "locations": _tree_options(m, "location") if can(m, "locations.view") else [],
+        "vendors": _vendor_options(m) if can(m, "vendors.view") else [],  # r075
+        "can_share_external": can(m, "wo.share_external"),  # r088
     }
+
+
+def _vendor_options(m: Membership) -> list[dict[str, Any]]:
+    from mpro.vendors.models import Vendor
+
+    rows = db.session.execute(
+        select(Vendor.id, Vendor.name, Vendor.color)
+        .where(Vendor.org_id == m.org_id, Vendor.deleted_at.is_(None))
+        .order_by(func.lower(Vendor.name))
+        .limit(2000)
+    ).all()
+    return [{"id": str(i), "name": n, "color": c} for i, n, c in rows]
 
 
 def _tree_options(m: Membership, kind: str) -> list[dict[str, Any]]:

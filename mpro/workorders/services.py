@@ -23,7 +23,7 @@ from mpro.core.files import FileObject, attach, save_file
 from mpro.core.hooks import run_hooks
 from mpro.core.ids import uuid7
 from mpro.core.models import iso, utcnow
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on, can_some, register_owner_check
 from mpro.core.settings import get_settings, register_defaults, save_settings
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team, TeamMember
@@ -207,6 +207,15 @@ def can_see(m: Membership | None, wo: WorkOrder) -> bool:
         return True
     teams = set(team_ids_of(m.org_id, m.user_id))
     return any(a.user_id == m.user_id or (a.team_id in teams) for a in wo.assignees)
+
+
+def _owns_work_order(m: Membership, wo: WorkOrder) -> bool:
+    """Own vs any (MP-130): created by them (checked generically) or assigned to them or one of their teams."""
+    teams = set(team_ids_of(m.org_id, m.user_id))
+    return any(a.user_id == m.user_id or (a.team_id is not None and a.team_id in teams) for a in wo.assignees)
+
+
+register_owner_check("work_orders", _owns_work_order)
 
 
 MAX_DUE_DAYS = 3650
@@ -651,21 +660,39 @@ CREATE_HOOKS: list[CreateHook] = []
 ASSET_TASK_STATUSES = ("open", "in_progress", "on_hold", "done")
 
 
-def _set_asset_location(wo: WorkOrder, data: dict[str, Any], m: Membership | None = None) -> None:
-    """Asset and location. Picking an asset fills in its location unless one was chosen too (MP-098)."""
-    from mpro.assets.services import get_asset, get_location
+def _set_asset_location(wo: WorkOrder, data: dict[str, Any], m: Membership | None = None, persist: bool = True) -> None:
+    """Assets and location. Picking an asset fills in its location unless one was chosen too (MP-098).
 
-    if "asset_id" in data:
+    `asset_ids` sets every asset (MP-124; the first is the primary `asset_id`). `asset_id` alone (older clients)
+    keeps the list when it names the current primary, and otherwise replaces the list with that one asset.
+    """
+    from mpro.assets.services import get_asset, get_location
+    from mpro.workorders import wo_assets
+
+    ids: list[uuid.UUID] | None = None
+    if "asset_ids" in data:
+        ids = wo_assets.parse_asset_ids(wo.org_id, data["asset_ids"])
+    elif "asset_id" in data:
         if data["asset_id"]:
             a = get_asset(wo.org_id, data["asset_id"])
-            if m is not None and not can(m, "assets.view"):
-                raise RuleError("You can't pick assets.", 403)
-            changed = a.id != wo.asset_id
-            wo.asset_id = a.id
-            if changed and "location_id" not in data and a.location_id:
-                wo.location_id = a.location_id
+            ids = None if a.id == wo.asset_id else [a.id]
         else:
-            wo.asset_id = None
+            ids = []
+    if ids is not None:
+        if ids and m is not None and not can(m, "assets.view"):
+            raise RuleError("You can't pick assets.", 403)
+        first = ids[0] if ids else None
+        changed = first != wo.asset_id
+        wo.asset_id = first
+        if changed and first and "location_id" not in data:
+            loc = get_asset(wo.org_id, first).location_id
+            if loc:
+                wo.location_id = loc
+        if persist:
+            if wo in db.session:
+                wo_assets.sync_rows(wo, ids)
+            else:
+                wo.__dict__["_pending_asset_ids"] = ids  # written once the work order is saved (create)
     if "location_id" in data:
         wo.location_id = get_location(wo.org_id, data["location_id"]).id if data["location_id"] else None
 
@@ -791,24 +818,43 @@ def _asset_status_from_wo(org: Organization, m: Membership, wo: WorkOrder, data:
 
     if not data:
         return
-    if not isinstance(data, dict) or not wo.asset_id:
+    # one change ({status, …, asset_id?}: the primary asset unless another of the work order's assets is named),
+    # or several ({"assets": [{asset_id, status, reason, downtime_type, note}, …]}) — MP-124
+    changes = data.get("assets") if isinstance(data, dict) and isinstance(data.get("assets"), list) else [data]
+    if not isinstance(data, dict) or not wo.asset_id or not changes:
         raise RuleError("Pick an asset before changing its status.", 422)
     if not can(m, "assets.status"):
         raise RuleError("You can't change asset statuses.", 403)
-    a = db.session.get(Asset, wo.asset_id)
-    if a is None:
-        return
-    set_asset_status(
-        org,
-        m,
-        a,
-        str(data.get("status") or ""),
-        reason=str(data.get("reason") or ""),
-        downtime_type=str(data.get("downtime_type") or ""),
-        note=str(data.get("note") or ""),
-        work_order_id=wo.id,
-        commit=False,
-    )
+    on_wo = _wo_asset_ids(wo)
+    for ch in changes:
+        if not isinstance(ch, dict) or not ch.get("status"):
+            continue
+        aid = _uuid(ch["asset_id"], "asset") if ch.get("asset_id") else wo.asset_id
+        if aid not in on_wo:
+            raise RuleError("That asset isn't on this work order.", 422)
+        a = db.session.get(Asset, aid)
+        if a is None or a.org_id != wo.org_id:
+            continue
+        set_asset_status(
+            org,
+            m,
+            a,
+            str(ch.get("status") or ""),
+            reason=str(ch.get("reason") or ""),
+            downtime_type=str(ch.get("downtime_type") or ""),
+            note=str(ch.get("note") or ""),
+            work_order_id=wo.id,
+            commit=False,
+        )
+
+
+def _wo_asset_ids(wo: WorkOrder) -> list[uuid.UUID]:
+    from mpro.workorders.wo_assets import asset_ids_of
+
+    pending = wo.__dict__.get("_pending_asset_ids")
+    if pending is not None:
+        return list(pending)
+    return asset_ids_of(wo) if wo in db.session else ([wo.asset_id] if wo.asset_id else [])
 
 
 def _snapshot(wo: WorkOrder) -> dict[str, Any]:
@@ -826,6 +872,7 @@ def _snapshot(wo: WorkOrder) -> dict[str, Any]:
         "categories": sorted(str(c.category_id) for c in wo.category_links),
         "custom": dict(wo.custom or {}),
         "asset_id": wo.asset_id,
+        "asset_ids": [str(x) for x in _wo_asset_ids(wo)],
         "location_id": wo.location_id,
         "asset_tasks": asset_task_ids(wo) if wo.id else [],
     }
@@ -839,7 +886,7 @@ def create_work_order(
     _apply_fields(wo, {"title": data.get("title", ""), **{k: data[k] for k in EDITABLE if k in data and k != "title"}})
     if data.get("parent_id"):
         _set_parent(wo, data["parent_id"], m)
-    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "location_id") if k in data}, m)
+    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "asset_ids", "location_id") if k in data}, m)
     wo.custom = _clean_custom(org.id, data.get("custom") or {})
     if data.get("template_id"):
         wo.template_id = _uuid(data["template_id"], "template")
@@ -851,6 +898,11 @@ def create_work_order(
     wo.number = next_number(org.id)
     db.session.add(wo)
     db.session.flush()  # the status history row references the work order (no ORM relationship orders it)
+    pending_assets = wo.__dict__.pop("_pending_asset_ids", None)
+    if pending_assets:
+        from mpro.workorders.wo_assets import sync_rows
+
+        sync_rows(wo, pending_assets)
     db.session.add(
         StatusChange(org_id=org.id, work_order_id=wo.id, from_status="", to_status="open", actor_id=m.user_id)
     )
@@ -928,9 +980,14 @@ def update_work_order(
         added, removed = _set_assignees(wo, _resolve_assignees(org.id, data["assignees"]))
     if "categories" in data:
         _set_categories(wo, data["categories"])
+    vendors_changed = False
+    if "vendor_ids" in data:  # r075
+        from mpro.workorders.wo_vendors import set_vendors
+
+        vendors_changed = set_vendors(org, m, wo, data["vendor_ids"])
     if "custom" in data:
         wo.custom = _clean_custom(org.id, data["custom"] or {}, wo.custom)
-    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "location_id") if k in data}, m)
+    _set_asset_location(wo, {k: data[k] for k in ("asset_id", "asset_ids", "location_id") if k in data}, m)
     if "asset_tasks" in data:
         _set_asset_tasks(wo, data["asset_tasks"] or [], m)
         db.session.flush()
@@ -938,7 +995,7 @@ def update_work_order(
     after = _snapshot(wo)
     changes = {k: (before[k], after[k]) for k in after if before[k] != after[k]}
     if not changes:
-        if data.get("asset_status"):
+        if data.get("asset_status") or vendors_changed:
             db.session.commit()
         return wo
     _check_required(org.id, wo)
@@ -988,6 +1045,7 @@ _FIELD_NAMES = {
     "categories": "categories",
     "custom": "custom fields",
     "asset_id": "asset",
+    "asset_ids": "assets",
     "location_id": "location",
     "asset_tasks": "asset tasks",
 }
@@ -1401,7 +1459,14 @@ def custom_field_dict(f: CustomField) -> dict[str, Any]:
     }
 
 
-ENTITY_LABELS = {"work_order": "work order", "asset": "asset", "location": "location"}
+ENTITY_LABELS = {
+    "work_order": "work order",
+    "asset": "asset",
+    "location": "location",
+    "part": "part",
+    "vendor": "vendor",
+    "purchase_order": "purchase order",
+}
 
 
 def save_custom_field(
@@ -1509,6 +1574,7 @@ TEMPLATE_KEYS = (
     "categories",
     "custom",
     "asset_id",
+    "asset_ids",
     "location_id",
     "due_in_days",
     "procedures",
@@ -1545,7 +1611,9 @@ def save_template(org: Organization, m: Membership, data: dict[str, Any], t: Tem
     for cid in content.get("categories") or []:
         _uuid(cid, "category")
     content["custom"] = _clean_custom(org.id, content.get("custom") or {})
-    _set_asset_location(probe, {k: content[k] for k in ("asset_id", "location_id") if k in content})
+    _set_asset_location(
+        probe, {k: content[k] for k in ("asset_id", "asset_ids", "location_id") if k in content}, persist=False
+    )
     if content.get("due_in_days") in (None, ""):
         content.pop("due_in_days", None)
     else:
@@ -1588,6 +1656,7 @@ def create_from_template(org: Organization, m: Membership, t: Template, override
         "priority",
         "assignees",
         "asset_id",
+        "asset_ids",
         "location_id",
         "due_at",
         "start_at",
@@ -1603,8 +1672,11 @@ def create_from_template(org: Organization, m: Membership, t: Template, override
             days=due_days(t.data["due_in_days"])
         )
         data["due_at"] = due.isoformat()
-    if "asset_id" in overrides and "location_id" not in overrides:
-        data.pop("location_id", None)  # the asset's own location follows it
+    if "asset_id" in overrides or "asset_ids" in overrides:
+        data.pop("asset_id", None)  # the scanned / picked asset replaces the template's
+        data.pop("asset_ids", None)
+        if "location_id" not in overrides:
+            data.pop("location_id", None)  # the asset's own location follows it
     data.update(overrides)
     data["template_id"] = str(t.id)
     try:
@@ -1733,7 +1805,7 @@ def bulk(
     needs = {"delete": "wo.delete", "restore": "wo.delete", "mark_read": "wo.view", "mark_unread": "wo.view"}.get(
         action, "wo.edit"
     )
-    if not can(m, needs):
+    if not can_some(m, needs):
         raise RuleError("You don't have permission to do that.", 403)
     updated: list[str] = []
     errors: list[dict[str, Any]] = []
@@ -1756,6 +1828,8 @@ def bulk(
         snap = _snapshot(wo)
         try:
             with db.session.begin_nested():
+                if not can_on(m, needs, wo):  # "own only" roles (MP-130)
+                    raise RuleError("You can only change work orders you created or that are assigned to you.", 403)
                 prev: dict[str, Any] = {"id": str(wo.id)}
                 if action == "set_status":
                     prev["status"], prev["sub_status"] = wo.status, wo.sub_status

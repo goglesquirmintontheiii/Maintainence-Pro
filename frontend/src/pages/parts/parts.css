@@ -1,0 +1,67 @@
+/* Parts and inventory (0.5.0, MP-039–041). Builds on assets.css (list rows, filters, detail header). */
+@import "../../styles/assets.css";
+
+.part-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s-3); }
+.part-filters .seg { height: 30px; }
+.part-stock-seg .seg-btn { font-size: var(--fs-sm); padding: 0 var(--s-2); white-space: nowrap; }
+.part-preset { gap: 0; padding-right: var(--s-1); }
+
+/* stock badges and numbers: red below zero, amber below minimum (r216) */
+.part-stock { display: inline-block; min-width: 40px; text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold);
+  border-radius: var(--r-pill); padding: 2px var(--s-2); background: var(--c-success-soft); color: var(--c-success); white-space: nowrap; flex: none; }
+.part-stock.low { background: var(--c-warning-soft); color: var(--c-warning); }
+.part-stock.out, .part-stock.neg { background: var(--c-danger-soft); color: var(--c-danger); }
+.part-stock.ns { background: var(--c-sunken); color: var(--c-text-2); font-weight: normal; }
+.part-low { color: var(--c-warning); font-weight: var(--fw-bold); }
+.part-neg { color: var(--c-danger); font-weight: var(--fw-bold); }
+.part-in { color: var(--c-success); }
+.part-out { color: var(--c-danger); }
+.part-flag { display: inline-block; margin-left: var(--s-2); font-size: var(--fs-xs); border-radius: var(--r-pill); padding: 1px 6px; }
+.part-flag.low { background: var(--c-warning-soft); color: var(--c-warning); }
+
+.part-detail { max-width: 1040px; }
+.part-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-border-soft); }
+.part-totals > div { display: flex; flex-direction: column; gap: 2px; }
+.part-totals .k { font-size: var(--fs-xs); color: var(--c-text-2); }
+.part-totals .v { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+.part-stock-table td, .part-txn-table td, .part-table td { vertical-align: middle; }
+.part-txn-table .small a { margin-right: 4px; }
+.part-kind { font-size: var(--fs-sm); white-space: nowrap; }
+
+/* forms */
+.part-fieldset { border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: var(--s-2) var(--s-3) var(--s-3); margin: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.part-fieldset legend { font-weight: var(--fw-bold); font-size: var(--fs-sm); padding: 0 var(--s-1); }
+.part-vendor-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1fr) auto auto; gap: var(--s-2); align-items: center; }
+.part-stock-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) repeat(3, minmax(0, 0.8fr)) auto; gap: var(--s-2); align-items: center; }
+.part-req-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--s-2); }
+
+/* work orders */
+.wo-part-row { gap: var(--s-2); flex-wrap: wrap; }
+.wo-part-qty { font-weight: var(--fw-bold); white-space: nowrap; }
+.wo-part-cost { min-width: 64px; text-align: right; }
+.wo-add-row { display: flex; gap: var(--s-2); align-items: center; }
+.wo-add-row .input { width: 90px; flex: none; }
+.wo-add-row .select { width: auto; max-width: 180px; flex: none; }
+
+/* cycle counts */
+.part-count-row { gap: var(--s-3); }
+.part-count-line { gap: var(--s-2); }
+.part-count-input { width: 96px; flex: none; text-align: right; }
+.part-run-bar { height: 4px; background: var(--c-sunken); }
+.part-run-bar span { display: block; height: 100%; background: var(--c-success); transition: width .2s; }
+.page-narrow { max-width: 1040px; }
+
+@media (max-width: 640px) {
+  .part-grid2 { grid-template-columns: 1fr; }
+  .part-vendor-row { grid-template-columns: 1fr 1fr; }
+  .part-vendor-row > .select { grid-column: 1 / -1; }
+  .part-stock-row { grid-template-columns: 1fr 1fr 1fr; }
+  .part-stock-row > :first-child, .part-stock-row > .input:nth-child(2) { grid-column: 1 / -1; }
+  .part-stock-seg { width: 100%; overflow-x: auto; }
+  .part-stock-seg .seg-btn { flex: 1 0 auto; }
+  .part-totals { grid-template-columns: repeat(2, 1fr); padding: var(--s-3); }
+  .wo-part-row .wo-part-cost { min-width: 0; }
+  .wo-add-row { flex-wrap: wrap; }
+  .wo-add-row b, .wo-add-row > span.grow { flex-basis: 100%; }
+  .part-count-row { flex-wrap: wrap; }
+}

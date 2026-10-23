@@ -17,7 +17,8 @@ import { MeterChart, fmtNum } from "./MeterChart";
 import "../../styles/automations.css";
 import { CopyMeterDialog, MeterForm } from "./MeterForms";
 
-const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 yr"]] as const;
+const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 yr"], [730, "2 yr"]] as const;
+const ymd = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 const FREQ: Record<string, string> = { hour: "hour", day: "day", week: "week", month: "month", year: "year" };
 
 function limitText(lo: number | null, hi: number | null, unit: string): string {
@@ -39,10 +40,20 @@ export function MeterDetail({ id }: { id: string }) {
   const nav = useNavigate();
   const { toast } = useToast();
   const q = useQuery({ queryKey: ["meter", id], queryFn: () => api<MeterDetailT>(`/meters/${id}`) });
-  const [days, setDays] = useState<number>(30);
-  const range = useMemo(() => { const to = new Date(Date.now() + 60_000); return { to, from: new Date(to.getTime() - days * 86400_000) }; }, [days, q.dataUpdatedAt]);
-  const chart = useQuery({ queryKey: ["meter-chart", id, days, q.dataUpdatedAt], queryFn: () => api<ChartData>(`/meters/${id}/chart?days=${days}`), placeholderData: (p) => p });
-  const readings = useQuery({ queryKey: ["meter-readings", id, days, q.dataUpdatedAt], queryFn: () => api<{ items: Reading[] }>(`/meters/${id}/readings?days=${days}&limit=200`), placeholderData: (p) => p });
+  const [days, setDays] = useState<number | "custom">(30);
+  // Custom range (MP-122): whole days in the person's time zone, end date included
+  const [custom, setCustom] = useState(() => ({ from: ymd(new Date(Date.now() - 30 * 86400_000)), to: ymd(new Date()) }));
+  const customOk = !!custom.from && !!custom.to && custom.from <= custom.to;
+  const range = useMemo(() => {
+    if (days === "custom") {
+      const from = new Date(custom.from + "T00:00"), to = new Date(new Date(custom.to + "T00:00").getTime() + 86400_000);
+      return customOk ? { from, to } : { from: new Date(Date.now() - 30 * 86400_000), to: new Date() };
+    }
+    const to = new Date(Date.now() + 60_000); return { to, from: new Date(to.getTime() - days * 86400_000) };
+  }, [days, custom, customOk, q.dataUpdatedAt]);
+  const span = days === "custom" ? `from=${encodeURIComponent(range.from.toISOString())}&to=${encodeURIComponent(range.to.toISOString())}` : `days=${days}`;
+  const chart = useQuery({ queryKey: ["meter-chart", id, span, q.dataUpdatedAt], queryFn: () => api<ChartData>(`/meters/${id}/chart?${span}`), placeholderData: (p) => p, enabled: days !== "custom" || customOk });
+  const readings = useQuery({ queryKey: ["meter-readings", id, span, q.dataUpdatedAt], queryFn: () => api<{ items: Reading[] }>(`/meters/${id}/readings?${span}&limit=200`), placeholderData: (p) => p, enabled: days !== "custom" || customOk });
   const [editing, setEditing] = useState(false);
   const [copying, setCopying] = useState(false);
   const [labels, setLabels] = useState(false);
@@ -105,8 +116,15 @@ export function MeterDetail({ id }: { id: string }) {
       <section className="card">
         <div className="card-head"><h2>Readings</h2>
           <div className="seg range-seg" role="radiogroup" aria-label="Range">{RANGES.map(([d, l]) => (
-            <button key={d} type="button" role="radio" aria-checked={days === d} className={"seg-btn" + (days === d ? " on" : "")} onClick={() => setDays(d)}>{l}</button>))}</div>
+            <button key={d} type="button" role="radio" aria-checked={days === d} className={"seg-btn" + (days === d ? " on" : "")} onClick={() => setDays(d)}>{l}</button>))}
+            <button type="button" role="radio" aria-checked={days === "custom"} className={"seg-btn" + (days === "custom" ? " on" : "")} onClick={() => setDays("custom")}>Custom</button></div>
         </div>
+        {days === "custom" && (
+          <div className="card-body row wrap range-custom">
+            <label className="row small">From <input className="input" type="date" value={custom.from} max={custom.to || undefined} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></label>
+            <label className="row small">To <input className="input" type="date" value={custom.to} min={custom.from || undefined} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></label>
+            {!customOk && <span className="small" style={{ color: "var(--c-danger)" }}>Pick a start date on or before the end date.</span>}
+          </div>)}
         <div className="card-body stack">
           {chart.data ? <MeterChart data={chart.data} from={range.from} to={range.to} tz={tz} /> : <ListSkeleton rows={3} />}
           <ReadingsTable items={readings.data?.items ?? []} unit={m.unit} tz={tz} canDelete={can("meters.manage")} onDelete={(rid) => delReading.mutate(rid)} />

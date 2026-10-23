@@ -13,6 +13,7 @@ onedir = os.environ.get("MPRO_ONEDIR") == "1"
 datas = [
     (str(root / "mpro" / "static" / "app"), "mpro/static/app"),
     (str(root / "mpro" / "migrations"), "mpro/migrations"),
+    (str(root / "mpro" / "assets" / "packages"), "mpro/assets/packages"),  # Asset Hub packages (0.5.0)
     (str(root / "LICENSE"), "."),
     (str(root / "TRADEMARKS.md"), "."),
 ] + collect_data_files("reportlab")

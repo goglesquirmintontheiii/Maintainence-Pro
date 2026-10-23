@@ -327,6 +327,32 @@ def resolve(m: Membership, raw: str) -> dict[str, Any]:
                     for a in hits
                 ],
             }
+    # Part barcodes (0.5.0, MP-039): a scanned barcode opens the part.
+    from mpro.parts.models import Part
+
+    if can(m, "parts.view"):
+        parts = db.session.scalars(
+            select(Part)
+            .where(Part.org_id == m.org_id, Part.deleted_at.is_(None), func.lower(Part.barcode) == raw.lower())
+            .limit(5)
+        ).all()
+        if len(parts) == 1:
+            return {
+                "status": "found",
+                "entity_type": "part",
+                "entity_id": str(parts[0].id),
+                "label": parts[0].name,
+                "url": f"/parts/{parts[0].id}",
+                "matched": "barcode",
+            }
+        if parts:
+            return {
+                "status": "several",
+                "results": [
+                    {"entity_type": "part", "entity_id": str(p.id), "label": p.name, "url": f"/parts/{p.id}"}
+                    for p in parts
+                ],
+            }
     return {"status": "unknown", "value": raw}
 
 

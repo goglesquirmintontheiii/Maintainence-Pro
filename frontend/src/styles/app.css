@@ -114,6 +114,7 @@ p { margin: 0; }
   border: 1px solid; font-size: var(--fs-md); }
 .banner.info { background: var(--c-info-soft); border-color: color-mix(in srgb, var(--c-info) 30%, transparent); }
 .banner.warning { background: var(--c-warning-soft); border-color: color-mix(in srgb, var(--c-warning) 35%, transparent); }
+.banner .db-path { word-break: break-all; font-size: var(--fs-sm); }
 .tabs { display: flex; gap: var(--s-1); border-bottom: 1px solid var(--c-border); }
 .tab { border: 0; background: none; padding: var(--s-2) var(--s-3); color: var(--c-text-2); font-weight: var(--fw-semibold);
   border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; text-decoration: none !important; display: inline-flex; gap: 6px; align-items: center; }
@@ -190,7 +191,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 /* overlays */
 .overlay { position: fixed; inset: 0; background: rgba(8, 12, 20, .5); display: grid; place-items: start center; padding: 10vh var(--s-4) var(--s-4);
   z-index: 50; animation: fade var(--dur); }
-.modal { width: min(520px, 100%); background: var(--c-panel); border-radius: var(--r-xl); box-shadow: var(--shadow-3); border: 1px solid var(--c-border);
+.modal { width: min(520px, 100%); background: var(--c-panel); color: var(--c-text); border-radius: var(--r-xl); box-shadow: var(--shadow-3); border: 1px solid var(--c-border);
   display: flex; flex-direction: column; max-height: 80vh; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--c-border-soft); }
 .modal-body { padding: var(--s-5); overflow-y: auto; display: flex; flex-direction: column; gap: var(--s-4); }
@@ -294,7 +295,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .astat-dot.offline { background: var(--c-offline); }
 .astat-dot.do_not_track { background: var(--c-dnt); }
 .clearable { position: relative; display: block; }
-.clearable .input { padding-right: 30px; }
+.clearable.has-value .input { padding-right: 30px; } /* room for the × only when there is something to clear */
 .clearable .clear-x { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 50%;
   display: grid; place-items: center; border: 0; background: var(--c-sunken); color: var(--c-text-2); cursor: pointer; padding: 0; }
 .clearable .clear-x:hover { background: var(--c-border); color: var(--c-text); }

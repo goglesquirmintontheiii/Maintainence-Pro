@@ -37,14 +37,14 @@ def body() -> dict[str, Any]:
     return data
 
 
-VIEW = {"asset": "assets.view", "location": "locations.view", "meter": "meters.view"}
-MANAGE = {"asset": "assets.manage", "location": "locations.manage", "meter": "meters.manage"}
+VIEW = {"asset": "assets.view", "location": "locations.view", "meter": "meters.view", "part": "parts.view"}
+MANAGE = {"asset": "assets.manage", "location": "locations.manage", "meter": "meters.manage", "part": "parts.manage"}
 
 
 def _check(entity_type: str, manage: bool = False) -> None:
     perm = (MANAGE if manage else VIEW).get(entity_type)
     if perm is None:
-        abort(422, message="Codes can go on assets, locations and meters.")
+        abort(422, message="Codes can go on assets, locations, meters and parts.")
     if not can(g.membership, perm):
         abort(403, message="You don't have permission to do that.")
 
@@ -131,6 +131,7 @@ def label_templates() -> dict[str, Any]:
 def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
     from mpro.assets.models import Asset, Location
     from mpro.meters.models import Meter
+    from mpro.parts.models import Part
 
     code_ids = b.get("code_ids")
     if code_ids:  # blank codes (tag first, assign later)
@@ -145,7 +146,7 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
     et = str(b.get("entity_type") or "")
     _check(et)
     ids = b.get("ids")
-    model: Any = {"asset": Asset, "location": Location, "meter": Meter}[et]
+    model: Any = {"asset": Asset, "location": Location, "meter": Meter, "part": Part}[et]
     if isinstance(ids, list) and ids:
         if len(ids) > 5000:
             abort(422, message="Print up to 5,000 labels at a time.")
@@ -169,6 +170,13 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
         )
         if len(recs) > 5000:
             abort(422, message="That's more than 5,000 assets. Narrow the filters.")
+    elif et == "part" and isinstance(b.get("query"), dict):  # 0.5.0: labels for the filtered parts list
+        from mpro.parts.queries import apply_sort, part_query
+
+        q = {k: str(v) for k, v in b["query"].items() if k not in ("page", "per_page")}
+        recs = list(db.session.scalars(apply_sort(guard(part_query, g.membership, q), q.get("sort")).limit(5001)).all())
+        if len(recs) > 5000:
+            abort(422, message="That's more than 5,000 parts. Narrow the filters.")
     else:
         abort(422, message="Pick what to print.")
     if not recs:
@@ -205,13 +213,15 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
             subtitle = r.city or ""
         elif et == "meter":
             subtitle = r.unit
+        elif et == "part":
+            subtitle = r.part_number or ""
         items.append(
             lbl.LabelItem(
                 url=svc.code_url(c.value),
                 title=r.name,
                 subtitle=subtitle,
                 code=c.value,
-                barcode=(r.barcode if et == "asset" and r.barcode else c.value),
+                barcode=(r.barcode if et in ("asset", "part") and r.barcode else c.value),
             )
         )
     db.session.commit()

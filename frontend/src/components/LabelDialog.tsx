@@ -8,14 +8,14 @@ import { postForFile, type LabelTemplates } from "../lib/assets";
 import { Button, Field, Input, Modal, Select, Toggle } from "./ui";
 
 type Fmt = "sheet" | "thermal" | "zpl";
-const NOUN = { asset: "asset", location: "location", meter: "meter" } as const;
+const NOUN = { asset: "asset", location: "location", meter: "meter", part: "part" } as const;
 
 function loadPrefs(): { fmt: Fmt; sheet: string; thermal: string } | null {
   try { const v = localStorage.getItem("mpro.labels"); return v ? JSON.parse(v) : null; } catch { return null; }
 }
 
 export function LabelDialog({ entityType, ids, query, codeIds, onClose }: {
-  entityType: "asset" | "location" | "meter"; ids?: string[]; query?: Record<string, string>; codeIds?: string[]; onClose: () => void;
+  entityType: "asset" | "location" | "meter" | "part"; ids?: string[]; query?: Record<string, string>; codeIds?: string[]; onClose: () => void;
 }) {
   const t = useQuery({ queryKey: ["label-templates"], queryFn: () => api<LabelTemplates>("/labels/templates"), staleTime: Infinity });
   const prefs = useMemo(loadPrefs, []);

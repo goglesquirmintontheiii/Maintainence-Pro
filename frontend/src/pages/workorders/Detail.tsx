@@ -8,7 +8,7 @@ import {
   Mail, MapPin, MoreHorizontal, Paperclip, Pause, Pencil, Play, Plus, Printer, RotateCcw, Send, SmilePlus, Square, Timer, Trash2, Undo2, X,
 } from "lucide-react";
 import {
-  api, ApiError, upload, type ActivityItem, type AssetTask, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
+  api, ApiError, upload, type ActivityItem, type AssetStatus, type AssetTask, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
 } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { currency, dateTime, timeAgo } from "../../lib/format";
@@ -21,6 +21,9 @@ import { ASSET_STATUS_LABEL } from "../../lib/assets";
 import { FileViewer } from "../../components/FileViewer";
 import { ProcedureRuns } from "../procedures/Runner";
 import { offerCloseSubs, RecurrenceChip, SubRollup } from "../pm/WOParts";
+import { WOPartsSection } from "../parts/WOParts";
+import { WorkOrderOutside } from "./WorkOrderVendors";
+import { WOCustomerRow } from "../vendors/WOCustomer";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -57,7 +60,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
       const t = e.target as HTMLElement;
       const panels = document.querySelectorAll(".drawer-wrap").length;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName) || t?.isContentEditable || document.querySelector(".overlay") || panels > (inDrawer ? 1 : 0)) return;
-      if (e.key === "e" && can("wo.edit") && q.data && !q.data.deleted) { e.preventDefault(); setEditing(true); }
+      if (e.key === "e" && (q.data?.you?.edit ?? can("wo.edit")) && q.data && !q.data.deleted) { e.preventDefault(); setEditing(true); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -109,14 +112,14 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
   if (!q.data) return <div className="detail"><ListSkeleton rows={4} /></div>;
   const wo = q.data;
   const s = opts.data?.settings;
-  const editable = can("wo.edit") && !wo.deleted;
+  const editable = (wo.you?.edit ?? can("wo.edit")) && !wo.deleted;
   const due = dueLabel(wo.due_at, wo.overdue, tz);
   const subs = wo.sub_statuses?.[wo.status] ?? [];
 
   const changeStatus = (st: WOStatus) => {
     if (st === wo.status) return;
     const rule = st === "on_hold" ? s?.comment_on_hold : st === "canceled" ? s?.comment_on_cancel : "none";
-    const assetDown = !!wo.asset && wo.asset.status !== "online" && can("assets.status");
+    const assetDown = woAssetsOf(wo).some((a) => a.status !== "online") && can("assets.status");
     const needsDialog = st === "done" ? !!(s?.require_signature || s?.completion_summary !== "none" || assetDown) : rule === "mandatory" || (rule === "optional" && st === "canceled");
     if (needsDialog) setStatusAsk(st); else statusM.mutate({ status: st });
   };
@@ -124,7 +127,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
   return (
     <div className={"detail wo-detail" + (inDrawer ? " in-drawer" : "")}>
       {!inDrawer && <Link to={backTo ?? "/work-orders"} className="row small mobile-only"><ArrowLeft size={14} />All work orders</Link>}
-      {wo.deleted && <div className="banner warning"><Trash2 size={18} /><div className="grow">This work order was deleted.</div>{can("wo.delete") && <Button size="sm" onClick={() => restore.mutate()}><RotateCcw size={14} />Restore</Button>}</div>}
+      {wo.deleted && <div className="banner warning"><Trash2 size={18} /><div className="grow">This work order was deleted.</div>{(wo.you?.delete ?? can("wo.delete")) && <Button size="sm" onClick={() => restore.mutate()}><RotateCcw size={14} />Restore</Button>}</div>}
       <div className="wo-head">
         <div className="grow">
           <div className="row small muted" style={{ gap: 6 }}>
@@ -156,7 +159,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
               <button className="menu-item" onClick={() => { close(); unread.mutate(); }}><Undo2 size={15} />Mark as unread</button>
               {editable && wo.status !== "canceled" && wo.status !== "done" && <button className="menu-item" onClick={() => { close(); setStatusAsk("canceled"); }}><Ban size={15} />Cancel work order</button>}
               {can("audit.view") && <Link className="menu-item" to={`/settings/audit-log?entity_id=${wo.id}`} onClick={close}><FileText size={15} />History in audit log</Link>}
-              {can("wo.delete") && !wo.deleted && <><div className="menu-sep" /><button className="menu-item" style={{ color: "var(--c-danger)" }} onClick={() => { close(); setConfirmDelete(true); }}><Trash2 size={15} />Delete</button></>}
+              {(wo.you?.delete ?? can("wo.delete")) && !wo.deleted && <><div className="menu-sep" /><button className="menu-item" style={{ color: "var(--c-danger)" }} onClick={() => { close(); setConfirmDelete(true); }}><Trash2 size={15} />Delete</button></>}
             </>}
           </Dropdown>
           {inDrawer && onClose && <Button variant="ghost" icon aria-label="Close" onClick={onClose}><X size={18} /></Button>}
@@ -185,8 +188,10 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
         <div><dt>Work type</dt><dd>{WORK_TYPE_LABEL[wo.work_type]}</dd></div>
         <div><dt>Estimated time</dt><dd>{wo.estimated_minutes ? fmtMinutes(wo.estimated_minutes) : <span className="faint">None</span>}</dd></div>
         <div><dt>Categories</dt><dd>{wo.categories.length ? <CategoryChips items={wo.categories} /> : <span className="faint">None</span>}</dd></div>
-        {wo.asset && <div><dt>Asset</dt><dd><Link to={`/assets/${wo.asset.id}`} className="row" style={{ gap: 6 }}><span className={"astat-dot " + wo.asset.status} title={ASSET_STATUS_LABEL[wo.asset.status]} />{wo.asset.name}</Link></dd></div>}
+        {woAssetsOf(wo).length > 0 && <div><dt>{woAssetsOf(wo).length > 1 ? "Assets" : "Asset"}</dt><dd className="stack" style={{ gap: 4 }}>{woAssetsOf(wo).map((a) => (
+          <Link key={a.id} to={`/assets/${a.id}`} className="row" style={{ gap: 6 }}><span className={"astat-dot " + a.status} title={ASSET_STATUS_LABEL[a.status]} />{a.name}</Link>))}</dd></div>}
         {wo.location && <div><dt>Location</dt><dd><Link to={`/locations/${wo.location.id}`} className="row" style={{ gap: 6 }}><MapPin size={14} className="faint" />{wo.location.name}</Link></dd></div>}
+        <WOCustomerRow woId={wo.id} canEdit={editable} />
         <div><dt>Created</dt><dd title={dateTime(wo.created_at, tz)}>{timeAgo(wo.created_at)}{wo.created_by && ` by ${wo.created_by.name}`}</dd></div>
         {wo.completed_at && <div><dt>Completed</dt><dd title={dateTime(wo.completed_at, tz)}>{timeAgo(wo.completed_at)}{wo.completed_by && ` by ${wo.completed_by.name}`}</dd></div>}
         <div className="span2"><dt>Time in status</dt><dd className="small">{(["open", "in_progress", "on_hold"] as const).filter((k) => wo.time_in_status[k] > 0).map((k) => `${STATUS_LABEL[k]} ${fmtDuration(wo.time_in_status[k])}`).join(" · ") || "—"}</dd></div>
@@ -212,6 +217,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
             <div className="small muted">Signed by <b>{wo.signature.name}</b><br />{dateTime(wo.signature.signed_at, tz)}</div></div>}
         </section>)}
 
+      <WOPartsSection wo={wo} />
+      <WorkOrderOutside wo={wo} editable={editable} />
       <TimeAndCosts wo={wo} editable={editable} onChange={(w) => refresh(w)} />
       <SubsAndLinks wo={wo} editable={editable} onAddSub={() => setNewSub(true)} onChange={(w) => refresh(w)} />
       <SubRollup wo={wo} />
@@ -257,10 +264,11 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
   const [sub, setSub] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
   const { session, can } = useSession();
-  const [bringOnline, setBringOnline] = useState(true);
+  const [keepDown, setKeepDown] = useState<Set<string>>(() => new Set());
   const { toast } = useToast();
   const done = target === "done";
-  const assetDown = done && !!wo.asset && wo.asset.status !== "online" && can("assets.status");
+  const downAssets = done && can("assets.status") ? woAssetsOf(wo).filter((a) => a.status !== "online") : [];
+  const bringUp = downAssets.filter((a) => !keepDown.has(a.id));
   const rule = target === "on_hold" ? s?.comment_on_hold : target === "canceled" ? s?.comment_on_cancel : "none";
   const needSig = done && s?.require_signature && !wo.signature;
   const sumRule = done ? s?.completion_summary : "none";
@@ -272,7 +280,7 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
     <Modal title={title} onClose={onClose} width={560}
       footer={<><Button onClick={onClose}>Back</Button><Button variant={target === "canceled" ? "danger" : "primary"} className={target === "canceled" ? "solid" : ""} disabled={!ok || busy}
         onClick={() => onConfirm({ comment, summary: summary || undefined, signature: sig ?? undefined, signed_by: signedBy || undefined, sub_status: sub, file_ids: files.map((f) => f.id),
-          ...(assetDown && bringOnline ? { asset_status: { status: "online" } } : {}) })}>
+          ...(bringUp.length ? { asset_status: { assets: bringUp.map((a) => ({ asset_id: a.id, status: "online" })) } } : {}) })}>
         {done ? "Mark as Done" : target === "canceled" ? "Cancel work order" : `Mark ${STATUS_LABEL[target]}`}</Button></>}>
       {wo.sub_work_orders.some((x) => x.status !== "done" && x.status !== "canceled") && done && <div className="banner warning"><AlertTriangle size={16} />Some sub-work orders are still open.</div>}
       {subs.length > 0 && <Field label="Sub-status">{(id) => <Select id={id} value={sub} onChange={(e) => setSub(e.target.value)}><option value="">None</option>{subs.map((x) => <option key={x}>{x}</option>)}</Select>}</Field>}
@@ -287,8 +295,9 @@ function StatusDialog({ wo, target, options, onClose, onConfirm, busy }: { wo: W
         ? <p className="small muted">Already signed by {wo.signature.name}.</p>
         : <div className="field"><span className="label">Signature{needSig ? " *" : ""}</span><SignaturePad onChange={setSig} />
             <Input aria-label="Signed by" placeholder={`Signed by (default ${session.user?.name})`} value={signedBy} onChange={(e) => setSignedBy(e.target.value)} /></div>)}
-      {assetDown && <label className="check banner info" style={{ alignItems: "center" }}><input type="checkbox" checked={bringOnline} onChange={(e) => setBringOnline(e.target.checked)} />
-        <span><b>{wo.asset!.name}</b> is {ASSET_STATUS_LABEL[wo.asset!.status]}. Mark it Online when this work order is done.</span></label>}
+      {downAssets.map((a) => <label key={a.id} className="check banner info" style={{ alignItems: "center" }}>
+        <input type="checkbox" checked={!keepDown.has(a.id)} onChange={(e) => setKeepDown((k) => { const n = new Set(k); if (e.target.checked) n.delete(a.id); else n.add(a.id); return n; })} />
+        <span><b>{a.name}</b> is {ASSET_STATUS_LABEL[a.status]}. Mark it Online when this work order is done.</span></label>)}
       {done && s?.require_approval && <p className="small muted">An administrator will review and approve this before it's final.</p>}
     </Modal>
   );
@@ -560,7 +569,7 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
           <div key={"c" + i.id} className="comment">
             {i.author ? <Avatar name={i.author.name} initials={i.author.initials} size="sm" /> : <span className="avatar sm" />}
             <div className="grow">
-              <div className="row small"><b>{i.author?.name ?? "Someone"}</b><span className="faint" title={dateTime(i.created_at)}>{timeAgo(i.created_at)}{i.edited_at && " · edited"}</span>
+              <div className="row small"><b>{i.author?.name ?? (i.external_name ? `${i.external_name} (outside)` : "Someone")}</b><span className="faint" title={dateTime(i.created_at)}>{timeAgo(i.created_at)}{i.edited_at && " · edited"}</span>
                 {!i.deleted && <span className="r row" style={{ gap: 2 }}>
                   <Dropdown up width={220} trigger={(_, t) => <Button size="sm" variant="ghost" icon aria-label="React" onClick={t}><SmilePlus size={14} /></Button>}>
                     {(close) => <div className="row" style={{ padding: 6 }}>{REACTIONS.map((e) => <button key={e} type="button" className="emoji-btn" onClick={() => { close(); react.mutate({ cid: i.id, emoji: e }); }}>{e}</button>)}</div>}
@@ -602,6 +611,11 @@ function lower(s: string) { return s ? s[0].toLowerCase() + s.slice(1) : s; }
 
 const TASK_STATUSES: { id: AssetTask["status"]; label: string }[] = [
   { id: "open", label: "Open" }, { id: "on_hold", label: "On Hold" }, { id: "in_progress", label: "In Progress" }, { id: "done", label: "Done" }];
+
+/** Every asset on the work order (MP-124), falling back to the single asset from older responses. */
+function woAssetsOf(wo: WODetail): { id: string; name: string; status: AssetStatus }[] {
+  return wo.assets?.length ? wo.assets : wo.asset ? [wo.asset] : [];
+}
 
 /** Asset task list (MP-099): each asset on the work order has its own status and notes, without sub-work orders. */
 function AssetTasks({ wo, editable, onChange }: { wo: WODetail; editable: boolean; onChange: (w: WODetail) => void }) {

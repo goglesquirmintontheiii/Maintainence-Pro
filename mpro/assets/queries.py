@@ -80,6 +80,24 @@ def open_wo_counts(m: Membership, column: Any, ids: list[uuid.UUID]) -> dict[uui
 
     if not ids or not can(m, "wo.view"):
         return {}
+    if column is WorkOrder.asset_id:  # every asset on a work order counts, not just the first (MP-124)
+        from mpro.workorders.models import WorkOrderAsset
+
+        live = (WorkOrder.deleted_at.is_(None), WorkOrder.status.in_(ACTIVE_STATUSES), visibility_filter(m))
+        pairs = set(
+            db.session.execute(select(WorkOrder.id, WorkOrder.asset_id).where(WorkOrder.asset_id.in_(ids), *live)).all()
+        )
+        pairs |= set(
+            db.session.execute(
+                select(WorkOrder.id, WorkOrderAsset.asset_id)
+                .join(WorkOrderAsset, WorkOrderAsset.work_order_id == WorkOrder.id)
+                .where(WorkOrderAsset.asset_id.in_(ids), *live)
+            ).all()
+        )
+        counts: dict[uuid.UUID, int] = {}
+        for _wid, aid in pairs:
+            counts[aid] = counts.get(aid, 0) + 1
+        return counts
     rows = db.session.execute(
         select(column, func.count())
         .where(
@@ -422,8 +440,11 @@ def asset_detail(m: Membership, a: Asset) -> dict[str, Any]:
     from mpro.workorders.services import custom_fields
 
     now = utcnow()
+    from mpro.core.permissions import can_on
+
     files = links_for("asset", a.id)
     d = summaries(m, [a])[0]
+    d["you"] = {"edit": can_on(m, "assets.manage", a)}  # own vs any (MP-130)
     d.update(
         {
             "description": a.description,
@@ -512,7 +533,9 @@ def insights(m: Membership, a: Asset, days: int = 90, include_children: bool = T
     now = utcnow()
     start = now - timedelta(days=days)
     ids = list(db.session.scalars(subtree_ids("asset", a.id)).all()) if include_children else [a.id]
-    base = select(WorkOrder).where(WorkOrder.asset_id.in_(ids), WorkOrder.deleted_at.is_(None), visibility_filter(m))
+    from mpro.workorders.wo_assets import on_assets
+
+    base = select(WorkOrder).where(on_assets(ids), WorkOrder.deleted_at.is_(None), visibility_filter(m))
     created = db.session.scalars(base.where(WorkOrder.created_at >= start)).all()
     completed = db.session.scalars(base.where(WorkOrder.completed_at >= start)).all()
     weeks: dict[str, dict[str, Any]] = {}
@@ -543,9 +566,7 @@ def insights(m: Membership, a: Asset, days: int = 90, include_children: bool = T
         or 0,
         "downtime": downtime(a.id, start, now),
     }
-    wo_ids = select(WorkOrder.id).where(
-        WorkOrder.asset_id.in_(ids), WorkOrder.deleted_at.is_(None), visibility_filter(m)
-    )
+    wo_ids = select(WorkOrder.id).where(on_assets(ids), WorkOrder.deleted_at.is_(None), visibility_filter(m))
     other = (
         db.session.scalar(
             select(func.coalesce(func.sum(CostEntry.amount_cents), 0)).where(

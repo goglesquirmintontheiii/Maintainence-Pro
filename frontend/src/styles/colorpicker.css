@@ -1,0 +1,23 @@
+/* Shared colour picker (MP-123) */
+.cp { position: relative; display: inline-flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; }
+.cp-sw { width: 28px; height: 28px; border-radius: var(--r-lg); border: 2px solid var(--c-panel); box-shadow: 0 0 0 1px var(--c-border);
+  cursor: pointer; display: inline-grid; place-items: center; padding: 0; }
+.cp.sm .cp-sw, .cp-sw.sm { width: 22px; height: 22px; border-radius: var(--r-md); }
+.cp-sw.on { box-shadow: 0 0 0 2px var(--c-text); }
+.cp-sw.none { background: linear-gradient(135deg, var(--c-panel) 45%, var(--c-danger) 45% 55%, var(--c-panel) 55%); }
+.cp-rainbow { background: conic-gradient(#e53935, #fb8c00, #fdd835, #43a047, #1e88e5, #8e24aa, #e53935); }
+.cp-panel { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 248px; padding: var(--s-3); display: grid; gap: var(--s-2);
+  background: var(--c-panel); color: var(--c-text); border: 1px solid var(--c-border); border-radius: var(--r-xl); box-shadow: var(--shadow-2); }
+.cp-field { position: relative; height: 140px; border-radius: var(--r-md); cursor: crosshair; touch-action: none; }
+.cp-field::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, rgba(255,255,255,0)); }
+.cp-dot { position: absolute; z-index: 1; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); pointer-events: none; }
+.cp-hue { width: 100%; height: 14px; appearance: none; border-radius: var(--r-pill);
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cp-hue::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid var(--c-text); }
+.cp-hue::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--c-text); }
+.cp-row { display: flex; gap: var(--s-2); align-items: center; }
+.cp-preview { width: 34px; height: 34px; border-radius: var(--r-md); display: grid; place-items: center; font-weight: var(--fw-semibold); font-size: var(--fs-sm); flex: none; }
+.cp-hex { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.cp-recent { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+@media (max-width: 640px) { .cp-sw { width: 36px; height: 36px; } .cp-panel { width: min(280px, calc(100vw - 32px)); } }

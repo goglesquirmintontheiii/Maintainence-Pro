@@ -32,6 +32,7 @@ export type QrCodeItem = { id: string; kind: "mpro" | "external"; value: string;
   entity_id: string | null; note: string; batch: string; retired: boolean; retired_at: string | null; assigned_at: string | null; created_at: string;
   target?: { label: string; url: string } | null };
 export type AssetDetail = Asset & {
+  you?: { edit: boolean }; // own vs any (MP-130)
   description: string; teams: TeamRef[]; status_changed_by: { id: string; name: string } | null; files: FileItem[];
   lifecycle: { commissioned_on: string | null; expected_life_years: number | null; replacement_year: number | null; disposed_on: string | null;
     disposal_method: string; disposal_notes: string; age_years: number };

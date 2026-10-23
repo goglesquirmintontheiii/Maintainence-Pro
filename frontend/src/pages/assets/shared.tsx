@@ -11,6 +11,7 @@ import { useToast } from "../../components/Toast";
 import { Button, EmptyState, ListSkeleton, Pill } from "../../components/ui";
 import { MultiPicker } from "../../components/pickers";
 import { FileViewer, type ViewerFile } from "../../components/FileViewer";
+import { DropZone } from "../../components/DropZone";
 import "../../styles/assets.css";
 
 export function AssetStatusPill({ status, reason }: { status: AssetStatus; reason?: string }) {
@@ -76,7 +77,7 @@ export function PhotoPicker({ files, setFiles, label = "Add photos or files" }: 
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(0);
   const { toast } = useToast();
-  const pick = async (list: FileList | null) => {
+  const pick = async (list: FileList | File[] | null) => {
     if (!list) return;
     const out = [...files];
     for (const f of Array.from(list)) {
@@ -86,15 +87,21 @@ export function PhotoPicker({ files, setFiles, label = "Add photos or files" }: 
     setFiles(out);
   };
   return (
-    <div className="full">
+    <DropZone className="full" accept="image/*,application/pdf" onFiles={(fs) => void pick(fs)}>
       <input ref={input} type="file" multiple hidden accept="image/*,application/pdf" onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
       <button type="button" className="dropzone small" onClick={() => input.current?.click()}><ImagePlus size={16} />{busy ? "Uploading…" : label}</button>
       {files.length > 0 && <div className="thumbs sm">{files.map((f) => (
         <figure key={f.id} className="thumb">{f.is_image ? <img src={f.thumb_url ?? f.url} alt={f.name} /> : <span className="small" style={{ padding: 6 }}>{f.name}</span>}
           <button type="button" className="thumb-x" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((x) => x.id !== f.id))}><X size={12} /></button></figure>))}</div>}
-    </div>
+    </DropZone>
   );
 }
+
+// Query keys of lists that show a record's picture, refreshed when its files change.
+const LIST_KEYS: Record<string, string[]> = {
+  asset: ["assets", "asset-tree", "asset-pick"],
+  location: ["locations", "location-tree", "location-pick"],
+};
 
 /** Files attached to a saved record, with add and remove. */
 export function FilesSection({ files, entityType, entityId, editable, queryKey, role = "photo" }: {
@@ -105,20 +112,26 @@ export function FilesSection({ files, entityType, entityId, editable, queryKey, 
   const { toast } = useToast();
   const [view, setView] = useState<FileItem | null>(null);
   const [busy, setBusy] = useState(false);
-  const add = async (list: FileList | null) => {
+  // A new or removed picture changes the record's thumbnail in lists and trees too, not just its own page (MP-121)
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey });
+    for (const k of LIST_KEYS[entityType] ?? []) void qc.invalidateQueries({ queryKey: [k] });
+  };
+  const add = async (list: FileList | File[] | null) => {
     if (!list) return;
     setBusy(true);
     try { for (const f of Array.from(list)) await upload(f, { entity_type: entityType, entity_id: entityId, role: f.type.startsWith("image/") ? role : "file" }); }
     catch (e) { toast((e as ApiError).message, { kind: "error" }); }
-    finally { setBusy(false); void qc.invalidateQueries({ queryKey }); }
+    finally { setBusy(false); refresh(); }
   };
   const remove = async (f: FileItem) => {
-    try { await api(`/files/links/${f.link_id}`, { method: "DELETE" }); void qc.invalidateQueries({ queryKey }); toast("Removed"); }
+    try { await api(`/files/links/${f.link_id}`, { method: "DELETE" }); refresh(); toast("Removed"); }
     catch (e) { toast((e as ApiError).message, { kind: "error" }); }
   };
   const imgs = files.filter((f) => f.is_image), docs = files.filter((f) => !f.is_image);
   return (
-    <section className="card card-pad stack">
+    <DropZone onFiles={(fs) => void add(fs)} disabled={!editable} className="card">
+    <section className="card-pad stack">
       <div className="row" style={{ justifyContent: "space-between" }}><h3 className="sec-h" style={{ margin: 0 }}>Photos and files</h3>
         {editable && <><input ref={input} type="file" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} />
           <Button size="sm" onClick={() => input.current?.click()} disabled={busy}><ImagePlus size={14} />{busy ? "Uploading…" : "Add"}</Button></>}</div>
@@ -134,6 +147,7 @@ export function FilesSection({ files, entityType, entityId, editable, queryKey, 
           {editable && f.link_id && <Button size="sm" variant="ghost" icon aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={14} /></Button>}</div>))}</div>}
       {view && <Lightbox file={view} files={[...imgs, ...docs]} onClose={() => setView(null)} />}
     </section>
+    </DropZone>
   );
 }
 

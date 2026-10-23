@@ -1,7 +1,8 @@
 // How often something repeats (MaintainX: Daily, Weekly on chosen days, Monthly by date or weekday, Yearly, every N days).
 // Used by the plan editor's tasks and the work order form's Repeat control.
-import { Input, Select } from "../../components/ui";
+import { Select } from "../../components/ui";
 import { describe, FREQ_LABEL, WEEKDAYS, type Freq, type Spec } from "./types";
+import { NumberInput } from "../../components/NumberInput";
 
 const UNIT: Record<Freq, [string, string]> = {
   daily: ["day", "days"], every_n_days: ["day", "days"], weekly: ["week", "weeks"], monthly: ["month", "months"], yearly: ["year", "years"],
@@ -25,8 +26,8 @@ export function ScheduleInput({ value, onChange, anchor, floating, idPrefix = "r
           {(Object.keys(FREQ_LABEL) as Freq[]).map((f) => <option key={f} value={f}>{FREQ_LABEL[f]}</option>)}
         </Select>
         <span className="small muted">every</span>
-        <Input id={`${idPrefix}-n`} aria-label="Interval" type="number" min={1} max={1000} value={n} style={{ width: 76 }}
-          onChange={(e) => onChange({ ...value, interval: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} />
+        <NumberInput id={`${idPrefix}-n`} aria-label="Interval" min={1} max={1000} integer empty={1} value={n} style={{ width: 76 }}
+          onValue={(v) => onChange({ ...value, interval: v ?? 1 })} />
         <span className="small muted">{UNIT[value.freq][n === 1 ? 0 : 1]}</span>
         {value.freq === "monthly" && (
           <Select aria-label="Monthly on" value={value.monthly ?? "by_date"} style={{ width: 170 }}

@@ -1,0 +1,53 @@
+{
+  "key": "carrier-48fc@1",
+  "name": "Carrier 48FC packaged rooftop unit",
+  "manufacturer": "Carrier",
+  "model": "48FC",
+  "models": ["48FC", "48FCD", "48FCE", "48FCF", "48TC", "50FC"],
+  "version": "1",
+  "description": "Gas heat / electric cool packaged rooftop units. Quarterly filter changes and seasonal start-ups for heating and cooling.",
+  "notice": "Generic starter content. Filter sizes and belt numbers vary by unit size: check the unit's nameplate and installation manual.",
+  "asset_type": {"name": "Rooftop unit", "color": "#c27c1a"},
+  "fields": [
+    {"name": "Nominal cooling (tons)", "type": "number"},
+    {"name": "Filter size", "type": "text"},
+    {"name": "Heat type", "type": "select", "options": ["Gas", "Electric", "Heat pump", "None"]}
+  ],
+  "parts": [
+    {"key": "filter", "name": "Pleated air filter MERV 8 (20×25×2)", "unit": "each", "unit_cost": "9.50", "description": "Return air filter; the unit holds several — check the count and size."},
+    {"key": "belt", "name": "RTU blower belt", "unit": "each", "unit_cost": "24.00", "description": "Supply fan V-belt; match the size on the old belt."},
+    {"key": "igniter", "name": "Hot surface igniter", "unit": "each", "unit_cost": "48.00", "description": "Gas section igniter."},
+    {"key": "capacitor", "name": "Dual run capacitor 45/5 µF", "unit": "each", "unit_cost": "22.00", "description": "Compressor / condenser fan run capacitor."}
+  ],
+  "procedures": [
+    {
+      "key": "quarterly",
+      "name": "Rooftop unit – quarterly PM",
+      "category": "Preventive maintenance",
+      "items": [
+        {"id": "filters", "type": "checkbox", "label": "Filters replaced", "required": true},
+        {"id": "belt", "type": "inspection", "label": "Blower belt tension and wear", "required": true},
+        {"id": "drain", "type": "inspection", "label": "Condensate pan and drain clear"},
+        {"id": "coils", "type": "inspection", "label": "Condenser and evaporator coils clean"},
+        {"id": "economizer", "type": "inspection", "label": "Economizer damper operates"},
+        {"id": "supply_temp", "type": "number", "label": "Supply air temperature (°F)"}
+      ]
+    },
+    {
+      "key": "heating_startup",
+      "name": "Rooftop unit – heating start-up",
+      "category": "Seasonal",
+      "items": [
+        {"id": "heat_exchanger", "type": "inspection", "label": "Heat exchanger inspected for cracks", "required": true},
+        {"id": "ignition", "type": "inspection", "label": "Ignition sequence and flame sensing", "required": true},
+        {"id": "gas_pressure", "type": "number", "label": "Manifold gas pressure (in. w.c.)"},
+        {"id": "co", "type": "number", "label": "Flue CO reading (ppm)"},
+        {"id": "limits", "type": "inspection", "label": "High limit and rollout switches tested"}
+      ]
+    }
+  ],
+  "templates": [
+    {"name": "RTU quarterly PM", "title": "Rooftop unit quarterly PM", "priority": "medium", "work_type": "preventive", "estimated_minutes": 60, "procedures": ["quarterly"]},
+    {"name": "RTU heating start-up", "title": "Rooftop unit heating start-up", "priority": "medium", "work_type": "preventive", "estimated_minutes": 90, "procedures": ["heating_startup"]}
+  ]
+}

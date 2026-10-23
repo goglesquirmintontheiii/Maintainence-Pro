@@ -253,9 +253,17 @@ def sniff_type(name: str, data: bytes) -> str:
 
 
 def save_file(
-    org_id: uuid.UUID, name: str, data: bytes, uploaded_by: uuid.UUID | None, content_type: str | None = None
+    org_id: uuid.UUID,
+    name: str,
+    data: bytes,
+    uploaded_by: uuid.UUID | None,
+    content_type: str | None = None,
+    encrypt: bool = False,
 ) -> FileObject:
-    """Store bytes and create the FileObject (caller commits). Queues a thumbnail for images."""
+    """Store bytes and create the FileObject (caller commits). Queues a thumbnail for images.
+
+    encrypt=True stores the bytes encrypted at rest (mpro.core.crypto); they're decrypted by `read_bytes()` when sent.
+    Encrypted files get no server-side thumbnails or previews (those would be stored in the clear)."""
     if len(data) == 0:
         raise FileError("That file is empty.")
     if len(data) > max_upload_bytes():
@@ -264,7 +272,12 @@ def save_file(
     ctype = content_type or sniff_type(name, data)
     fid = uuid.uuid4()
     key = f"{org_id}/{utcnow():%Y/%m}/{fid}"
-    storage().put(key, data)
+    if encrypt:
+        from mpro.core.crypto import encrypt_bytes
+
+        storage().put(key, encrypt_bytes(data))
+    else:
+        storage().put(key, data)
     f = FileObject(
         id=fid,
         org_id=org_id,
@@ -274,11 +287,22 @@ def save_file(
         sha256=hashlib.sha256(data).hexdigest(),
         storage_key=key,
         uploaded_by_id=uploaded_by,
+        encrypted=encrypt,
     )
     db.session.add(f)
     db.session.flush()
     queue_processing(f)
     return f
+
+
+def read_bytes(f: FileObject, key: str | None = None) -> bytes:
+    """The file's contents (or one of its derived keys), decrypted when stored encrypted."""
+    data = storage().get(key or f.storage_key)
+    if f.encrypted:
+        from mpro.core.crypto import decrypt_bytes
+
+        return decrypt_bytes(data)
+    return data
 
 
 OFFICE_PREVIEW_TYPES = (
@@ -291,6 +315,8 @@ def queue_processing(f: FileObject) -> None:
     """Background work after an upload: thumbnails for images, a flattened preview for PSD files (MP-107)."""
     from mpro.core.jobs import enqueue
 
+    if f.encrypted:
+        return
     if f.is_image:
         enqueue("files.thumbnail", {"file_id": str(f.id)}, org_id=f.org_id)
     elif f.content_type == PSD_TYPE or f.content_type in OFFICE_PREVIEW_TYPES and f.size > 2 * 1024 * 1024:
@@ -392,6 +418,8 @@ def make_thumbnail(f: FileObject, size: int = 480) -> None:
     from PIL import Image, ImageOps
 
     Image.MAX_IMAGE_PIXELS = 60_000_000  # refuse decompression bombs
+    if f.encrypted:
+        return
     data = storage().get(f.storage_key)
     with Image.open(io.BytesIO(data)) as im:
         f.width, f.height = im.size

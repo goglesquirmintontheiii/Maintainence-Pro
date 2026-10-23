@@ -55,7 +55,7 @@ export function Overview() {
         <div><h1>{greeting()}, {session.user?.name.split(" ")[0]}</h1><p className="sub">{session.org?.name} · {session.role_label}</p></div>
         {can("wo.create") && <Button variant="primary" onClick={() => nav("/work-orders?new=1")}><Plus size={16} />New Work Order</Button>}
       </div>
-      {session.test_build && <div className="banner info"><FlaskConical size={18} /><div><b>You're running a test build.</b> Data lives in a local SQLite file on this computer and the demo organization is pre-loaded. Use it to try things out, not for real work.</div></div>}
+      {session.test_build && <div className="banner info"><FlaskConical size={18} /><div><b>You're running a test build.</b> All data is stored locally on the host computer and may be lost during development.{session.db_path && <> The database is at <code className="mono db-path">{session.db_path}</code>.</>}</div></div>}
       {can("wo.view") && <div className="tiles">
         {tile("Open work orders", s?.open, `${s?.assigned_to_me ?? 0} assigned to you`, [{ field: "status", op: "in", value: ["open", "on_hold", "in_progress"] }])}
         {tile("Overdue", s?.overdue, "Past their due date", [{ field: "due_at", op: "overdue" }], "danger")}

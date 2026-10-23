@@ -38,8 +38,10 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
 
 export type Session = {
   version: string; edition: string; region: string; test_build: boolean; csrf: string; authenticated: boolean; max_upload_mb?: number;
+  db_path?: string; // test builds only: where the database is (MP-122)
   demo_login?: { email: string; password: string } | null;
-  user?: { id: string; name: string; email: string; initials: string; theme: "system" | "light" | "dark"; avatar_url?: string | null };
+  user?: { id: string; name: string; email: string; initials: string; theme: "system" | "light" | "dark"; avatar_url?: string | null;
+    prefs?: { upcoming_days?: number } };
   org?: Org | null; role?: string | null; role_label?: string | null; permissions?: string[];
   entitlements?: { plan: string; features: string[]; limits: Record<string, number | null> };
   orgs?: { id: string; name: string; role: string }[];
@@ -103,12 +105,15 @@ export type CategoryRef = { id: string; name: string; color: string };
 export type FileItem = { id: string; link_id: string | null; name: string; content_type: string; size: number; is_image: boolean; role: string | null;
   url: string; thumb_url: string | null; width: number | null; height: number | null; created_at: string };
 export type WorkOrder = {
+  you?: { edit: boolean; delete: boolean }; // per-record permissions on detail responses (own vs any, MP-130)
+  vendors?: { id: string; name: string; color: string }[]; shared_externally?: boolean; // detail responses, 0.5.0 (r075, r058)
   id: string; number: number; title: string; status: WOStatus; status_label: string; sub_status: string; priority: WOPriority; priority_label: string;
   work_type: "reactive" | "preventive" | "other"; start_at: string | null; due_at: string | null; overdue: boolean; estimated_minutes: number | null;
   assignees: Assignee[]; categories: CategoryRef[]; parent_id: string | null; created_by: Person | null; created_at: string; updated_at: string;
   completed_at: string | null; approval_status: "none" | "pending" | "approved" | "rejected"; custom: Record<string, unknown>; unread: boolean; deleted: boolean;
   version: number; comment_count?: number; sub_work_orders?: { total: number; closed: number } | null;
   asset: { id: string; name: string; status: AssetStatus } | null; location: { id: string; name: string } | null; source_type: string;
+  assets?: { id: string; name: string; status: AssetStatus }[]; // every asset, primary first (MP-124)
   cover_url?: string | null; cover_file_id?: string | null;
   parent?: { id: string; number: number; title: string } | null; // list rows: the parent's number and title (0.4.0)
 };
@@ -144,6 +149,7 @@ export type WOOptions = {
   categories: CategoryRef[]; teams: { id: string; name: string; color: string }[];
   people: { id: string; name: string; initials: string; role: string; assignable: boolean; avatar_url?: string | null }[]; custom_fields: CustomFieldDef[];
   assets?: { id: string; name: string; path: string }[]; locations?: { id: string; name: string; path: string }[];
+  vendors?: { id: string; name: string; color: string }[]; can_share_external?: boolean; // 0.5.0 (r075, r088)
   settings: Pick<WOSettings, "required_fields" | "completion_summary" | "comment_on_hold" | "comment_on_cancel" | "require_signature" | "require_approval" | "time_types" | "cost_types" | "sub_statuses" | "default_start_time" | "default_due_time" | "workday_minutes" | "mention_assigns">;
   next_number: number;
 };
@@ -153,7 +159,7 @@ export type Template = { id: string; name: string; description: string; data: Re
   last_used_at: string | null; updated_at: string };
 export type Category = CategoryRef & { description: string; work_order_count?: number };
 export type ActivityItem = ({ kind: "comment" } & CommentItem & { at: string }) | ({ kind: "event"; at: string } & AuditEvent);
-export type CommentItem = { id: string; body: string; deleted: boolean; author: Person | null; mentions: { users: string[]; teams: string[] };
+export type CommentItem = { id: string; body: string; deleted: boolean; author: Person | null; external_name?: string; mentions: { users: string[]; teams: string[] };
   reactions: Record<string, string[]>; files: FileItem[]; created_at: string; edited_at: string | null };
 export type ExportItem = { id: string; kind: string; title: string; status: "queued" | "ready" | "failed"; error: string; file: FileItem | null;
   created_at: string; finished_at: string | null; expires_at: string };

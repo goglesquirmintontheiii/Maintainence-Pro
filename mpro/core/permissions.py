@@ -7,6 +7,7 @@ explicit list of actions, and a membership points at it with `role="custom"` and
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 ROLES: dict[str, dict[str, Any]] = {
@@ -254,6 +255,28 @@ ACTION_INFO: dict[str, tuple[str, str]] = {
     "assets.packages": ("assets", "Install asset packages"),
 }
 
+# Own vs any (MP-130): for these actions the plain action means "on any record" and the paired "…_own" action means
+# "only on records that are theirs" (created by them, or assigned to them or their team — see `is_own`). Built-in roles
+# get both, so today's behaviour is unchanged; custom roles can keep only the "own" half.
+OWN_ACTIONS: dict[str, str] = {
+    "wo.edit": "wo.edit_own",
+    "wo.delete": "wo.delete_own",
+    "assets.manage": "assets.manage_own",
+    "procedures.manage": "procedures.manage_own",
+    "po.manage": "po.manage_own",
+}
+ANY_OF_OWN = {own: any_ for any_, own in OWN_ACTIONS.items()}
+_OWN_LABELS = {
+    "wo.edit_own": "Edit their own work orders",
+    "wo.delete_own": "Delete their own work orders",
+    "assets.manage_own": "Edit their own assets",
+    "procedures.manage_own": "Edit their own procedures",
+    "po.manage_own": "Edit their own purchase orders",
+}
+for _any, _own in OWN_ACTIONS.items():
+    ACTIONS.setdefault(_own, set(ACTIONS[_any]))
+    ACTION_INFO.setdefault(_own, (ACTION_INFO[_any][0], _OWN_LABELS[_own]))
+
 # Roles whose people only see work orders assigned to them, whatever their own setting says.
 FORCED_LIMITED_VISIBILITY = {"operator"}
 
@@ -286,6 +309,45 @@ def can(membership: Any, action: str, record: Any = None) -> bool:
     if getattr(membership, "role", None) == "custom":
         return action in role_permissions(membership)
     return role_can(membership.role, action)
+
+
+OwnerCheck = Callable[[Any, Any], bool]
+# table name -> fn(membership, record) -> bool. Modules register extra rules (e.g. work orders: assignees and teams).
+OWNER_CHECKS: dict[str, OwnerCheck] = {}
+
+
+def register_owner_check(table: str, fn: OwnerCheck) -> None:
+    OWNER_CHECKS[table] = fn
+
+
+def is_own(membership: Any, record: Any) -> bool:
+    """Is `record` the member's own? Created (or requested) by them, plus whatever its module registered."""
+    if membership is None or record is None:
+        return False
+    if getattr(record, "org_id", membership.org_id) != membership.org_id:
+        return False
+    uid = membership.user_id
+    for attr in ("created_by_id", "requested_by_id"):
+        if uid is not None and getattr(record, attr, None) == uid:
+            return True
+    check = OWNER_CHECKS.get(getattr(record, "__tablename__", ""))
+    return bool(check and check(membership, record))
+
+
+def can_some(membership: Any, action: str) -> bool:
+    """May do `action` on at least some records (any, or their own). For endpoint entry checks."""
+    if can(membership, action):
+        return True
+    own = OWN_ACTIONS.get(action)
+    return own is not None and can(membership, own)
+
+
+def can_on(membership: Any, action: str, record: Any) -> bool:
+    """May do `action` on this record: the "any" permission, or the "own" one and the record is theirs."""
+    if can(membership, action, record):
+        return True
+    own = OWN_ACTIONS.get(action)
+    return own is not None and can(membership, own, record) and is_own(membership, record)
 
 
 def permissions_for(role_or_membership: Any) -> list[str]:

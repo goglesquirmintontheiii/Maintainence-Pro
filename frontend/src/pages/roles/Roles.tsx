@@ -11,7 +11,8 @@ import "../../styles/roles.css";
 
 type Catalogue = {
   areas: { id: string; label: string }[];
-  actions: { id: string; area: string; label: string; owner_only: boolean }[];
+  // own vs any (MP-130): `own` is the paired "…_own" action; `own_of` marks that paired action itself
+  actions: { id: string; area: string; label: string; owner_only: boolean; own?: string | null; own_of?: string | null }[];
   builtin: Record<string, string[]>;
   bases: string[];
 };
@@ -144,14 +145,22 @@ function RoleEditor({ role, cat, manage, onSelect, onStartFrom }: { role: Role; 
 
   const changed = (id: string) => have.has(id) !== basePerms.has(id);
   const needle = q.trim().toLowerCase();
-  const visible = cat.actions.filter((a) => (!area || a.area === area) && (!needle || a.label.toLowerCase().includes(needle) || a.id.includes(needle))
-    && (!onlyChanged || changed(a.id)));
+  const labelOf = (id: string) => cat.actions.find((x) => x.id === id)?.label ?? "";
+  const pairChanged = (a: Catalogue["actions"][number]) => changed(a.id) || (!!a.own && changed(a.own));
+  const visible = cat.actions.filter((a) => !a.own_of && (!area || a.area === area)
+    && (!needle || a.label.toLowerCase().includes(needle) || a.id.includes(needle) || (!!a.own && labelOf(a.own).toLowerCase().includes(needle)))
+    && (!onlyChanged || pairChanged(a)));
   const groups = cat.areas.map((ar) => ({ ...ar, actions: visible.filter((a) => a.area === ar.id) })).filter((g) => g.actions.length);
   if (sort === "name") groups.forEach((g) => g.actions.sort((a, b) => a.label.localeCompare(b.label)));
   const lockedReason = (a: Catalogue["actions"][number]) =>
     a.owner_only ? "Only Owners have this" : a.id === "org.view" ? "Everyone has this" : !mine.has(a.id) ? "You don't have this permission yourself" : "";
   const toggle = (id: string, on: boolean) => setD((x) => ({ ...x, permissions: on ? [...new Set([...x.permissions, id])] : x.permissions.filter((p) => p !== id) }));
-  const changedCount = cat.actions.filter((a) => changed(a.id)).length;
+  const changedCount = cat.actions.filter((a) => !a.own_of && pairChanged(a)).length;
+  const scopeOf = (a: Catalogue["actions"][number]) => (have.has(a.id) ? "any" : a.own && have.has(a.own) ? "own" : "none");
+  const setScope = (a: Catalogue["actions"][number], v: string) => setD((x) => {
+    const rest = x.permissions.filter((p) => p !== a.id && p !== a.own);
+    return { ...x, permissions: v === "any" ? [...rest, a.id, ...(a.own ? [a.own] : [])] : v === "own" && a.own ? [...rest, a.own] : rest };
+  });
 
   return (
     <section className="card roles-editor" aria-labelledby="role-title">
@@ -197,11 +206,27 @@ function RoleEditor({ role, cat, manage, onSelect, onStartFrom }: { role: Role; 
                 <span className="roles-area-title">{g.label}</span>
                 <span className="small faint">{g.actions.filter((a) => have.has(a.id)).length} of {g.actions.length}</span>
                 {editable && settable.length > 0 && <Checkbox label="Select all" checked={on === settable.length} indeterminate={on > 0 && on < settable.length}
-                  onChange={(v) => setD((x) => { const ids = new Set(settable.map((a) => a.id)); const rest = x.permissions.filter((p) => !ids.has(p)); return { ...x, permissions: v ? [...rest, ...ids] : rest }; })} />}
+                  onChange={(v) => setD((x) => { const ids = new Set(settable.flatMap((a) => (a.own ? [a.id, a.own] : [a.id]))); const rest = x.permissions.filter((p) => !ids.has(p)); return { ...x, permissions: v ? [...rest, ...ids] : rest }; })} />}
               </legend>
               <ul className="roles-perms">
                 {g.actions.map((a) => {
                   const reason = lockedReason(a);
+                  if (a.own) {
+                    const own = a.own;
+                    const ownLocked = !mine.has(own) && !mine.has(a.id);
+                    return (
+                      <li key={a.id} className={"roles-scope" + (pairChanged(a) && role.custom ? " changed" : "")}>
+                        <label className="roles-scope-label" htmlFor={`scope-${a.id}`}>{a.label}</label>
+                        <Select id={`scope-${a.id}`} value={scopeOf(a)} disabled={!editable || (!!reason && ownLocked)} onChange={(e) => setScope(a, e.target.value)}
+                          aria-describedby={`scope-hint-${a.id}`}>
+                          <option value="none">No</option>
+                          <option value="own" disabled={ownLocked}>Only their own</option>
+                          <option value="any" disabled={!mine.has(a.id)}>Any</option>
+                        </Select>
+                        <span id={`scope-hint-${a.id}`} className="small faint">Their own: created by them{a.id.startsWith("wo.") ? " or assigned to them or their team" : a.id.startsWith("assets.") ? " or their team is in charge" : a.id.startsWith("po.") ? " or requested by them" : ""}</span>
+                        {role.custom && pairChanged(a) && <span className="small roles-diff">Changed</span>}
+                      </li>);
+                  }
                   return (
                     <li key={a.id} className={changed(a.id) && role.custom ? "changed" : ""}>
                       <Checkbox checked={have.has(a.id)} disabled={!editable || !!reason} onChange={(v) => toggle(a.id, v)} label={a.label} />

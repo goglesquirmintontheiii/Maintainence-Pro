@@ -22,6 +22,7 @@ from mpro.core.files import (
     export_dict,
     file_dict,
     link_dict,
+    read_bytes,
     save_file_stream,
     storage,
 )
@@ -89,7 +90,7 @@ def upload() -> tuple[dict[str, Any], int]:
 
 def _send(f: FileObject, key: str, ctype: str, download: bool) -> Response:
     try:
-        data = storage().get(key)
+        data = read_bytes(f, key)
     except FileError as e:
         abort(e.status, message=e.message)
     inline = ctype in INLINE_TYPES and not download

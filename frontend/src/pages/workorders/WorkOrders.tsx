@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, CheckSquare, ClipboardList, Columns3, Download, FileSpreadsheet, LayoutList, MessageSquare, MoreHorizontal, Plus, Search, Table2, Users } from "lucide-react";
+import { CalendarDays, CheckSquare, ClipboardList, Columns3, Download, FileSpreadsheet, LayoutList, ListFilter, MessageSquare, MoreHorizontal, Plus, Search, Table2, Users } from "lucide-react";
 import { api, ApiError, type ExportItem, type Filter, type SavedView, type WOList, type WorkOrder } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { dueLabel, filtersParam, useWOOptions } from "../../lib/wo";
@@ -16,6 +16,7 @@ import { BulkBar } from "./Bulk";
 import "../../styles/viewer.css";
 import { SplitDivider, useSplitWidth } from "../../components/SplitDivider";
 import { QuickTemplates } from "../../components/QuickTemplates";
+import { UpcomingList } from "./Upcoming";
 
 export type ViewKind = "todo" | "table" | "calendar" | "workload" | "board";
 const VIEWS: { id: ViewKind; label: string; icon: typeof LayoutList }[] = [
@@ -41,6 +42,7 @@ export function WorkOrdersPage() {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(params.get("new") === "1");
   const [exporting, setExporting] = useState(false);
+  const [phoneFilters, setPhoneFilters] = useState(false);
   useEffect(() => { keep("wo.filters", filters); }, [filters]);
   useEffect(() => { keep("wo.savedview", activeView); }, [activeView]);
   useEffect(() => { keep("wo.view", view); }, [view]);
@@ -86,14 +88,26 @@ export function WorkOrdersPage() {
       </>}
     </Dropdown>);
   const newBtn = can("wo.create") && <Button variant="primary" onClick={() => setCreating(true)} aria-label="New Work Order"><Plus size={16} /><span className={compact ? "" : "desktop-only"}>{compact ? "New" : "New Work Order"}</span></Button>;
+  // Phone (MP-126): Calendar button – Search – Filter, MaintainX style; the full toolbar is for wider screens.
+  const onCal = view === "calendar";
+  const phoneHead = (
+    <div className="wo-phone-head">
+      <Button icon className={"wo-phone-btn" + (onCal ? " on" : "")} aria-pressed={onCal} aria-label={onCal ? "Back to the list" : "Calendar"}
+        onClick={() => setView(onCal ? "todo" : "calendar")}>{onCal ? <LayoutList size={20} /> : <CalendarDays size={20} />}</Button>
+      <div className="search-in grow"><Search size={15} className="faint" />
+        <Input placeholder="Search work orders" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search work orders" /></div>
+      <Button icon className={"wo-phone-btn" + (phoneFilters || filters.length ? " on" : "")} aria-expanded={phoneFilters} aria-label={filters.length ? `Filter (${filters.length} on)` : "Filter"}
+        onClick={() => setPhoneFilters((o) => !o)}><ListFilter size={20} />{filters.length > 0 && <span className="wo-phone-count">{filters.length}</span>}</Button>
+    </div>);
   const header = (
-    <div className={"wo-toolbar" + (compact ? " compact" : "")}>
-      <div className="row" style={{ justifyContent: "space-between" }}>
+    <div className={"wo-toolbar" + (compact ? " compact" : "") + (phoneFilters ? " phone-filters" : "")}>
+      {phoneHead}
+      <div className="row wo-wide-head" style={{ justifyContent: "space-between" }}>
         <h1>Work Orders</h1>
         <div className="row">{viewSeg}{more}<QuickTemplates compact={compact} />{newBtn}</div>
       </div>
-      <div className="row wrap">
-        <div className="search-in" style={{ minWidth: 220, flex: "0 1 300px" }}><Search size={15} className="faint" />
+      <div className="row wrap wo-search-row">
+        <div className="search-in wo-wide-head" style={{ minWidth: 220, flex: "0 1 300px" }}><Search size={15} className="faint" />
           <Input placeholder="Search title, description or #number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search work orders" /></div>
         <FilterBar filters={filters} onChange={setFilters} options={opts.data} activeView={activeView} onViewChange={setActiveView} />
       </div>
@@ -135,7 +149,7 @@ export function useWOList(qs: string, enabled = true) {
 }
 
 function ToDoView({ id, header, query }: { id?: string; header: React.ReactNode; query: ListQuery }) {
-  const [tab, setTab] = useState<"todo" | "done">(() => load("wo.tab", "todo"));
+  const [tab, setTab] = useState<"todo" | "done" | "upcoming">(() => load("wo.tab", "todo"));
   const [scope, setScope] = useState<string>(() => load("wo.scope", "all"));
   const [sort, setSort] = useState<string>(() => load("wo.sort", "-priority"));
   const [selecting, setSelecting] = useState(false);
@@ -144,8 +158,9 @@ function ToDoView({ id, header, query }: { id?: string; header: React.ReactNode;
   const nav = useNavigate();
   useEffect(() => { keep("wo.tab", tab); keep("wo.scope", scope); keep("wo.sort", sort); }, [tab, scope, sort]);
   const qs = `tab=${tab}&scope=${scope}&sort=${tab === "done" && sort === "-priority" ? "-completed_at" : sort}&per_page=40&q=${encodeURIComponent(query.q)}${filtersParam(query.filters)}`;
-  const list = useWOList(qs);
-  const items = list.data?.pages.flatMap((p) => p.items) ?? [];
+  const upcoming = tab === "upcoming";
+  const list = useWOList(qs, !upcoming);
+  const items = upcoming ? [] : list.data?.pages.flatMap((p) => p.items) ?? [];
   const total = list.data?.pages[0]?.total;
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setSel([]); }, [qs]);
@@ -173,27 +188,28 @@ function ToDoView({ id, header, query }: { id?: string; header: React.ReactNode;
             <div className="tabs" role="tablist" style={{ border: 0 }}>
               <button type="button" role="tab" className="tab" aria-selected={tab === "todo"} onClick={() => setTab("todo")}>To Do</button>
               <button type="button" role="tab" className="tab" aria-selected={tab === "done"} onClick={() => setTab("done")}>Done</button>
+              <button type="button" role="tab" className="tab" aria-selected={upcoming} onClick={() => { setTab("upcoming"); setSelecting(false); }}>Upcoming</button>
             </div>
-            <Button size="sm" variant={selecting ? "primary" : "ghost"} onClick={() => { setSelecting((s) => !s); setSel([]); }} aria-pressed={selecting}><CheckSquare size={14} />Select</Button>
+            {!upcoming && <Button size="sm" variant={selecting ? "primary" : "ghost"} onClick={() => { setSelecting((s) => !s); setSel([]); }} aria-pressed={selecting}><CheckSquare size={14} />Select</Button>}
           </div>
           <div className="row">
             <Select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Show">{SCOPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>
-            <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by" style={{ width: 170 }}>{SORTS.map(([k, l]) => <option key={k} value={k}>Sort: {l}</option>)}</Select>
+            {!upcoming && <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by" style={{ width: 170 }}>{SORTS.map(([k, l]) => <option key={k} value={k}>Sort: {l}</option>)}</Select>}
           </div>
-          <div className="row small muted" style={{ justifyContent: "space-between" }}>
+          {!upcoming && <div className="row small muted" style={{ justifyContent: "space-between" }}>
             <span>{total === undefined ? " " : `${total} work order${total === 1 ? "" : "s"}`}</span>
             {selecting && items.length > 0 && <Checkbox checked={sel.length === items.length} indeterminate={sel.length > 0 && sel.length < items.length}
               onChange={(c) => setSel(c ? items.map((w) => w.id) : [])} label="Select all" />}
-          </div>
+          </div>}
         </div>
         <div className="list" role="list" ref={listRef}>
-          {list.isLoading ? <ListSkeleton /> : items.length === 0 ? (
+          {upcoming ? <UpcomingList id={id} scope={scope} query={query} tz={session.org?.timezone} /> : list.isLoading ? <ListSkeleton /> : items.length === 0 ? (
             <EmptyState icon={<ClipboardList size={26} />} title={tab === "todo" ? "Nothing to do" : "Nothing done yet"}>
               {query.filters.length || query.q || scope !== "all" ? "No work orders match. Try clearing filters." : tab === "todo" ? "Create a work order to get started. Press C anytime." : "Completed and canceled work orders show here."}
             </EmptyState>
           ) : items.map((w) => <WORow key={w.id} w={w} active={w.id === id} tz={session.org?.timezone} selecting={selecting} selected={sel.includes(w.id)}
             onSelect={(c) => setSel((s) => (c ? [...s, w.id] : s.filter((x) => x !== w.id)))} />)}
-          {list.hasNextPage && <div style={{ padding: 12, textAlign: "center" }}><Button size="sm" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{list.isFetchingNextPage ? "Loading…" : "Load more"}</Button></div>}
+          {!upcoming && list.hasNextPage && <div style={{ padding: 12, textAlign: "center" }}><Button size="sm" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>{list.isFetchingNextPage ? "Loading…" : "Load more"}</Button></div>}
         </div>
         {sel.length > 0 && <BulkBar ids={sel} items={items} onDone={() => setSel([])} />}
       </div>

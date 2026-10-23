@@ -218,6 +218,8 @@ class Comment(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model
     mentions: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {"users": [...], "teams": [...]}
     reactions: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # emoji -> [user ids]
     edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # name typed by someone outside the organization on a shared work order link (r058), when author_id is empty
+    external_name: Mapped[str] = mapped_column(String(200), default="")
 
     author: Mapped[User | None] = relationship(lazy="joined")
 
@@ -354,3 +356,16 @@ class ExternalShare(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type:
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # external contact marked finished
     finished_by_name: Mapped[str] = mapped_column(String(200), default="")
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+
+
+class ExternalHit(IdMixin, db.Model):  # type: ignore[name-defined]
+    """Requests to the public shared-work-order endpoints, for rate limiting (like LoginAttempt, not tenant data:
+    failed lookups have no organization). Cleaned up by the daily maintenance job."""
+
+    __tablename__ = "external_hits"
+
+    ip: Mapped[str] = mapped_column(String(64), index=True)
+    share_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    write: Mapped[bool] = mapped_column(Boolean, default=False)
+    at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)

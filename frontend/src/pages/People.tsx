@@ -7,6 +7,7 @@ import { useSession } from "../lib/session";
 import { dateTime, timeAgo } from "../lib/format";
 import { useToast } from "../components/Toast";
 import { Avatar, AvatarStack, Button, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../components/ui";
+import { ColorPicker } from "../components/ColorPicker";
 
 const ROLE_TONE: Record<string, "info" | "success" | "warning" | "neutral"> = { owner: "info", admin: "info", limited_admin: "info", technician: "success",
   operator: "success", custom: "success", requester: "warning", viewer: "neutral" };
@@ -242,9 +243,7 @@ function TeamModal({ team, onClose }: { team?: Team; onClose: () => void }) {
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!f.name.trim() || m.isPending} onClick={() => m.mutate()}>{team ? "Save" : "Create team"}</Button></>}>
       <Field label="Name">{(id) => <Input id={id} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Electrical" />}</Field>
       <Field label="Description (optional)">{(id) => <textarea id={id} className="textarea" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />}</Field>
-      <div className="field"><span className="label">Colour</span><div className="row wrap">{COLORS.map((c) => (
-        <button key={c} type="button" aria-label={c} aria-pressed={f.color === c} onClick={() => setF({ ...f, color: c })}
-          style={{ width: 28, height: 28, borderRadius: 8, background: c, border: f.color === c ? "3px solid var(--c-text)" : "2px solid var(--c-panel)", cursor: "pointer" }} />))}</div></div>
+      <div className="field"><span className="label">Colour</span><ColorPicker value={f.color} onChange={(c) => setF({ ...f, color: c })} presets={COLORS} /></div>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );

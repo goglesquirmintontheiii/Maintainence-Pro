@@ -40,7 +40,7 @@
 .tab-count { margin-left: 6px; font-size: var(--fs-xs); background: var(--c-sunken); color: var(--c-text-2); border-radius: var(--r-pill); padding: 1px 6px; }
 .card-head.wrap { flex-wrap: wrap; }
 .asset-status-seg .seg-btn { flex: 1; justify-content: center; }
-.asset-status-seg { display: flex; }
+.asset-status-seg { display: flex; width: 100%; }
 .asset-status-seg .seg-btn.on.st-online { color: var(--c-online); }
 .asset-status-seg .seg-btn.on.st-offline { color: var(--c-offline); }
 .asset-status-seg .seg-btn.on.st-do_not_track { color: var(--c-dnt); }
@@ -105,4 +105,15 @@
   .asset-detail .wo-head > .asset-hero { display: none; }
   .asset-detail .wo-head > .grow { flex-basis: 100%; }
   .asset-detail .wo-head > .row:last-child { width: 100%; justify-content: flex-end; }
+}
+
+/* Phone Assets list (0.5.0, MP-126): search + Filter button; the view switch and filters fold away */
+@media (max-width: 640px) {
+  .asset-views { display: none !important; }
+  .asset-filterbar:not(.open) .asset-filters { display: none; }
+  .asset-filterbar .search-in .input { height: 44px; }
+  .asset-filterbar .asset-filters { flex-direction: column; align-items: stretch; }
+  .asset-filterbar .asset-filters > * { flex: none; }
+  .asset-filterbar .asset-filters .select { width: 100%; height: 44px; }
+  .asset-filterbar .asset-filters .check, .asset-filterbar .asset-filters .linkbtn { min-height: 44px; }
 }

@@ -248,6 +248,9 @@ def render_preview(f: FileObject) -> dict[str, Any]:
     kind = preview_kind(f)
     base = {"id": str(f.id), "name": f.name, "content_type": f.content_type, "size": f.size, "kind": kind}
     url = f"/api/v1/files/{f.id}"
+    if f.encrypted and (kind not in ("video", "audio", "pdf", "image") or f.content_type == PSD_TYPE):
+        # previews and renditions would be stored in the clear; encrypted files are downloaded instead (0.5.0)
+        return {**base, "kind": "none"}
     if kind in ("video", "audio", "pdf"):
         return {**base, "url": url}
     if kind == "image":

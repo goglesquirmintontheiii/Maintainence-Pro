@@ -31,6 +31,7 @@ from mpro.core.events import emit
 from mpro.core.files import FileObject, attach
 from mpro.core.ids import uuid7
 from mpro.core.models import utcnow
+from mpro.core.permissions import register_owner_check
 from mpro.core.settings import get_settings, register_defaults, save_settings
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team
@@ -1058,3 +1059,26 @@ def depreciation(a: Asset, today: date | None = None) -> dict[str, Any] | None:
         "fully_depreciated": accumulated >= basis,
         "schedule": schedule,
     }
+
+
+def _owns_asset(m: Membership, a: Asset) -> bool:
+    """Own vs any (MP-130): an asset is theirs if they created it (checked generically) or a team they're in is in
+    charge of it."""
+    from mpro.orgs.models import TeamMember
+
+    teams = select(TeamMember.team_id).where(TeamMember.org_id == m.org_id, TeamMember.user_id == m.user_id)
+    return (
+        db.session.scalar(
+            select(func.count())
+            .select_from(TeamInCharge)
+            .where(
+                TeamInCharge.entity_type == "asset",
+                TeamInCharge.entity_id == a.id,
+                TeamInCharge.team_id.in_(teams),
+            )
+        )
+        or 0
+    ) > 0
+
+
+register_owner_check("assets", _owns_asset)

@@ -1125,11 +1125,14 @@ def on_work_order_status(org: Organization, m: Membership, wo: Any, from_status:
         return
     now = utcnow()
     cats = {str(c.category_id) for c in wo.category_links}
+    from mpro.workorders.wo_assets import asset_ids_of
+
+    on_wo = [str(x) for x in asset_ids_of(wo)]  # every asset on the work order (MP-124)
     for a in autos:
         if wo.source_type == "automation" and wo.source_id == a.id:
             continue  # don't react to work orders this automation made itself
         t = a.trigger
-        if a.targets and (not wo.asset_id or str(wo.asset_id) not in a.targets):
+        if a.targets and not set(on_wo) & set(a.targets):
             continue
         if (t.get("from") and from_status not in t["from"]) or (t.get("to") and to_status not in t["to"]):
             continue

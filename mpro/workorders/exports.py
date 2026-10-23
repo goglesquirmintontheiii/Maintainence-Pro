@@ -154,7 +154,10 @@ def render_pdf(m: Membership, org: Organization, wos: list[WorkOrder], options: 
                 ["Start", _fmt_dt(wo.start_at, tz)],
                 ["Work type", WORK_TYPE_LABELS[wo.work_type]],
                 ["Categories", ", ".join(c["name"] for c in d["categories"]) or "—"],
-                ["Asset", d["asset"]["name"] if d["asset"] else "—"],
+                [
+                    "Assets" if len(d.get("assets") or []) > 1 else "Asset",
+                    ", ".join(a["name"] for a in d.get("assets") or []) or "—",
+                ],
                 ["Location", d["location"]["name"] if d["location"] else "—"],
                 ["Created", f"{_fmt_dt(wo.created_at, tz)} by {d['created_by']['name'] if d['created_by'] else '—'}"],
             ]
@@ -348,7 +351,7 @@ CSV_COLUMNS = [
     ("Work type", lambda w, d: WORK_TYPE_LABELS[w.work_type]),
     ("Assigned to", lambda w, d: "; ".join(a["name"] for a in d["assignees"])),
     ("Categories", lambda w, d: "; ".join(c["name"] for c in d["categories"])),
-    ("Asset", lambda w, d: d["asset"]["name"] if d["asset"] else ""),
+    ("Asset", lambda w, d: ", ".join(a["name"] for a in d.get("assets") or [])),  # every asset (MP-124)
     ("Location", lambda w, d: d["location"]["name"] if d["location"] else ""),
     ("Start date", lambda w, d: d["start_at"] or ""),
     ("Due date", lambda w, d: d["due_at"] or ""),
@@ -406,8 +409,13 @@ def _csv(ex: Export) -> tuple[str, bytes, str]:
     from mpro.workorders.queries import _parent_map
 
     parents = _parent_map(m, list(wos))
+    from mpro.workorders.wo_assets import assets_map
+
+    assets = assets_map(list(wos))
     for wo in wos:
-        d = summary_dict(wo, extra={"parent": parents.get(wo.parent_id) if wo.parent_id else None})
+        d = summary_dict(
+            wo, extra={"parent": parents.get(wo.parent_id) if wo.parent_id else None, "assets": assets.get(wo.id, [])}
+        )
         w.writerow(
             [_safe_cell(fn(wo, d)) for _, fn in CSV_COLUMNS]
             + [_safe_cell((wo.custom or {}).get(str(f.id), "")) for f in fields]

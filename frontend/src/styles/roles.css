@@ -46,3 +46,9 @@
 .crop-stage canvas:active { cursor: grabbing; }
 .crop-stage canvas:focus-visible { outline: 2px solid var(--c-primary); outline-offset: -2px; }
 .crop-mask { position: absolute; inset: 0; pointer-events: none; border-radius: 50%; box-shadow: 0 0 0 999px rgba(10, 16, 28, .55); border: 2px solid rgba(255, 255, 255, .85); }
+
+/* own vs any (MP-130): one "No / Only their own / Any" choice per pair */
+.roles-perms li.roles-scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.roles-scope-label { min-width: 0; flex: 1 1 180px; }
+.roles-scope .select { width: auto; min-width: 150px; }
+.roles-scope > .small.faint { flex-basis: 100%; }

@@ -51,5 +51,7 @@
   .mread-more .clearable { grid-column: 1 / -1; }
   .mlimits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.range-seg { flex-wrap: nowrap; }
+.range-seg { flex-wrap: wrap; }
+.range-custom { gap: var(--s-3); padding-top: 0; }
+.range-custom .input { width: auto; }
 @media (max-width: 480px) { .range-seg .seg-btn { padding: 0 7px; } }

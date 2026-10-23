@@ -60,5 +60,5 @@ export const SETTINGS_NAV = [
   { path: "/settings/audit-log", label: "Audit log", icon: Activity, perm: "audit.view" },
   { path: "/settings/jobs", label: "Background jobs", icon: Workflow, perm: "jobs.view" },
   { path: "/settings/email", label: "Email outbox", icon: Inbox, perm: "mail.view" },
-  { path: "/settings/design-system", label: "Design system", icon: LayoutDashboard },
+  { path: "/settings/design-system", label: "Website design", icon: LayoutDashboard },
 ];

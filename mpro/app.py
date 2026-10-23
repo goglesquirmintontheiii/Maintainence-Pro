@@ -169,6 +169,9 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
         if (STATIC_APP / "index.html").is_file():
             resp = send_from_directory(STATIC_APP, "index.html")
             resp.cache_control.no_cache = True
+            if path.startswith("x/"):  # external work order links (0.5.0): the token is in the URL
+                resp.headers["Referrer-Policy"] = "no-referrer"
+                resp.cache_control.no_store = True
             return resp
         return Response(
             "<h1>Maintenance Pro</h1><p>The web app isn't built yet. Run <code>./start.sh --dev</code> "

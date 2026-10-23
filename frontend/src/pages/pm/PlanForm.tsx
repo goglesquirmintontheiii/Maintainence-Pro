@@ -14,6 +14,7 @@ import { AssetPicker, LocationPicker } from "../../components/assetPickers";
 import { ProcedurePicker } from "../procedures/Picker";
 import { ScheduleInput } from "./ScheduleInput";
 import { MONTHS, type Calendar, type Defaults, type Plan, type ScheduleKind, type Spec, type Task } from "./types";
+import { NumberInput } from "../../components/NumberInput";
 
 const PRIOS = [["none", "None"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]] as const;
 const MAX_TASKS = 10;
@@ -112,11 +113,11 @@ export function PlanForm({ edit, onClose, onSaved }: { edit?: Plan; onClose: () 
         <div className="form-grid">
           <Field label="Assign to" className="full">{(id) => <AssigneePicker id={id} options={opts.data} value={d.defaults.assignees ?? []} onChange={(v) => setDef({ assignees: v })} />}</Field>
           <Field label="Priority">{() => <PrioritySeg value={d.defaults.priority ?? "none"} onChange={(v) => setDef({ priority: v })} />}</Field>
-          <Field label="Estimated time (minutes)">{(id) => <Input id={id} type="number" min={0} step={5} value={d.defaults.estimated_minutes ?? ""} onChange={(e) => setDef({ estimated_minutes: Number(e.target.value) || null })} />}</Field>
+          <Field label="Estimated time (minutes)">{(id) => <NumberInput id={id} min={0} step={5} integer value={d.defaults.estimated_minutes ?? null} onValue={(v) => setDef({ estimated_minutes: v || null })} />}</Field>
           <Field label="Categories">{(id) => <CategoryPicker id={id} options={opts.data} value={d.defaults.categories ?? []} onChange={(v) => setDef({ categories: v })} />}</Field>
           {can("procedures.view") && <Field label="Procedures">{(id) => <ProcedurePicker id={id} value={d.defaults.procedure_ids ?? []} onChange={(v) => setDef({ procedure_ids: v })} />}</Field>}
-          {usage && <Field label="Due" hint="For meter-triggered work.">{(id) => <div className="row"><Input id={id} type="number" min={0} max={365} style={{ width: 90 }} value={d.defaults.due_in_days ?? 7}
-            onChange={(e) => setDef({ due_in_days: Math.max(0, Number(e.target.value) || 0) })} /><span className="small muted">days after it's created</span></div>}</Field>}
+          {usage && <Field label="Due" hint="For meter-triggered work.">{(id) => <div className="row"><NumberInput id={id} min={0} max={365} integer empty={0} style={{ width: 90 }} value={d.defaults.due_in_days ?? 7}
+            onValue={(v) => setDef({ due_in_days: v ?? 0 })} /><span className="small muted">days after it's created</span></div>}</Field>}
         </div>
       </fieldset>
 
@@ -147,14 +148,14 @@ export function PlanForm({ edit, onClose, onSaved }: { edit?: Plan; onClose: () 
                 <Field label="Meter">{(id) => <Select id={id} value={t.meter_id ?? ""} onChange={(e) => setTask(i, { meter_id: e.target.value || null })}>
                   <option value="">{meters.isLoading ? "Loading…" : (meters.data?.items.length ?? 0) ? "Pick a meter" : "No meters" + (d.asset_id ? " on this asset" : "")}</option>
                   {meters.data?.items.map((m) => <option key={m.id} value={m.id}>{m.name}{m.asset ? ` · ${m.asset.name}` : ""}{m.last_value !== null ? ` (now ${m.last_value.toLocaleString()} ${m.unit})` : ""}</option>)}</Select>}</Field>
-                <Field label="Every">{(id) => <Input id={id} type="number" min={0} value={t.every_units ?? ""} placeholder="e.g. 2000" onChange={(e) => setTask(i, { every_units: Number(e.target.value) || null })} />}</Field>
-                <Field label="Create ahead" hint="Units before it's due">{(id) => <Input id={id} type="number" min={0} value={t.lead_units ?? ""} placeholder="0" onChange={(e) => setTask(i, { lead_units: Number(e.target.value) || null })} />}</Field>
+                <Field label="Every">{(id) => <NumberInput id={id} min={0} value={t.every_units ?? null} placeholder="e.g. 2000" onValue={(v) => setTask(i, { every_units: v || null })} />}</Field>
+                <Field label="Create ahead" hint="Units before it's due">{(id) => <NumberInput id={id} min={0} value={t.lead_units ?? null} placeholder="0" onValue={(v) => setTask(i, { lead_units: v || null })} />}</Field>
               </div>}
               <details className="pm-task-more"><summary className="small">Task details{(t.overrides.priority || t.overrides.estimated_minutes || t.procedure_ids.length) ? " (set)" : ""}</summary>
                 <div className="form-grid">
                   <Field label="Priority" hint="The highest priority wins when tasks share a work order.">{(id) => <Select id={id} value={t.overrides.priority ?? ""} onChange={(e) => setTask(i, { overrides: { ...t.overrides, priority: e.target.value || undefined } })}>
                     <option value="">Same as the plan</option>{PRIOS.slice(1).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>}</Field>
-                  <Field label="Estimated time (minutes)">{(id) => <Input id={id} type="number" min={0} step={5} value={t.overrides.estimated_minutes ?? ""} onChange={(e) => setTask(i, { overrides: { ...t.overrides, estimated_minutes: Number(e.target.value) || undefined } })} />}</Field>
+                  <Field label="Estimated time (minutes)">{(id) => <NumberInput id={id} min={0} step={5} integer value={t.overrides.estimated_minutes ?? null} onValue={(v) => setTask(i, { overrides: { ...t.overrides, estimated_minutes: v || undefined } })} />}</Field>
                   <Field label="Instructions" className="full">{(id) => <textarea id={id} className="textarea" rows={2} value={t.overrides.description ?? ""} onChange={(e) => setTask(i, { overrides: { ...t.overrides, description: e.target.value || undefined } })} />}</Field>
                   {can("procedures.view") && <Field label="Procedures" className="full">{(id) => <ProcedurePicker id={id} value={t.procedure_ids} onChange={(v) => setTask(i, { procedure_ids: v })} />}</Field>}
                 </div>
@@ -167,10 +168,10 @@ export function PlanForm({ edit, onClose, onSaved }: { edit?: Plan; onClose: () 
 
       <fieldset className="pm-fs"><legend>When work is created</legend>
         <div className="form-grid">
-          <Field label="Create work orders" hint="Scheduling window: how far ahead of the due date.">{(id) => <div className="row"><Input id={id} type="number" min={0} max={365} style={{ width: 90 }} value={d.horizon_days}
-            onChange={(e) => set({ horizon_days: Math.max(0, Math.min(365, Number(e.target.value) || 0)) })} /><span className="small muted">days ahead</span></div>}</Field>
-          <Field label="Start date" hint="Shows in To Do this many days before it's due.">{(id) => <div className="row"><Input id={id} type="number" min={0} max={365} style={{ width: 90 }} value={d.start_offset_days}
-            onChange={(e) => set({ start_offset_days: Math.max(0, Math.min(365, Number(e.target.value) || 0)) })} /><span className="small muted">days before due</span></div>}</Field>
+          <Field label="Create work orders" hint="Scheduling window: how far ahead of the due date.">{(id) => <div className="row"><NumberInput id={id} min={0} max={365} integer empty={0} style={{ width: 90 }} value={d.horizon_days}
+            onValue={(v) => set({ horizon_days: v ?? 0 })} /><span className="small muted">days ahead</span></div>}</Field>
+          <Field label="Start date" hint="Shows in To Do this many days before it's due.">{(id) => <div className="row"><NumberInput id={id} min={0} max={365} integer empty={0} style={{ width: 90 }} value={d.start_offset_days}
+            onValue={(v) => set({ start_offset_days: v ?? 0 })} /><span className="small muted">days before due</span></div>}</Field>
         </div>
         {timed && <>
           <Field label="Months" hint={months.length ? "Visits outside these months are skipped (seasonal)." : "All year."}>{() => (

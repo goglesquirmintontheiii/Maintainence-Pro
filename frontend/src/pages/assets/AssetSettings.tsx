@@ -9,6 +9,7 @@ import { useToast } from "../../components/Toast";
 import { Button, Checkbox, Field, Input, ListSkeleton, Modal, Pill, Select, Toggle } from "../../components/ui";
 import "../../styles/assets.css";
 import "../../styles/asset-settings.css";
+import { ColorPicker } from "../../components/ColorPicker";
 
 const FIELD_TYPES: [CustomFieldDef["type"], string][] = [["text", "Single line text"], ["textarea", "Multi-line text"], ["number", "Number"], ["select", "Single select"],
   ["date", "Date"], ["datetime", "Date and time"], ["checkbox", "Checkbox"], ["link", "Link (URL or phone)"], ["currency", "Currency"]];
@@ -136,8 +137,7 @@ function TypeModal({ t, onClose, onDone }: { t?: AType; onClose: () => void; onD
     <Modal title={t ? "Edit asset type" : "New asset type"} onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!name.trim() || m.isPending} onClick={() => m.mutate()}>Save</Button></>}>
       <Field label="Name">{(id) => <Input id={id} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="e.g. Pump" />}</Field>
       <div className="field"><span className="small" style={{ fontWeight: 600 }}>Colour</span>
-        <div className="row wrap" role="radiogroup" aria-label="Colour">{COLORS.map((c) => <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={c}
-          className={"swatch-btn" + (color === c ? " on" : "")} style={{ background: c }} onClick={() => setColor(c)} />)}</div></div>
+        <ColorPicker value={color} onChange={setColor} presets={COLORS} /></div>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );

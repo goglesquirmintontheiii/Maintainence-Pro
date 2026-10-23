@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from mpro.core.events import DomainEvent, emit
 from mpro.core.files import FileObject, attach, link_dict, links_for, links_for_many
 from mpro.core.models import iso, utcnow
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Organization, Team
 from mpro.orgs.services import RuleError, members_query
@@ -68,6 +68,7 @@ def comment_dict(c: Comment, files: list[Any] | None = None) -> dict[str, Any]:
         "body": "" if c.deleted_at else c.body,
         "deleted": c.deleted_at is not None,
         "author": _person(c.author),
+        "external_name": c.external_name or "",  # written through a shared link (0.5.0)
         "mentions": c.mentions or {"users": [], "teams": []},
         "reactions": c.reactions or {},
         "files": [link_dict(x) for x in (files or [])] if not c.deleted_at else [],
@@ -148,7 +149,7 @@ def edit_comment(m: Membership, wo: WorkOrder, c: Comment, body: str) -> Comment
 
 
 def delete_comment(m: Membership, wo: WorkOrder, c: Comment) -> None:
-    if c.author_id != m.user_id and not can(m, "wo.delete"):
+    if c.author_id != m.user_id and not can_on(m, "wo.delete", wo):
         raise RuleError("You can only delete your own comments.", 403)
     c.deleted_at = utcnow()
     emit(
@@ -423,14 +424,18 @@ def costs_summary(m: Membership, wo: WorkOrder) -> dict[str, Any]:
     receipts = links_for_many("cost", [c.id for c in costs])
     labor = sum(round(t.minutes * t.effective_rate_cents / 60) for t in times)
     other = sum(c.amount_cents for c in costs)
+    from mpro.parts.services import parts_cost  # 0.5.0: parts used count towards the WO cost
+
+    parts_cents = int((parts_cost(wo.id) * 100).to_integral_value()) if can(m, "costs.view") else None
     return {
+        "parts_cents": parts_cents,
         "time": [time_dict(t, show) for t in times],
         "costs": [cost_dict(c, receipts.get(c.id)) for c in costs],
         "timers": timers_for(wo),
         "total_minutes": sum(t.minutes for t in times),
         "labor_cents": labor if show else None,
         "other_cents": other,
-        "total_cents": (labor + other) if show else None,
+        "total_cents": (labor + other + (parts_cents or 0)) if show else None,
         "rates_visible": show,
     }
 

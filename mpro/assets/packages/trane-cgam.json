@@ -1,0 +1,56 @@
+{
+  "key": "trane-cgam@1",
+  "name": "Trane CGAM air-cooled scroll chiller",
+  "manufacturer": "Trane",
+  "model": "CGAM 070",
+  "models": ["CGAM", "CGAM 020", "CGAM 026", "CGAM 030", "CGAM 040", "CGAM 052", "CGAM 060", "CGAM 070", "CGAM 080", "CGAM 090", "CGAM 110", "CGAM 120", "CGAM 130"],
+  "version": "1",
+  "description": "Air-cooled scroll chillers. Monthly operating log, quarterly inspection and annual service with refrigerant leak check.",
+  "notice": "Generic starter content. Follow local refrigerant handling rules; leak checks must be done by certified technicians.",
+  "asset_type": {"name": "Chiller", "color": "#3a8f6a"},
+  "fields": [
+    {"name": "Nominal capacity (tons)", "type": "number"},
+    {"name": "Refrigerant", "type": "select", "options": ["R-410A", "R-454B", "R-32", "Other"]},
+    {"name": "Refrigerant charge (kg)", "type": "number"}
+  ],
+  "parts": [
+    {"key": "drier", "name": "Chiller filter-drier core", "unit": "each", "unit_cost": "74.00", "description": "Liquid line filter-drier core."},
+    {"key": "compressor_oil", "name": "Scroll compressor POE oil (1 gal)", "unit": "gal", "unit_cost": "110.00", "description": "Polyolester oil for scroll compressors."},
+    {"key": "fan_motor", "name": "Condenser fan motor", "unit": "each", "unit_cost": "640.00", "description": "Condenser fan motor; match the motor nameplate."},
+    {"key": "coil_cleaner", "name": "Condenser coil cleaner (1 gal)", "unit": "gal", "unit_cost": "28.00", "description": "Non-acid coil cleaner."}
+  ],
+  "procedures": [
+    {
+      "key": "monthly_log",
+      "name": "Air-cooled chiller – monthly operating log",
+      "category": "Inspection",
+      "items": [
+        {"id": "lwt", "type": "number", "label": "Leaving chilled water temperature (°F)", "required": true},
+        {"id": "ewt", "type": "number", "label": "Entering chilled water temperature (°F)", "required": true},
+        {"id": "suction", "type": "number", "label": "Circuit 1 suction pressure (psig)"},
+        {"id": "discharge", "type": "number", "label": "Circuit 1 discharge pressure (psig)"},
+        {"id": "alarms", "type": "yes_no_na", "label": "Active or recent alarms?"},
+        {"id": "noise", "type": "inspection", "label": "Compressor and fan noise / vibration"}
+      ]
+    },
+    {
+      "key": "annual",
+      "name": "Air-cooled chiller – annual service",
+      "category": "Preventive maintenance",
+      "items": [
+        {"id": "lockout", "type": "checkbox", "label": "Unit isolated and locked out", "required": true},
+        {"id": "coils", "type": "inspection", "label": "Condenser coils cleaned and inspected", "required": true},
+        {"id": "electrical", "type": "inspection", "label": "Electrical connections tightened, contactors inspected", "required": true},
+        {"id": "leak_check", "type": "inspection", "label": "Refrigerant leak check", "required": true},
+        {"id": "oil", "type": "inspection", "label": "Compressor oil level / acid test"},
+        {"id": "flow_switch", "type": "inspection", "label": "Flow switch and freeze protection tested"},
+        {"id": "notes", "type": "text", "label": "Findings and recommendations"},
+        {"id": "sign", "type": "signature", "label": "Technician signature", "required": true}
+      ]
+    }
+  ],
+  "templates": [
+    {"name": "Chiller monthly log", "title": "Chiller monthly operating log", "priority": "low", "work_type": "preventive", "estimated_minutes": 30, "procedures": ["monthly_log"]},
+    {"name": "Chiller annual service", "title": "Chiller annual service", "priority": "high", "work_type": "preventive", "estimated_minutes": 480, "procedures": ["annual"]}
+  ]
+}

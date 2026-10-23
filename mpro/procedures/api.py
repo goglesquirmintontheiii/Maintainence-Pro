@@ -10,9 +10,9 @@ from flask import g, request
 from sqlalchemy import func, select
 
 from mpro.core.files import FileError, export_dict, register_entity, request_export
-from mpro.core.permissions import can
+from mpro.core.permissions import can, can_on, can_some
 from mpro.core.search import like, provider
-from mpro.core.tenancy import require
+from mpro.core.tenancy import enforce_own_scope, require
 from mpro.extensions import db
 from mpro.orgs.services import RuleError
 from mpro.procedures import exports as _exports  # noqa: F401  (registers the CSV exporter)
@@ -45,6 +45,7 @@ def _proc(pid: str, include_deleted: bool = False) -> Procedure:
     p = guard(svc.get_procedure, g.org.id, pid, include_deleted)
     if not svc.can_see_procedure(g.membership, p):  # one-off procedures follow their work order's visibility
         abort(404)
+    enforce_own_scope(p)
     return p
 
 
@@ -239,7 +240,7 @@ def add_to_work_order(wo_id: str) -> tuple[dict[str, Any], int]:
 
         r = guard(run)
     else:
-        if not can(g.membership, "procedures.manage"):
+        if not can_some(g.membership, "procedures.manage"):
             abort(403, message="You can't build procedures.")
         r = guard(svc.attach_one_off, g.org, g.membership, wo, b)
     return svc.run_dict(r, g.membership), 201
@@ -306,7 +307,12 @@ def _search(q: str, limit: int) -> list[dict[str, Any]]:
 
 def _proc_visible(pid: uuid.UUID, perm: str) -> bool:
     p = db.session.get(Procedure, pid)
-    return p is not None and p.org_id == g.org.id and can(g.membership, perm) and svc.can_see_procedure(g.membership, p)
+    return (
+        p is not None
+        and p.org_id == g.org.id
+        and can_on(g.membership, perm, p)
+        and svc.can_see_procedure(g.membership, p)
+    )
 
 
 register_entity(

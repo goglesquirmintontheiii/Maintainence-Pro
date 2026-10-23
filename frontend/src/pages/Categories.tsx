@@ -6,6 +6,7 @@ import { api, ApiError, type Category } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useToast } from "../components/Toast";
 import { Button, EmptyState, Field, Input, ListSkeleton, Modal } from "../components/ui";
+import { ColorPicker } from "../components/ColorPicker";
 
 const COLORS = ["#1b5bd4", "#0a7f96", "#13805a", "#b8560b", "#c37a06", "#7a52c9", "#c4302b", "#3d6fb6", "#5d6880"];
 
@@ -61,8 +62,7 @@ function CategoryModal({ cat, onClose }: { cat?: Category; onClose: () => void }
     <Modal title={cat ? "Edit category" : "New category"} onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!f.name.trim() || m.isPending} onClick={() => m.mutate()}>{cat ? "Save" : "Create"}</Button></>}>
       <Field label="Name">{(id) => <Input id={id} value={f.name} maxLength={80} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Pneumatics" />}</Field>
       <Field label="Description (optional)">{(id) => <Input id={id} value={f.description} maxLength={500} onChange={(e) => setF({ ...f, description: e.target.value })} />}</Field>
-      <div className="field"><span className="label">Colour</span><div className="row wrap">{COLORS.map((c) => (
-        <button key={c} type="button" aria-label={c} aria-pressed={f.color === c} onClick={() => setF({ ...f, color: c })} className={"swatch-btn" + (f.color === c ? " on" : "")} style={{ background: c }} />))}</div></div>
+      <div className="field"><span className="label">Colour</span><ColorPicker value={f.color} onChange={(c) => setF({ ...f, color: c })} presets={COLORS} /></div>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );

@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from apiflask import APIBlueprint, Schema, abort
-from apiflask.fields import Boolean, String
+from apiflask.fields import Boolean, Dict, String
 from apiflask.validators import Length
 from flask import current_app, g, request, session
 from flask_login import login_user, logout_user
@@ -65,6 +65,19 @@ def client_ip() -> str:
     return (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip())[:64]
 
 
+def _db_location(uri: str) -> str:
+    """Where the data lives, for the test-build banner: the SQLite file path, or host/database without credentials."""
+    if uri.startswith("sqlite:///"):
+        return uri[len("sqlite:///") :]
+    from sqlalchemy.engine import make_url
+
+    try:
+        u = make_url(uri)
+        return f"{u.host or 'localhost'}{':' + str(u.port) if u.port else ''}/{u.database or ''}"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def session_payload() -> dict[str, Any]:
     cfg = current_app.config
     base = {
@@ -84,6 +97,8 @@ def session_payload() -> dict[str, Any]:
         for x in user.memberships
         if x.deleted_at is None and x.org.deleted_at is None
     ]
+    if cfg.get("MPRO_TEST_BUILD"):
+        base["db_path"] = _db_location(str(cfg.get("SQLALCHEMY_DATABASE_URI", "")))  # test-build banner (MP-122)
     return {
         **base,
         "authenticated": True,
@@ -93,6 +108,7 @@ def session_payload() -> dict[str, Any]:
             "email": user.email,
             "initials": user.initials,
             "theme": user.theme,
+            "prefs": dict(user.ui_prefs or {}),
             "avatar_url": avatar_url(user),
         },
         "org": org_dict(g.org) if getattr(g, "org", None) else None,
@@ -205,7 +221,14 @@ def switch_org(body: dict[str, Any]) -> dict[str, Any]:
 
 
 class PrefsIn(Schema):
-    theme = String(required=True)
+    theme = String()
+    prefs = Dict()
+
+
+# per-person UI choices: key → check (MP-125 upcoming window)
+UI_PREFS: dict[str, Any] = {
+    "upcoming_days": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 365,
+}
 
 
 @bp.patch("/preferences")
@@ -213,9 +236,22 @@ class PrefsIn(Schema):
 def prefs(body: dict[str, Any]) -> dict[str, Any]:
     if g.user is None:
         abort(401)
-    if body["theme"] not in {"system", "light", "dark"}:
-        abort(422, message="Theme must be system, light or dark.")
-    g.user.theme = body["theme"]
+    if "theme" in body:
+        if body["theme"] not in {"system", "light", "dark"}:
+            abort(422, message="Theme must be system, light or dark.")
+        g.user.theme = body["theme"]
+    if "prefs" in body:
+        merged = dict(g.user.ui_prefs or {})
+        for k, v in (body["prefs"] or {}).items():
+            if k not in UI_PREFS:
+                abort(422, message=f"Unknown preference: {k}.")
+            if v is None:
+                merged.pop(k, None)
+            elif not UI_PREFS[k](v):
+                abort(422, message="The upcoming window must be 1 to 365 days.")
+            else:
+                merged[k] = v
+        g.user.ui_prefs = merged
     db.session.commit()
     return session_payload()
 

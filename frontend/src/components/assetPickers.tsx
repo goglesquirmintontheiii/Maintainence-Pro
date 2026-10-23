@@ -36,7 +36,7 @@ export function ClearableDate({ value, onChange, label, ...rest }: Omit<InputHTM
   value: string; onChange: (v: string) => void; label: string;
 }) {
   return (
-    <span className="clearable">
+    <span className={"clearable" + (value && !rest.disabled ? " has-value" : "")}>
       <input {...rest} className={"input " + (rest.className ?? "")} value={value} onChange={(e) => onChange(e.target.value)} />
       {value && !rest.disabled && (
         <button type="button" className="clear-x" aria-label={`Clear ${label}`} title={`Clear ${label}`} onClick={() => onChange("")}><X size={12} /></button>)}

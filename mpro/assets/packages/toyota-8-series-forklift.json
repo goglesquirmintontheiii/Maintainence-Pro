@@ -1,0 +1,65 @@
+{
+  "key": "toyota-8-series-ic-forklift@1",
+  "name": "Toyota 8-Series IC cushion forklift",
+  "manufacturer": "Toyota",
+  "model": "8FGCU25",
+  "models": ["8FGCU15", "8FGCU18", "8FGCU20", "8FGCU25", "8FGCU30", "8FGCU32"],
+  "version": "1",
+  "description": "LPG cushion-tire forklifts. Daily operator pre-shift inspection (OSHA 1910.178 style) and a 250-hour planned maintenance.",
+  "notice": "Generic starter content. Use the manufacturer's planned maintenance schedule and parts list for your truck's serial number.",
+  "asset_type": {"name": "Forklift", "color": "#d4572a"},
+  "fields": [
+    {"name": "Capacity (lb)", "type": "number"},
+    {"name": "Fuel", "type": "select", "options": ["LPG", "Gasoline", "Dual fuel", "Electric"]},
+    {"name": "Mast type", "type": "select", "options": ["2-stage", "3-stage (triple)", "4-stage (quad)"]}
+  ],
+  "parts": [
+    {"key": "oil_filter", "name": "Forklift engine oil filter", "unit": "each", "unit_cost": "14.00", "description": "Engine oil filter."},
+    {"key": "air_filter", "name": "Forklift engine air filter", "unit": "each", "unit_cost": "32.00", "description": "Engine air filter element."},
+    {"key": "hyd_filter", "name": "Forklift hydraulic return filter", "unit": "each", "unit_cost": "46.00", "description": "Hydraulic return filter."},
+    {"key": "spark_plug", "name": "Forklift spark plug", "unit": "each", "unit_cost": "7.50", "description": "Spark plug; four per engine."},
+    {"key": "engine_oil", "name": "Engine oil 10W-30 (1 qt)", "unit": "qt", "unit_cost": "6.00", "description": "Engine oil."}
+  ],
+  "procedures": [
+    {
+      "key": "daily",
+      "name": "Forklift – daily pre-shift inspection",
+      "category": "Safety",
+      "items": [
+        {"id": "hours", "type": "number", "label": "Hour meter", "required": true},
+        {"type": "section", "id": "visual", "label": "Engine off", "items": [
+          {"id": "tires", "type": "inspection", "label": "Tires and wheels", "required": true},
+          {"id": "forks", "type": "inspection", "label": "Forks, chains and mast", "required": true},
+          {"id": "fluids", "type": "inspection", "label": "Engine oil, coolant and hydraulic levels", "required": true},
+          {"id": "lpg", "type": "inspection", "label": "LPG tank, hose and fittings secure — no leaks", "required": true}
+        ]},
+        {"type": "section", "id": "operational", "label": "Engine on", "items": [
+          {"id": "brakes", "type": "inspection", "label": "Service and parking brakes", "required": true},
+          {"id": "horn_lights", "type": "inspection", "label": "Horn, lights and backup alarm", "required": true},
+          {"id": "hydraulics", "type": "inspection", "label": "Lift, tilt and side-shift controls", "required": true},
+          {"id": "seatbelt", "type": "inspection", "label": "Seat belt and operator presence system", "required": true}
+        ]},
+        {"id": "operator", "type": "signature", "label": "Operator signature", "required": true}
+      ]
+    },
+    {
+      "key": "pm_250",
+      "name": "Forklift – 250 h planned maintenance",
+      "category": "Preventive maintenance",
+      "items": [
+        {"id": "hours", "type": "number", "label": "Hour meter", "required": true},
+        {"id": "oil", "type": "checkbox", "label": "Engine oil and filter changed", "required": true},
+        {"id": "air_filter", "type": "inspection", "label": "Air filter cleaned or replaced"},
+        {"id": "grease", "type": "checkbox", "label": "Chassis and mast lubricated", "required": true},
+        {"id": "chains", "type": "inspection", "label": "Lift chain stretch and lubrication"},
+        {"id": "brakes", "type": "inspection", "label": "Brake adjustment"},
+        {"id": "emissions", "type": "inspection", "label": "Exhaust and LPG system"},
+        {"id": "sign", "type": "signature", "label": "Technician signature", "required": true}
+      ]
+    }
+  ],
+  "templates": [
+    {"name": "Forklift pre-shift inspection", "title": "Forklift pre-shift inspection", "priority": "medium", "work_type": "preventive", "estimated_minutes": 10, "procedures": ["daily"]},
+    {"name": "Forklift 250 h PM", "title": "Forklift 250 h planned maintenance", "priority": "medium", "work_type": "preventive", "estimated_minutes": 120, "procedures": ["pm_250"]}
+  ]
+}

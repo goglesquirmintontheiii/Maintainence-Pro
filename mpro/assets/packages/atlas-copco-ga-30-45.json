@@ -1,0 +1,63 @@
+{
+  "key": "atlas-copco-ga-30-45@1",
+  "name": "Atlas Copco GA 30–45 rotary screw compressor",
+  "manufacturer": "Atlas Copco",
+  "model": "GA 37",
+  "models": ["GA 30", "GA 30 VSD+", "GA 37", "GA 37 VSD+", "GA 45", "GA 45 VSD+"],
+  "version": "1",
+  "description": "Oil-injected rotary screw compressors, fixed and variable speed. Service intervals follow the common 2,000 / 4,000 / 8,000 running-hour pattern; check your unit's service manual for the exact schedule.",
+  "notice": "Generic starter content. Part numbers are left blank: copy them from the manufacturer's parts list for your serial number.",
+  "asset_type": {"name": "Air compressor", "color": "#2f7fb8"},
+  "fields": [
+    {"name": "Rated pressure (bar)", "type": "number"},
+    {"name": "Drive", "type": "select", "options": ["Fixed speed", "Variable speed (VSD)"]},
+    {"name": "Cooling", "type": "select", "options": ["Air-cooled", "Water-cooled"]}
+  ],
+  "parts": [
+    {"key": "air_filter", "name": "Compressor air filter element", "unit": "each", "unit_cost": "68.00", "description": "Intake air filter element."},
+    {"key": "oil_filter", "name": "Compressor oil filter", "unit": "each", "unit_cost": "42.00", "description": "Spin-on oil filter."},
+    {"key": "separator", "name": "Compressor oil separator element", "unit": "each", "unit_cost": "185.00", "description": "Air/oil separator element."},
+    {"key": "oil", "name": "Rotary screw compressor oil (20 L)", "unit": "pail", "unit_cost": "260.00", "description": "Synthetic screw compressor fluid, 20 L pail."},
+    {"key": "drain_kit", "name": "Electronic drain valve service kit", "unit": "kit", "unit_cost": "95.00", "description": "Seals and strainer for the condensate drain."}
+  ],
+  "procedures": [
+    {
+      "key": "weekly",
+      "name": "Rotary screw compressor – weekly check",
+      "category": "Inspection",
+      "items": [
+        {"id": "running_hours", "type": "number", "label": "Running hours", "required": true},
+        {"id": "loaded_hours", "type": "number", "label": "Loaded hours"},
+        {"id": "outlet_pressure", "type": "number", "label": "Working pressure (bar)", "required": true},
+        {"id": "element_temp", "type": "number", "label": "Element outlet temperature (°C)", "required": true},
+        {"id": "oil_level", "type": "inspection", "label": "Oil level in sight glass", "required": true},
+        {"id": "drain", "type": "inspection", "label": "Condensate drain discharges when tested"},
+        {"id": "leaks", "type": "yes_no_na", "label": "Oil or air leaks found?"},
+        {"id": "warnings", "type": "text", "label": "Controller warnings or service messages"}
+      ]
+    },
+    {
+      "key": "service_2000",
+      "name": "Rotary screw compressor – 2,000 h service",
+      "category": "Preventive maintenance",
+      "items": [
+        {"id": "lockout", "type": "checkbox", "label": "Isolated, locked out and depressurised", "required": true},
+        {"type": "section", "id": "filters", "label": "Filters", "items": [
+          {"id": "air_filter", "type": "checkbox", "label": "Air filter element replaced", "required": true},
+          {"id": "oil_filter", "type": "checkbox", "label": "Oil filter replaced", "required": true},
+          {"id": "coolers", "type": "inspection", "label": "Oil and after-cooler fins clean"}
+        ]},
+        {"id": "oil_change", "type": "yes_no_na", "label": "Oil changed (per oil type interval)?"},
+        {"id": "belts", "type": "inspection", "label": "Drive belts / coupling condition"},
+        {"id": "safety_valve", "type": "inspection", "label": "Safety valve tested"},
+        {"id": "test_run", "type": "number", "label": "Element outlet temperature after 30 min (°C)", "required": true},
+        {"id": "photos", "type": "file", "label": "Photos of the unit after service"},
+        {"id": "sign", "type": "signature", "label": "Technician signature", "required": true}
+      ]
+    }
+  ],
+  "templates": [
+    {"name": "Compressor weekly check", "title": "Compressor weekly check", "priority": "low", "work_type": "preventive", "estimated_minutes": 20, "procedures": ["weekly"]},
+    {"name": "Compressor 2,000 h service", "title": "Compressor 2,000 h service", "priority": "medium", "work_type": "preventive", "estimated_minutes": 180, "procedures": ["service_2000"], "description": "Uses the air filter, oil filter and, depending on oil type, compressor oil."}
+  ]
+}

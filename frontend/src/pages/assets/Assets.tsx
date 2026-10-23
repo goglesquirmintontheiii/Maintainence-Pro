@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Boxes, ChevronDown, ChevronRight, Download, FileSpreadsheet, ListTree, MoreHorizontal, Plus, Printer, Search, Settings2, Table2, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Boxes, ChevronDown, ChevronRight, Download, FileSpreadsheet, ListFilter, ListTree, MoreHorizontal, Plus, Printer, Search, Settings2, Table2, Trash2, X } from "lucide-react";
 import { api, ApiError, type ExportItem } from "../../lib/api";
 import { useAssetOptions, type Asset, type Paged } from "../../lib/assets";
 import { useSession } from "../../lib/session";
@@ -77,7 +77,7 @@ export function AssetsPage() {
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h1>Assets</h1>
         <div className="row">
-          <div className="seg views" role="tablist" aria-label="View">
+          <div className="seg views asset-views" role="tablist" aria-label="View">
             <button type="button" role="tab" aria-selected={view === "tree"} className={"seg-btn" + (view === "tree" ? " on" : "")} onClick={() => setView("tree")} title="Tree" aria-label="Tree"><ListTree size={15} /></button>
             <button type="button" role="tab" aria-selected={view === "table"} className={"seg-btn" + (view === "table" ? " on" : "")} onClick={() => { setView("table"); if (id) nav("/assets"); }} title="Table" aria-label="Table"><Table2 size={15} /></button>
           </div>
@@ -87,6 +87,7 @@ export function AssetsPage() {
               {can("exports.use") && <Link className="menu-item" to="/downloads" onClick={close}><FileSpreadsheet size={15} />Download Center</Link>}
               <button className="menu-item" onClick={() => { close(); setLabels(true); }}><Printer size={15} />Print QR labels{filtered ? " (filtered)" : " (all)"}</button>
               <Link className="menu-item" to="/settings/assets" onClick={close}><Settings2 size={15} />Asset settings</Link>
+              {can("assets.packages") && <Link className="menu-item" to="/asset-hub" onClick={close}><Boxes size={15} />Asset Hub</Link>}
             </>}
           </Dropdown>
           {can("assets.manage") && <Button variant="primary" onClick={() => setCreating(true)} aria-label="New Asset"><Plus size={16} /><span className={view === "tree" ? "" : "desktop-only"}>{view === "tree" ? "New" : "New Asset"}</span></Button>}
@@ -136,10 +137,15 @@ function DrawerDetail({ id, onClose }: { id: string; onClose: () => void }) {
 function AssetFilterBar({ f, set, clear }: { f: Filters; set: (p: Partial<Filters>) => void; clear: () => void }) {
   const opts = useAssetOptions();
   const active = [f.status, f.criticality, f.location_id, f.type_id, f.warranty, f.label].filter(Boolean).length;
+  const [open, setOpen] = useState(false); // phone: filters fold away behind a Filter button (MP-126)
   return (
-    <div className="stack" style={{ gap: 8 }}>
-      <div className="search-in"><Search size={15} className="faint" />
-        <Input placeholder="Search name, serial, model or barcode" value={f.q} onChange={(e) => set({ q: e.target.value })} aria-label="Search assets" /></div>
+    <div className={"stack asset-filterbar" + (open ? " open" : "")} style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <div className="search-in grow"><Search size={15} className="faint" />
+          <Input placeholder="Search name, serial, model or barcode" value={f.q} onChange={(e) => set({ q: e.target.value })} aria-label="Search assets" /></div>
+        <Button icon className={"mobile-only wo-phone-btn" + (open || active ? " on" : "")} aria-expanded={open} aria-label={active ? `Filter (${active} on)` : "Filter"}
+          onClick={() => setOpen((o) => !o)}><ListFilter size={20} />{active > 0 && <span className="wo-phone-count">{active}</span>}</Button>
+      </div>
       <div className="asset-filters">
         <Select aria-label="Status" value={f.status} onChange={(e) => set({ status: e.target.value })}><option value="">Any status</option>
           {(opts.data?.statuses ?? []).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</Select>
