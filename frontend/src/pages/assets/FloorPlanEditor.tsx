@@ -1,5 +1,6 @@
 // Full-screen floor plan viewer and editor (MP-110). Draw rooms and areas (rectangles, ellipses, polygons), lines,
-// arrows, freehand marks and text over the plan image; place asset pins; merge shapes into a group; bind a shape to a
+// arrows, freehand marks and text over the plan image; place asset pins; merge shapes into one outline (a true union,
+// 0.5.0) or group them; pin parts lists with live stock (0.5.0); pinch-zoom on touch screens; bind a shape to a
 // location or an asset so clicking it opens that record. Edits are saved as one drawing with optimistic concurrency
 // (someone else saving first → 409 → reload). Export a PNG of the plan with the edits, optionally carrying the edit
 // data so it can be imported again.
@@ -8,7 +9,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowUpRight, Circle, Download, Group, Hexagon, Link2, MapPin, Maximize, Minus, MousePointer2, PenLine, Pencil, Plus, Redo2, Save, Slash,
+  ArrowUpRight, Circle, Combine, Download, Group, Hexagon, Link2, MapPin, Maximize, Minus, MousePointer2, Package, PenLine, Pencil, Plus, Redo2, Save, Slash,
   Square, Trash2, Type, Undo2, Ungroup, Upload, X,
 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
@@ -18,9 +19,11 @@ import { useToast } from "../../components/Toast";
 import { Button, Checkbox, Dropdown, Field, Input, Modal } from "../../components/ui";
 import { AssetPicker, LocationPicker } from "../../components/assetPickers";
 import {
-  arrowHead, bbox, DEFAULT_STYLE, descendants, drawOnCanvas, FILE_FORMAT, intersects, isClosed, leaves, newId, PALETTE, parents, parseDrawing,
-  scale, textLines, topOf, translate, union, UNITS, type Box, type Pt, type Shape, type ShapeType,
+  arrowHead, bbox, DEFAULT_STYLE, descendants, drawOnCanvas, FILE_FORMAT, intersects, isClosed, leaves, mergeShapes, newId, PALETTE, parents, parseDrawing,
+  ringsPath, scale, textLines, topOf, translate, union, UNITS, type Box, type Pt, type Shape, type ShapeType,
 } from "./floorplanShapes";
+import { PartsListCard, PartsListDialog } from "./FloorPlanParts";
+import { useTouchZoom } from "./floorplanTouch";
 import "../../styles/viewer.css";
 import { ColorPicker } from "../../components/ColorPicker";
 
@@ -35,6 +38,7 @@ const TOOLS: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
   { id: "freehand", label: "Freehand", key: "F", icon: <PenLine size={17} /> },
   { id: "text", label: "Text", key: "T", icon: <Type size={17} /> },
   { id: "pin", label: "Asset pin", key: "I", icon: <MapPin size={17} /> },
+  { id: "parts", label: "Parts list", key: "S", icon: <Package size={17} /> },
 ];
 type Style = { stroke: string; fill: string; stroke_width: number; fill_opacity: number; font_size: number };
 type Drag =
@@ -65,7 +69,7 @@ export function PlanShapes({ shapes, aspect, onOpen, interactive = true }: {
   return (
     <svg className="plan-svg" viewBox={`0 0 ${UNITS} ${UNITS * aspect}`} preserveAspectRatio="none" aria-hidden={!interactive}>
       {shapes.map((s) => {
-        if (s.type === "group") return null;
+        if (s.type === "group" || s.type === "parts") return null;
         const link = interactive ? linkOf(s) : null;
         const title = link ? (link.label || (link.location_id ? "Open location" : "Open asset")) : s.label;
         return (
@@ -92,7 +96,9 @@ function ShapeSvg({ s, aspect, hit }: { s: Shape; aspect: number; hit?: boolean 
   switch (s.type) {
     case "rect": return <rect x={(s.x ?? 0) * UNITS} y={(s.y ?? 0) * H} width={(s.w ?? 0) * UNITS} height={(s.h ?? 0) * H} {...common} {...hitProps} />;
     case "ellipse": return <ellipse cx={((s.x ?? 0) + (s.w ?? 0) / 2) * UNITS} cy={((s.y ?? 0) + (s.h ?? 0) / 2) * H} rx={((s.w ?? 0) * UNITS) / 2} ry={((s.h ?? 0) * H) / 2} {...common} {...hitProps} />;
-    case "polygon": return <polygon points={ptsAttr} {...common} {...hitProps} />;
+    case "polygon": return s.rings?.length
+      ? <path d={ringsPath(s.rings, H)} fillRule="evenodd" {...common} {...hitProps} />
+      : <polygon points={ptsAttr} {...common} {...hitProps} />;
     case "text": {
       const fs = s.font_size ?? DEFAULT_STYLE.font_size;
       return (
@@ -133,6 +139,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   const [drag, setDrag] = useState<Drag | null>(null);
   const [poly, setPoly] = useState<{ pts: Pt[]; hover: Pt | null } | null>(null);
   const [pinDraft, setPinDraft] = useState<{ x: number; y: number } | null>(null);
+  const [partsDraft, setPartsDraft] = useState<{ at?: Pt; edit?: Shape } | null>(null);
   const [pinMoves, setPinMoves] = useState<Record<string, Pt>>({});
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [binding, setBinding] = useState<"location" | "asset" | null>(null);
@@ -207,11 +214,27 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
       .filter((s) => s.type !== "group" || (s.children ?? []).length >= 2));
     setSel([]);
   };
-  const merge = () => {
+  const group = () => {
     if (sel.length < 2) return;
     const g: Shape = { id: newId(), type: "group", children: [...sel] };
     commit([...shapes, g]); setSel([g.id]);
-    toast("Merged into one group");
+    toast("Grouped");
+  };
+  // Merge (MP-128): one shape with a single outline, a true union of the selected rooms and areas; holes are kept.
+  // Lines, arrows, text and parts lists can't be merged and stay as they are. Undo brings the originals back.
+  const merge = () => {
+    if (sel.length < 2) return;
+    const parts = selLeaves.map((id) => byId.get(id)!).filter(Boolean);
+    const merged = mergeShapes(parts);
+    if (!merged) { toast("Pick at least two rectangles, ellipses or polygons to merge.", { kind: "error" }); return; }
+    const used = new Set(parts.filter((s) => isClosed(s)).map((s) => s.id));
+    const at = shapes.findIndex((s) => used.has(s.id));
+    const kept = shapes.filter((s) => !used.has(s.id)).map((s) => (s.type === "group" ? { ...s, children: (s.children ?? []).filter((c) => !used.has(c)) } : s))
+      .filter((s) => s.type !== "group" || (s.children ?? []).length >= 2);
+    kept.splice(Math.min(at, kept.length), 0, merged);
+    commit(kept); setSel([merged.id]);
+    const skipped = parts.length - used.size;
+    toast(skipped ? `Merged ${used.size} shapes. ${skipped} line${skipped === 1 ? "" : "s"} or label${skipped === 1 ? "" : "s"} can't be merged and stayed as they are.` : `Merged ${used.size} shapes into one`);
   };
   const ungroup = () => {
     const groups = sel.filter((id) => byId.get(id)?.type === "group");
@@ -308,12 +331,14 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   };
 
   const onDown = (e: React.PointerEvent) => {
-    if (!editing || e.button !== 0) return;
+    if (!editing || e.button !== 0 || !e.isPrimary) return; // a second finger is a pinch, not a click
+
     setMenu(null);
     const p = frac(e);
     const target = e.target as Element;
     if (target.closest(".plan-pin")) return;
     if (tool === "pin") { setPinDraft({ x: clamp01(p)[0], y: clamp01(p)[1] }); return; }
+    if (tool === "parts") { setPartsDraft({ at: clamp01(p) }); return; }
     if (tool === "polygon") return; // handled on click
     if (tool === "text") {
       e.preventDefault(); // keep focus for the text box
@@ -442,7 +467,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   };
 
   // ------------------------------------------------ keyboard
-  const modalOpen = !!(pinDraft || binding || askClose);
+  const modalOpen = !!(pinDraft || partsDraft || binding || askClose);
   const tryClose = useCallback(() => { if (dirty) setAskClose("close"); else onClose(); }, [dirty, onClose]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -462,7 +487,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
       if (typing || !editing) return;
       if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
-      if (mod && e.key.toLowerCase() === "g") { e.preventDefault(); if (e.shiftKey) ungroup(); else merge(); return; }
+      if (mod && e.key.toLowerCase() === "g") { e.preventDefault(); if (e.shiftKey) ungroup(); else group(); return; }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); merge(); return; }
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); if (dirty) save.mutate(); return; }
       if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSel([...new Set(shapes.filter((s) => s.type !== "group").map((s) => topOf(s.id, par)))]); return; }
       if (e.key === "Enter" && poly) { e.preventDefault(); finishPoly(); return; }
@@ -497,6 +523,13 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
     el.addEventListener("wheel", w, { passive: false });
     return () => el.removeEventListener("wheel", w);
   }, []);
+  useTouchZoom(stage, box, {
+    zoom, setZoom, min: 1, max: 6, panOneFinger: !editing,
+    onPinchStart: () => {
+      if (drag && "before" in drag) setShapes(drag.before);
+      setDrag(null); setPoly(null);
+    },
+  });
 
   const openLink = (s: Shape) => {
     if (editing) return;
@@ -538,7 +571,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
           <span className="fp-sep" />
           <button type="button" className="fp-tool" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!past.length} onClick={undo}><Undo2 size={17} /></button>
           <button type="button" className="fp-tool" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
-          <button type="button" className="fp-tool" title="Merge into group (Ctrl+G)" aria-label="Merge into group" disabled={sel.length < 2} onClick={merge}><Group size={17} /></button>
+          <button type="button" className="fp-tool" title="Merge into one shape (Ctrl+Shift+M)" aria-label="Merge into one shape" disabled={sel.length < 2} onClick={merge}><Combine size={17} /></button>
+          <button type="button" className="fp-tool" title="Group (Ctrl+G)" aria-label="Group" disabled={sel.length < 2} onClick={group}><Group size={17} /></button>
           <button type="button" className="fp-tool" title="Ungroup (Ctrl+Shift+G)" aria-label="Ungroup" disabled={!sel.some((id) => byId.get(id)?.type === "group")} onClick={ungroup}><Ungroup size={17} /></button>
           <button type="button" className="fp-tool" title="Delete (Del)" aria-label="Delete selected" disabled={!sel.length} onClick={() => remove()}><Trash2 size={17} /></button>
         </div>)}
@@ -550,7 +584,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
             <img ref={img} src={plan.url} alt={`Floor plan: ${plan.name}`} draggable={false} onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
             {editing ? (
               <svg className="plan-svg editing" viewBox={`0 0 ${UNITS} ${H}`} preserveAspectRatio="none">
-                {shapes.map((s) => s.type === "group" ? null : <g key={s.id} data-sid={s.id} className="fp-shape"><ShapeSvg s={s} aspect={aspect} hit /></g>)}
+                {shapes.map((s) => s.type === "group" || s.type === "parts" ? null : <g key={s.id} data-sid={s.id} className="fp-shape"><ShapeSvg s={s} aspect={aspect} hit /></g>)}
                 {poly && <polyline points={[...poly.pts, ...(poly.hover ? [poly.hover] : [])].map(([x, y]) => `${x * UNITS},${y * H}`).join(" ")}
                   fill={style.fill === "none" ? "none" : style.fill} fillOpacity={style.fill_opacity} stroke={style.stroke} strokeWidth={style.stroke_width} strokeDasharray={`${6 / unitPx} ${4 / unitPx}`} />}
                 {poly?.pts.map(([x, y], i) => <circle key={i} cx={x * UNITS} cy={y * H} r={(i === 0 ? 6 : 4) / unitPx} fill="#fff" stroke={style.stroke} strokeWidth={1.5 / unitPx} />)}
@@ -558,7 +592,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
                 {selBox && !drag?.kind.match(/draw/) && <>
                   <rect className="fp-sel" x={selBox.x * UNITS - 4 / unitPx} y={selBox.y * H - 4 / unitPx} width={selBox.w * UNITS + 8 / unitPx} height={selBox.h * H + 8 / unitPx}
                     strokeWidth={1.5 / unitPx} strokeDasharray={`${5 / unitPx} ${4 / unitPx}`} />
-                  {single?.points && single.type !== "freehand" ? single.points.map(([x, y], i) => (
+                  {single?.points && single.type !== "freehand" && !single.rings ? single.points.map(([x, y], i) => (
                     <circle key={i} data-handle={`v${i}`} className="fp-handle" cx={x * UNITS} cy={y * H} r={hs * 0.6} strokeWidth={1.5 / unitPx} />))
                     : [[selBox.x, selBox.y], [selBox.x + selBox.w, selBox.y], [selBox.x + selBox.w, selBox.y + selBox.h], [selBox.x, selBox.y + selBox.h]].map(([x, y], i) => (
                       <rect key={i} data-handle={String(i)} className={"fp-handle c" + i} x={x * UNITS - hs / 2} y={y * H - hs / 2} width={hs} height={hs} strokeWidth={1.5 / unitPx} />))}
@@ -571,11 +605,17 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
                 onDown={(e) => { e.stopPropagation(); box.current!.setPointerCapture(e.pointerId); setDrag({ kind: "pin", id: p.id, at: [p.x, p.y], moved: false }); }}
                 onOpen={() => { if (!editing && p.asset_id) { onClose(); nav(`/assets/${p.asset_id}`); } }}
                 onDelete={() => delPin.mutate(p.id)} />))}
+            {shapes.filter((s) => s.type === "parts").map((s) => (
+              <PartsListCard key={s.id} s={s} editing={editing} onOpenPart={onClose}
+                onToggleDefault={(o) => commit(shapes.map((x) => (x.id === s.id ? { ...x, open: o } : x)))} />))}
           </div>
         </div>
         {editing && (
           <aside className="fp-panel" aria-label="Shape options">
             <div className="fp-panel-h">{sel.length ? (single ? SHAPE_NAME[single.type] : `${sel.length} items`) : "New shapes"}</div>
+            {single?.type === "parts" ? <div className="stack" style={{ gap: 6 }}>
+              <span className="small muted">{(single.part_ids ?? []).length} parts. Tap the list's title to choose whether it starts expanded.</span>
+              <div><Button size="sm" onClick={() => setPartsDraft({ edit: single })}><Package size={14} />Edit parts…</Button></div></div> : <>
             <div className="fp-row col"><span className="fp-lbl">Colour</span>
               <Swatches value={single?.stroke ?? style.stroke} onPick={(c) => applyStyle({ stroke: c })} label="Line colour" /></div>
             {(!single || isClosed(single) || single.type === "group") && <div className="fp-row col"><span className="fp-lbl">Fill</span>
@@ -589,13 +629,14 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
             {(!single || single.type === "text") && <label className="fp-row"><span className="fp-lbl">Text size</span>
               <input type="range" min={8} max={120} step={1} value={single?.font_size ?? style.font_size} onChange={(e) => applyStyle({ font_size: Number(e.target.value) })} aria-label="Text size" />
               <span className="small tnum">{single?.font_size ?? style.font_size}</span></label>}
+            </>}
             {single?.type === "text" && <Field label="Text">{(id) => <textarea ref={textRef} id={id} className="input" rows={2} maxLength={500} value={single.text ?? ""}
               onChange={(e) => setShapes(shapes.map((s) => (s.id === single.id ? { ...s, text: e.target.value } : s)))}
               onFocus={() => setPast((p) => [...p.slice(-99), shapes])} />}</Field>}
             {sel.length > 0 && <>
               {single && <Field label="Label" hint="Shown when people hover or tap it.">{(id) => <Input id={id} value={single.label ?? ""} maxLength={120}
                 onChange={(e) => setShapes(shapes.map((s) => (s.id === single.id ? { ...s, label: e.target.value } : s)))} onFocus={() => setPast((p) => [...p.slice(-99), shapes])} />}</Field>}
-              {single && <div className="fp-link">
+              {single && single.type !== "parts" && <div className="fp-link">
                 {selLink ? <span className="row small" style={{ gap: 6 }}><Link2 size={14} />{selLink.location_id ? "Opens a location" : "Opens an asset"}
                   <Button size="sm" variant="ghost" onClick={() => setProp({ location_id: undefined, asset_id: undefined }, true)}>Remove link</Button></span>
                   : <span className="small muted">Not linked.</span>}
@@ -604,7 +645,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
               </div>}
               <div className="row wrap" style={{ gap: 6 }}>
                 <Button size="sm" onClick={() => order(true)}>Bring to front</Button><Button size="sm" onClick={() => order(false)}>Send to back</Button>
-                {sel.length > 1 && <Button size="sm" onClick={merge}><Group size={14} />Merge</Button>}
+                {sel.length > 1 && <Button size="sm" onClick={merge} title="One shape with a single outline"><Combine size={14} />Merge</Button>}
+                {sel.length > 1 && <Button size="sm" onClick={group}><Group size={14} />Group</Button>}
               </div>
             </>}
             <p className="small muted fp-help">{HELP[tool]}</p>
@@ -620,7 +662,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
         <div className="menu fp-menu" role="menu" style={{ left: Math.min(menu.x, window.innerWidth - 230), top: Math.min(menu.y, window.innerHeight - 320) }} onMouseDown={(e) => e.stopPropagation()}>
           <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); setBinding("location"); }}><MapPin size={14} />Bind to location…</button>
           <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); setBinding("asset"); }}><Link2 size={14} />Link to asset…</button>
-          {sel.length > 1 && <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); merge(); }}><Group size={14} />Merge into group</button>}
+          {sel.length > 1 && <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); merge(); }}><Combine size={14} />Merge into one shape</button>}
+          {sel.length > 1 && <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); group(); }}><Group size={14} />Group</button>}
           {sel.some((id) => byId.get(id)?.type === "group") && <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); ungroup(); }}><Ungroup size={14} />Ungroup</button>}
           <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); order(true); }}>Bring to front</button>
           <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenu(null); order(false); }}>Send to back</button>
@@ -628,6 +671,14 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
           <button type="button" role="menuitem" className="menu-item danger" onClick={() => { setMenu(null); remove(); }}><Trash2 size={14} />Delete</button>
         </div>)}
       {menu && <div className="fp-menu-away" onPointerDown={() => setMenu(null)} />}
+      {partsDraft && <PartsListDialog current={partsDraft.edit ?? null} onClose={() => setPartsDraft(null)}
+        onSave={(v) => {
+          const d = partsDraft; setPartsDraft(null);
+          if (d.edit) { commit(shapes.map((s) => (s.id === d.edit!.id ? { ...s, ...v } : s))); return; }
+          const at = d.at ?? [0.4, 0.4];
+          const s: Shape = { id: newId(), type: "parts", x: at[0], y: at[1], w: 0.14, h: 0.04, ...v };
+          commit([...shapes, s]); setSel([s.id]); setTool("select");
+        }} />}
       {pinDraft && <AddPin base={base} at={pinDraft} onClose={() => setPinDraft(null)} onDone={() => { setPinDraft(null); onChanged(); toast("Pin added"); }} />}
       {binding && <BindDialog kind={binding} current={sel.length === 1 ? byId.get(sel[0]) ?? null : null} count={sel.length} onClose={() => setBinding(null)}
         onPick={(id, label) => {
@@ -649,13 +700,14 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   );
 }
 
-const SHAPE_NAME: Record<ShapeType, string> = { rect: "Rectangle", ellipse: "Ellipse", polygon: "Polygon", line: "Line", arrow: "Arrow", freehand: "Freehand", text: "Text", group: "Group" };
+const SHAPE_NAME: Record<ShapeType, string> = { rect: "Rectangle", ellipse: "Ellipse", polygon: "Polygon", line: "Line", arrow: "Arrow", freehand: "Freehand", text: "Text", group: "Group", parts: "Parts list" };
 const HELP: Record<Tool, string> = {
   select: "Click to select, Shift+click to add, drag an empty area to select several. Right-click a shape to bind it to a location.",
   rect: "Drag to draw a rectangle. Hold Shift for a square.", ellipse: "Drag to draw an ellipse. Hold Shift for a circle.",
   polygon: "Click to add corners. Click the first point, double-click or press Enter to finish; Esc cancels.",
   line: "Drag to draw a line.", arrow: "Drag to draw an arrow.", freehand: "Drag to draw freely.", text: "Click where the text should go, then type it here.",
   pin: "Click the plan to pin an asset or a label.",
+  parts: "Click the plan where the parts are kept, then pick them. The list shows how many are on hand.",
 };
 
 function Swatches({ value, onPick, none, label }: { value: string; onPick: (c: string) => void; none?: boolean; label: string }) {
@@ -681,7 +733,7 @@ function BindDialog({ kind, current, count, onClose, onPick }: { kind: "location
   return (
     <Modal title={kind === "location" ? "Bind to location" : "Link to asset"} onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button>
       <Button variant="primary" disabled={!id} onClick={() => id && onPick(id, label.trim())}>{kind === "location" ? "Bind" : "Link"}</Button></>}>
-      <p className="small muted" style={{ marginTop: 0 }}>Clicking {count > 1 ? `these ${count} shapes (they'll be merged into a group)` : "this shape"} will open the {kind}.</p>
+      <p className="small muted" style={{ marginTop: 0 }}>Clicking {count > 1 ? `these ${count} shapes (they'll be grouped)` : "this shape"} will open the {kind}.</p>
       {kind === "location" ? <Field label="Location">{(fid) => <LocationPicker id={fid} value={loc} onChange={setLoc} />}</Field>
         : <Field label="Asset">{(fid) => <AssetPicker id={fid} value={asset} onChange={setAsset} />}</Field>}
       <Field label="Label" hint="Optional. Shown when people hover or tap it, e.g. “Boiler room”.">{(fid) => <Input id={fid} value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />}</Field>
