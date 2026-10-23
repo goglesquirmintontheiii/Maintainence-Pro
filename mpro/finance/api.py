@@ -129,16 +129,10 @@ def me() -> dict[str, Any]:
         "finance.export",
     )
     cfg = public_settings(g.org.id)
-    has_cards = (
-        db.session.scalar(
-            select(func.count(TaxCertificate.id)).where(
-                TaxCertificate.org_id == g.org.id,
-                TaxCertificate.deleted_at.is_(None),
-                TaxCertificate.status == "active",
-            )
-        )
-        or 0
-    )
+    if can(m(), "finance.tax_certificates"):
+        has_cards = 1
+    else:  # exemption cards this person may show
+        has_cards = certificates.list_certs(g.org.id, {}, manage=False, user_id=g.user.id)["total"]
     return {
         "can": {a: can(m(), a) for a in actions},
         "receipts_address": cfg.get("receipts_address", ""),
