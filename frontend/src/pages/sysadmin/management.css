@@ -1,0 +1,27 @@
+/* MPro Management (0.6.0, MP-136): the sysadmin console reuses the app shell; these are its own bits. */
+.mgmt .page-narrow { max-width: 960px; }
+.mgmt .nowrap { white-space: nowrap; }
+.mgmt .sb-org { cursor: pointer; }
+.mgmt-title { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-md); }
+.mgmt-back { width: 100%; }
+.mgmt .sb-foot { padding: var(--s-2); }
+.mgmt-current { cursor: default; color: var(--c-primary); }
+.mgmt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-4); }
+.mgmt-stat { display: flex; flex-direction: column; gap: 2px; padding: var(--s-4) var(--s-5); color: var(--c-text-2); text-decoration: none !important; }
+.mgmt-stat:hover { border-color: var(--c-primary); }
+.mgmt-stat .n { font-size: 28px; font-weight: var(--fw-bold); color: var(--c-text); font-variant-numeric: tabular-nums; }
+.mgmt-tools { gap: var(--s-3); }
+.mgmt-tools .search-in { min-width: min(100%, 260px); }
+.mgmt-pager { justify-content: center; gap: var(--s-3); }
+.mgmt-person { display: flex; gap: var(--s-4); align-items: flex-start; padding: var(--s-5); }
+.mgmt-person h1 { overflow-wrap: anywhere; }
+.mgmt-uid { margin-top: var(--s-2); gap: var(--s-1); flex-wrap: wrap; }
+.mgmt-uid code { overflow-wrap: anywhere; }
+.mgmt-actions { gap: var(--s-2); }
+.mgmt-danger { border-color: color-mix(in srgb, var(--c-danger) 35%, var(--c-border)); }
+.mgmt .table select { min-width: 150px; }
+@media (max-width: 640px) {
+  .mgmt .content { padding-bottom: 0; }
+  .mgmt-person { flex-direction: column; }
+  .mgmt-actions .btn { flex: 1 1 auto; }
+}

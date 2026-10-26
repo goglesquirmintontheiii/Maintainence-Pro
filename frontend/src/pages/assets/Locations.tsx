@@ -15,6 +15,7 @@ import { CustomInput } from "../workorders/Form";
 import { WORow } from "../workorders/WorkOrders";
 import { AssetStatusPill, Crumbs, FilesSection, HistoryList, PhotoPicker, TeamChips, TeamsPicker } from "./shared";
 import { FloorPlans } from "./FloorPlans";
+import { ScanHistory } from "../scan/ScanHistory";
 
 const TABS = [["details", "Details"], ["assets", "Assets"], ["sub-locations", "Sub-locations"], ["work-orders", "Work Orders"], ["floor-plans", "Floor plans"], ["history", "History"]] as const;
 type Tab = (typeof TABS)[number][0];
@@ -161,7 +162,7 @@ function LocationDetailView({ id, tab, onTab, onAddChild }: { id: string; tab: T
       {tab === "sub-locations" && <SubLocations id={l.id} onAdd={manage ? () => onAddChild(l.id) : undefined} />}
       {tab === "work-orders" && <LocWorkOrders id={l.id} />}
       {tab === "floor-plans" && <FloorPlans loc={l} editable={manage} />}
-      {tab === "history" && <HistoryList path={`/locations/${l.id}/history`} tz={tz} />}
+      {tab === "history" && <><ScanHistory entityType="location" entityId={l.id} title="Check-ins and scans" /><HistoryList path={`/locations/${l.id}/history`} tz={tz} /></>}
       {editing && <LocationForm edit={l} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
       {confirm && <Modal title="Delete location?" onClose={() => setConfirm(false)} footer={<><Button onClick={() => setConfirm(false)}>Cancel</Button>
         <Button variant="danger" onClick={() => del.mutate()} disabled={del.isPending}>Delete</Button></>}>

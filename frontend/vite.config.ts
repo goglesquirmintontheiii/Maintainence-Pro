@@ -1,11 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { serviceWorker } from "./pwa/vite-plugin-sw.mjs";
 
 declare const process: { env: Record<string, string | undefined> };
 
 // The built app is served by Flask from mpro/static/app. In dev, Vite proxies the API.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorker()],
   build: { outDir: "../mpro/static/app", emptyOutDir: true, sourcemap: false, chunkSizeWarningLimit: 900 },
   // MPRO_API / VITE_PORT let several dev servers run side by side (e.g. MPRO_API=http://127.0.0.1:8091 VITE_PORT=5191)
   server: {

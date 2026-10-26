@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Package, Plus, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { Button, Checkbox, Drawer, Field, Input, Select } from "../../components/ui";
@@ -10,6 +10,8 @@ import { MultiPicker } from "../../components/pickers";
 import { AssetPicker, LocationPicker } from "../../components/assetPickers";
 import { CustomInput } from "../workorders/Form";
 import { TeamsPicker } from "../assets/shared";
+import { PhotoPickerButton } from "../../components/AvatarCropper";
+import { uploadPicture } from "./PartPicture";
 import { usePartFields, usePartOptions, type PartDetail } from "./types";
 
 type VendorDraft = { vendor_id: string; vendor_part_number: string; unit_cost: string; lead_time_days: string; preferred: boolean };
@@ -45,6 +47,10 @@ export function PartForm({ edit, onClose, onSaved }: { edit?: PartDetail; onClos
   const [custom, setCustom] = useState<Record<string, unknown>>(edit?.custom ?? {});
   const [dups, setDups] = useState<Dup[]>([]);
   const [err, setErr] = useState("");
+  // picture (MP-131): undefined = unchanged, null = remove, else the uploaded file and a local preview
+  const [pic, setPic] = useState<{ id: string; preview: string } | null | undefined>(undefined);
+  const [picBusy, setPicBusy] = useState(false);
+  const shownPic = pic === undefined ? (edit?.picture ? { id: edit.picture.id, preview: edit.picture.thumb_url } : null) : pic;
   const required = new Set(opts.data?.settings.required_fields ?? []);
   const costs = can("costs.view");
   const set = (k: keyof F, v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -68,6 +74,7 @@ export function PartForm({ edit, onClose, onSaved }: { edit?: PartDetail; onClos
     if (can("vendors.view")) b.vendors = vendors.filter((v) => v.vendor_id).map((v) => ({ ...v, unit_cost: costs ? v.unit_cost || null : undefined,
       lead_time_days: v.lead_time_days === "" ? null : Number(v.lead_time_days) }));
     if (!can("assets.view")) delete b.asset_ids;
+    if (pic !== undefined) b.picture_file_id = pic ? pic.id : null;
     if (edit) b.version = edit.version;
     else if (!nonStock) b.stock = stock.filter((s) => s.location_id || s.min_qty || s.max_qty || s.initial_quantity || s.area)
       .map((s) => ({ ...s, min_qty: s.min_qty || null, max_qty: s.max_qty || null, initial_quantity: can("parts.stock") ? s.initial_quantity || null : null }));
@@ -96,6 +103,19 @@ export function PartForm({ edit, onClose, onSaved }: { edit?: PartDetail; onClos
           <Field label="Manufacturer">{(id) => <Input id={id} value={f.manufacturer} maxLength={120} onChange={(e) => set("manufacturer", e.target.value)} />}</Field>
           <Field label="Manufacturer part number">{(id) => <Input id={id} value={f.mpn} maxLength={120} onChange={(e) => set("mpn", e.target.value)} />}</Field>
           <Field label={label("Lead time (days)", "lead_time_days")}>{(id) => <Input id={id} type="number" min={0} max={3650} value={f.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} />}</Field>
+        </div>
+        <div className="row" style={{ gap: 12, alignItems: "center" }}>
+          {shownPic ? <img className="asset-hero" src={shownPic.preview} alt="Part picture" /> : <span className="asset-hero ph" aria-hidden="true"><Package size={24} /></span>}
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="small faint">Picture shown in lists, on work orders and when people scan the part.</span>
+            <div className="row wrap" style={{ gap: 6 }}>
+              <PhotoPickerButton inputLabel="Choose a part picture" busy={picBusy} label={shownPic ? "Change picture" : "Add picture"} onBlob={async (blob) => {
+                setPicBusy(true);
+                try { setPic({ id: await uploadPicture(blob), preview: URL.createObjectURL(blob) }); } catch (e) { setErr((e as ApiError).message); } finally { setPicBusy(false); }
+              }} />
+              {shownPic && <Button size="sm" variant="ghost" disabled={picBusy} onClick={() => setPic(null)}>Remove picture</Button>}
+            </div>
+          </div>
         </div>
         <Field label={label("Description", "description")}>{(id) => <textarea id={id} className="textarea" rows={3} value={f.description} maxLength={5000} onChange={(e) => set("description", e.target.value)} />}</Field>
         <Checkbox checked={nonStock} onChange={setNonStock} disabled={!!edit && !edit.non_stock && Number(edit.on_hand ?? 0) !== 0}

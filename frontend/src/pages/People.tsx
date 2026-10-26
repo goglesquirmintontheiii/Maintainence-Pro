@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Mail, Plus, Search, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Copy, Mail, Plus, Search, Trash2, UserPlus, Users } from "lucide-react";
 import { api, ApiError, type Member, type Role, type Team } from "../lib/api";
 import { useSession } from "../lib/session";
 import { dateTime, timeAgo } from "../lib/format";
+import { copyText } from "../lib/wo";
 import { useToast } from "../components/Toast";
 import { Avatar, AvatarStack, Button, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../components/ui";
 import { ColorPicker } from "../components/ColorPicker";
+import { MessageButton } from "./messages/MessageButton";
 
 const ROLE_TONE: Record<string, "info" | "success" | "warning" | "neutral"> = { owner: "info", admin: "info", limited_admin: "info", technician: "success",
   operator: "success", custom: "success", requester: "warning", viewer: "neutral" };
@@ -152,12 +154,14 @@ function UserDetail({ id }: { id: string }) {
         <Avatar name={m.name} initials={m.initials} size="xl" src={m.avatar_url} />
         <div className="grow"><h1>{m.name}</h1><div className="muted">{m.job_title || "No job title"}</div>
           <div className="row wrap" style={{ marginTop: 8 }}><Pill tone={ROLE_TONE[m.role]}>{m.role_label}</Pill>{!m.has_password && <Pill tone="warning">Invitation pending</Pill>}</div></div>
+        <MessageButton userId={m.id} />
         <a className="btn" href={`mailto:${m.email}`}><Mail size={16} />Email</a>
       </div>
       <dl className="meta-grid card card-pad">
         <div><dt>Email</dt><dd>{m.email}</dd></div>
         <div><dt>Last signed in</dt><dd title={dateTime(m.last_login_at)}>{timeAgo(m.last_login_at)}</dd></div>
         <div><dt>Joined</dt><dd>{dateTime(m.joined_at)}</dd></div>
+        {can("users.manage") && <div><dt>User ID</dt><dd><UserId id={m.id} /></dd></div>}
         <div><dt>Teams</dt><dd className="row wrap">{m.teams.length ? m.teams.map((t) => <Link key={t.id} to={`/people/teams/${t.id}`} className="chip"><span className="sw" style={{ background: t.color }} />{t.name}</Link>) : <span className="faint">None</span>}</dd></div>
       </dl>
       {manage && (
@@ -250,7 +254,7 @@ function TeamModal({ team, onClose }: { team?: Team; onClose: () => void }) {
 }
 
 function TeamDetail({ id }: { id: string }) {
-  const { can } = useSession();
+  const { can, session } = useSession();
   const qc = useQueryClient();
   const nav = useNavigate();
   const { toast } = useToast();
@@ -276,6 +280,7 @@ function TeamDetail({ id }: { id: string }) {
       <div className="detail-head">
         <span className="avatar xl" style={{ background: team.color, borderRadius: 14 }}>{team.name.slice(0, 2).toUpperCase()}</span>
         <div className="grow"><h1>{team.name}</h1><div className="muted">{team.description || "No description"}</div></div>
+        {team.members.some((x) => x.id === session.user?.id) && <MessageButton teamId={team.id} label="Team chat" />}
         {manage && <Button onClick={() => setEdit(true)}>Edit</Button>}
       </div>
       <section className="card">
@@ -329,4 +334,13 @@ function WorkSettings({ userId, manage, self }: { userId: string; manage: boolea
       </div>
     </section>
   );
+}
+
+/** A user's ID with a copy button (MP-133): for support, the API and the server's sysadmin commands. */
+export function UserId({ id }: { id: string }) {
+  const { toast } = useToast();
+  return <span className="row" style={{ gap: 6, flexWrap: "nowrap", minWidth: 0 }}>
+    <code className="mono small" style={{ overflowWrap: "anywhere" }} aria-label="User ID">{id}</code>
+    <Button size="sm" variant="ghost" icon aria-label="Copy user ID" title="Copy user ID" onClick={async () => { toast((await copyText(id)) ? "User ID copied" : "Couldn't copy. Select the ID and copy it.", { kind: "info" }); }}><Copy size={14} /></Button>
+  </span>;
 }

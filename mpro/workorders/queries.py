@@ -816,7 +816,7 @@ def filter_options(m: Membership) -> dict[str, Any]:
                 "initials": x.user.initials,
                 "avatar_url": (_person(x.user) or {}).get("avatar_url"),
                 "role": x.role,
-                "assignable": x.role not in ("requester", "viewer"),
+                "assignable": x.role not in ("requester", "viewer", "guest"),
             }
             for x in ms
         ],

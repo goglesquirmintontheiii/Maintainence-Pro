@@ -1511,6 +1511,9 @@ def po_detail(po: PurchaseOrder, m: Membership) -> dict[str, Any]:
     d["tax_certificate_id"] = str(po.tax_certificate_id) if po.tax_certificate_id else None
     d["rejected_reason"] = po.rejected_reason
     d["receipts"] = receipts_of(po, costs)
+    from mpro.purchasing import vendor_ack
+
+    d["vendor_ack"] = vendor_ack.ack_dict(vendor_ack.current(po))
     users = {}
 
     def uname(i: Any) -> str | None:
@@ -1749,7 +1752,15 @@ def send_to_vendor(org: Organization, m: Membership, po: PurchaseOrder, data: di
     f = save_file(org.id, name, pdf, m.user_id, "application/pdf")
     attach(f, "purchase_order", po.id, "pdf")
     msg = text(data.get("message"), 4000, "Message")
-    body = (msg + "\n\n" if msg else "") + f"Please find purchase order {po_number(po)} attached.\n\n{org.name}"
+    from mpro.purchasing import vendor_ack
+
+    token = vendor_ack.new_link(org.id, po, to, m.user_id)  # r261: the vendor answers through this link
+    body = (
+        (msg + "\n\n" if msg else "")
+        + f"Please find purchase order {po_number(po)} attached.\n\n"
+        + "Please confirm you received it, propose a delivery date or let us know you can't fill it (no sign-in "
+        + f"needed):\n{vendor_ack.link_url(token)}\n\n{org.name}"
+    )
     for addr in to:
         send_email(
             addr,

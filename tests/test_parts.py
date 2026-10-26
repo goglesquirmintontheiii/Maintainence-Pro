@@ -191,7 +191,7 @@ def test_work_order_parts_reserve_issue_return_and_done(admin: Api) -> None:
     wo2 = create_wo(admin, asset_id=a["id"])
     admin.post(
         f"{API}/work-orders/{wo2['id']}/parts",
-        {"part_id": p["id"], "quantity": "2", "location_id": wh, "status": "kitted"},
+        {"part_id": p["id"], "quantity": "2", "location_id": wh, "status": "reserved"},
     )
     r = admin.post(f"{API}/work-orders/{wo2['id']}/status", {"status": "done"})
     assert r.status_code == 200, r.json

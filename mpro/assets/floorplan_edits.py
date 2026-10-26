@@ -112,6 +112,23 @@ def _clean_shape(s: Any, ids: set[str]) -> dict[str, Any]:
         out["fill_opacity"] = _num(s["fill_opacity"], 0, 1, "Fill opacity")
     if "font_size" in s:
         out["font_size"] = _num(s["font_size"], 4, 200, "Text size")
+    if kind == "text":  # label styles (MP-132)
+        if "font" in s:
+            if s["font"] not in FONTS:
+                raise RuleError(f"Pick a font: {', '.join(FONTS)}.", 422)
+            out["font"] = s["font"]
+        for k in ("bold", "italic"):
+            if k in s:
+                out[k] = bool(s[k])
+        if "outline" in s:
+            if s["outline"] in (None, "", "none"):
+                out["outline"] = "none"
+            elif not isinstance(s["outline"], str) or not _COLOR.match(s["outline"]):
+                raise RuleError("Colours look like #1b5bd4.", 422)
+            else:
+                out["outline"] = s["outline"]
+        if "outline_width" in s:
+            out["outline_width"] = _num(s["outline_width"], 0, 20, "Outline width")
     if "label" in s:
         out["label"] = str(s.get("label") or "")[:120]
     for k in ("location_id", "asset_id"):
@@ -121,6 +138,9 @@ def _clean_shape(s: Any, ids: set[str]) -> dict[str, Any]:
             except ValueError as e:
                 raise RuleError("That link doesn't exist.", 422) from e
     return out
+
+
+FONTS = ("sans", "serif", "mono", "rounded")  # text label fonts (MP-132)
 
 
 def clean_annotations(org_id: uuid.UUID, data: Any) -> dict[str, Any]:

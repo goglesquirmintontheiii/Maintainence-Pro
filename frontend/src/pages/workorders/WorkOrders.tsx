@@ -5,6 +5,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { CalendarDays, CheckSquare, ClipboardList, Columns3, Download, FileSpreadsheet, LayoutList, ListFilter, MessageSquare, MoreHorizontal, Plus, Search, Table2, Users } from "lucide-react";
 import { api, ApiError, type ExportItem, type Filter, type SavedView, type WOList, type WorkOrder } from "../../lib/api";
 import { useSession } from "../../lib/session";
+import { useLiveInvalidate } from "../../lib/live";
 import { dueLabel, filtersParam, useWOOptions } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
 import { AvatarStack, Button, Checkbox, Dropdown, EmptyState, Input, ListSkeleton, Modal, PriorityBadge, Select, StatusPill } from "../../components/ui";
@@ -35,6 +36,8 @@ export function WorkOrdersPage() {
   const { can } = useSession();
   const opts = useWOOptions();
   const nav = useNavigate();
+  // lists, counts and the workload refresh when anyone changes a work order (0.6.0 realtime, r269)
+  useLiveInvalidate("org:work_order", [["work-orders"], ["wo-stats"], ["wo-workload"]]);
   // A direct link to one work order (/work-orders/:id) always opens it in the To Do split.
   const view = (params.get("view") as ViewKind) || (id ? "todo" : load<ViewKind>("wo.view", "todo"));
   const [filters, setFilters] = useState<Filter[]>(() => load("wo.filters", []));

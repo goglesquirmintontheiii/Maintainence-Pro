@@ -19,6 +19,7 @@ import { PreviewForm } from "./Runner";
 import { ProcedureAnalytics } from "./Analytics";
 import { MONTHS, fieldsOf, useProcOptions, walk, type Library, type Procedure, type ProcedureDetail, type Schema, type Version } from "./types";
 import "../../styles/procedures.css";
+import { ScanRequirementPanel } from "../scan/ScanRequirement"; // 0.6.0 scan to start or complete (MP-097)
 
 // an imported schema waiting for the builder (the route change remounts the page, so it can't live in state)
 let pendingImport: { name: string; schema: Schema } | null = null;
@@ -201,6 +202,7 @@ function ProcedureView({ id }: { id: string }) {
           <div className="card-body">{shown ? <PreviewForm schema={shown.schema} refs={Object.fromEntries(p.files.map((f) => [f.id, f]))} /> : <span className="faint">Empty</span>}</div>
         </section>
       </>}
+      {tab === "overview" && !p.deleted && <ScanRequirementPanel procedureId={id} editable={manage && p.status !== "archived"} />}
       {tab === "versions" && <Versions id={id} tz={tz} />}
       {tab === "history" && <History id={id} from={from} to={to} tz={tz} />}
       {tab === "analytics" && <ProcedureAnalytics id={id} from={from} to={to} tz={tz} />}

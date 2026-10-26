@@ -10,6 +10,8 @@ import { Avatar, AvatarStack, Button, EmptyState, Field, Input, ListSkeleton, Mo
 import { SETTINGS_NAV } from "../shell/nav";
 import { LogoMark } from "../components/Logo";
 import { PhotoPickerButton } from "../components/AvatarCropper";
+import { UserId } from "./People";
+import { DeleteAccount } from "../pwa/DeleteAccount"; // r321 (0.6.0)
 
 export function SettingsLayout() {
   const { can } = useSession();
@@ -243,7 +245,8 @@ export function Profile() {
       <section className="card"><div className="card-head"><h2>Your details</h2></div>
         <div className="card-body form-grid"><Field label="Name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
           <Field label="Email" hint="Ask an administrator to change your email.">{(id) => <Input id={id} value={session.user!.email} disabled />}</Field>
-          <Field label="Job title" hint={canTitle ? undefined : "Ask an administrator to change your job title."}>{(id) => <Input id={id} value={jobTitle} maxLength={120} disabled={!canTitle} placeholder="e.g. Maintenance lead" onChange={(e) => setTitle(e.target.value)} />}</Field></div>
+          <Field label="Job title" hint={canTitle ? undefined : "Ask an administrator to change your job title."}>{(id) => <Input id={id} value={jobTitle} maxLength={120} disabled={!canTitle} placeholder="e.g. Maintenance lead" onChange={(e) => setTitle(e.target.value)} />}</Field>
+          <div className="field"><span className="label">User ID</span><UserId id={session.user!.id} /><span className="hint">Support and the server's sysadmin commands use this to find your account.</span></div></div>
         <div className="card-body" style={{ paddingTop: 0 }}><div className="row"><Button variant="primary" disabled={!name.trim() || name === session.user!.name} onClick={() => saveName.mutate()}>Save name</Button>
           {canTitle && <Button disabled={title === null || title === (me.data?.job_title ?? "") || saveTitle.isPending} onClick={() => saveTitle.mutate()}>Save job title</Button>}</div></div></section>
       <section className="card"><div className="card-head"><h2>Change password</h2></div>
@@ -254,6 +257,7 @@ export function Profile() {
           {err && <div className="banner warning full" role="alert">{err}</div>}
           <div className="full"><Button type="submit" variant="primary" disabled={!pw.current || pw.next.length < 8}>Change password</Button></div>
         </form></section>
+      <DeleteAccount />
       <p className="small faint">Theme: choose it from the account menu in the top right. <Link to="/settings/design-system">See the design system</Link>.</p>
     </div>
   );

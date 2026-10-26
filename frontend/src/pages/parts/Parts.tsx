@@ -16,6 +16,7 @@ import { PartForm } from "./PartForm";
 import { CycleCountsPage } from "./CycleCounts";
 import { TransactionsPage } from "./Transactions";
 import { qsOf, qty, usePartOptions, type PartList, type PartRow } from "./types";
+import { PartThumb } from "./PartPicture";
 import "./parts.css";
 
 type View = "list" | "table";
@@ -204,7 +205,7 @@ export function StockBadge({ p }: { p: Pick<PartRow, "non_stock" | "needs_restoc
 function PartRowBody({ p }: { p: PartRow }) {
   return (
     <Link to={`/parts/${p.id}`} className="tree-link">
-      {p.thumb_url ? <img className="asset-thumb" src={p.thumb_url} alt="" loading="lazy" /> : <span className="asset-thumb ph" aria-hidden="true"><Package size={15} /></span>}
+      <PartThumb picture={p.picture} />
       <span className="grow" style={{ minWidth: 0 }}>
         <span className="t">{p.name}</span>
         <span className="s">{[p.part_number, p.types.map((t) => t.name).join(", "), p.needs_restock ? "Needs restock" : ""].filter(Boolean).join(" · ") || " "}</span>
@@ -289,7 +290,7 @@ function PartTable({ query }: { query: Record<string, string> }) {
               {!data.isLoading && items.length === 0 && <tr><td colSpan={8}><EmptyState title="No parts match">Try clearing filters.</EmptyState></td></tr>}
               {items.map((p) => (
                 <tr key={p.id} className={"clickable" + (p.deleted ? " deleted" : "")} onClick={() => nav(`/parts/${p.id}`)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") nav(`/parts/${p.id}`); }}>
-                  <td><span className="row" style={{ gap: 8 }}>{p.thumb_url ? <img className="asset-thumb sm" src={p.thumb_url} alt="" loading="lazy" /> : null}<span className="t">{p.name}</span></span></td>
+                  <td><span className="row" style={{ gap: 8 }}><PartThumb picture={p.picture} size="sm" /><span className="t">{p.name}</span></span></td>
                   <td className="mono">{p.part_number || <span className="faint">—</span>}</td>
                   <td>{p.types.length ? <span className="row wrap" style={{ gap: 4 }}>{p.types.map((t) => <span key={t.id} className="chip"><span className="sw lg" style={{ background: t.color }} />{t.name}</span>)}</span> : <span className="faint">—</span>}</td>
                   <td><StockBadge p={p} /></td><td className="num">{p.non_stock ? "—" : p.available}</td>

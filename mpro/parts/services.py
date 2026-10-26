@@ -17,6 +17,7 @@ from sqlalchemy import func, or_, select
 
 from mpro.core.events import emit
 from mpro.core.hooks import run_hooks
+from mpro.core.ids import uuid7
 from mpro.core.models import utcnow
 from mpro.core.permissions import can
 from mpro.core.settings import get_settings, save_settings
@@ -40,13 +41,12 @@ from mpro.parts.models import (
 from mpro.parts.settings import DEFAULTS as SETTING_DEFAULTS
 from mpro.workorders.models import SavedView, WorkOrder
 
-HELD = ("reserved", "kitted", "staged")  # count against availability (r220)
+HELD = ("reserved",)  # count against availability (r220)
+# Planned / Reserved / Used, as the work order shows them (MP-131 removed Kitted and Staged)
 STATUS_LABELS = {
-    "assigned": "Assigned",
+    "assigned": "Planned",
     "reserved": "Reserved",
-    "kitted": "Kitted",
-    "staged": "Staged",
-    "issued": "Issued",
+    "issued": "Used",
     "released": "Released",
 }
 REQUIRABLE = (
@@ -261,6 +261,39 @@ def duplicates(
     return list(db.session.scalars(q.limit(10)).all())
 
 
+def _set_picture(org: Organization, p: Part, fid: Any, changes: dict[str, tuple[Any, Any]]) -> None:
+    """The part's picture (MP-131): an image file from this organization. It's kept with the part's files, so
+    removing the picture also takes that photo off the part."""
+    from mpro.core.files import FileLink, FileObject, attach
+
+    if p.id is None:
+        p.id = uuid7()
+    old = p.picture_file_id
+    if fid:
+        f = db.session.get(FileObject, _uuid(fid, "picture"))
+        if f is None or f.org_id != org.id or f.deleted_at is not None:
+            raise RuleError("That picture doesn't exist.", 422)
+        if not f.is_image:
+            raise RuleError("Pick a photo (JPG, PNG, WebP or GIF) for the picture.", 422)
+        linked = db.session.scalars(
+            select(FileLink).where(FileLink.entity_type == "part", FileLink.entity_id == p.id, FileLink.file_id == f.id)
+        ).first()
+        if linked is None:
+            attach(f, "part", p.id, role="photo")
+        p.picture_file_id = f.id
+    else:
+        if old is not None:
+            for link in db.session.scalars(
+                select(FileLink).where(
+                    FileLink.entity_type == "part", FileLink.entity_id == p.id, FileLink.file_id == old
+                )
+            ).all():
+                db.session.delete(link)
+        p.picture_file_id = None
+    if old != p.picture_file_id:
+        changes["picture"] = ("set" if old else "", "set" if p.picture_file_id else "")
+
+
 def _apply_fields(org: Organization, p: Part, data: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
     from mpro.workorders.services import _clean_custom
 
@@ -303,16 +336,7 @@ def _apply_fields(org: Organization, p: Part, data: dict[str, Any]) -> dict[str,
             changes["non_stock"] = (p.non_stock, ns)
             p.non_stock = ns
     if "picture_file_id" in data:
-        fid = data["picture_file_id"]
-        if fid:
-            from mpro.core.files import FileObject
-
-            f = db.session.get(FileObject, _uuid(fid, "picture"))
-            if f is None or f.org_id != org.id or f.deleted_at is not None:
-                raise RuleError("That picture doesn't exist.", 422)
-            p.picture_file_id = f.id
-        else:
-            p.picture_file_id = None
+        _set_picture(org, p, data["picture_file_id"], changes)
     if "custom" in data:
         if not isinstance(data["custom"], dict):
             raise RuleError("Custom fields must be an object.", 422)
@@ -1006,6 +1030,7 @@ def return_parts(org: Organization, m: Membership, wo: WorkOrder, wp: WorkOrderP
         note=f"Returned from work order #{wo.number}",
     )
     wp.used = (wp.used or ZERO) - qty
+    wp.done_used = min(wp.done_used or ZERO, wp.used)
     if wp.used == ZERO:
         wp.status = "released" if wp.quantity == qty else "assigned"
         if wp.status == "assigned":
@@ -1130,17 +1155,15 @@ def parts_cost(wo_id: uuid.UUID) -> Decimal:
 
 # ---------------------------------------------------------------- work-order hooks (r042, r215, create with parts)
 def on_wo_status(org: Organization, m: Membership, wo: WorkOrder, from_status: str, to_status: str) -> None:
-    """Done issues what's still reserved/kitted/staged (r042) and links used parts to the asset(s) (r215).
-    Canceling releases held parts."""
+    """Done uses up what's still Planned or Reserved (r042, MP-131) and links used parts to the asset(s) (r215).
+    Reopening a Done work order puts back exactly what Done used. Canceling releases held parts."""
     if to_status == "done":
-        for wp in db.session.scalars(
-            select(WorkOrderPart).where(WorkOrderPart.work_order_id == wo.id, WorkOrderPart.status.in_(HELD))
-        ).all():
-            p = db.session.get(Part, wp.part_id)
-            if p is not None:
-                _set_status(org, m, wo, wp, p, "issued")
+        _use_up_on_done(org, m, wo)
         _auto_link_assets(org.id, wo)
-    elif to_status == "canceled":
+        return
+    if from_status == "done":
+        _undo_done(org, m, wo)
+    if to_status == "canceled":
         for wp in db.session.scalars(
             select(WorkOrderPart).where(WorkOrderPart.work_order_id == wo.id, WorkOrderPart.status.in_(HELD))
         ).all():
@@ -1152,6 +1175,93 @@ def on_wo_status(org: Organization, m: Membership, wo: WorkOrder, from_status: s
             select(WorkOrderPart).where(WorkOrderPart.work_order_id == wo.id, WorkOrderPart.status.in_(HELD))
         ).all():
             refresh_reserved(org.id, wp.part_id, wp.location_id)
+
+
+def _use_up_on_done(org: Organization, m: Membership, wo: WorkOrder) -> None:
+    """Take every Planned and Reserved line out of stock. With negative stock off and too little on the shelf, use
+    what's there and record the shortfall on the line (completing is never blocked)."""
+    allow_neg = bool(settings(org.id)["allow_negative_stock"])
+    short: list[str] = []
+    for wp in db.session.scalars(
+        select(WorkOrderPart)
+        .where(WorkOrderPart.work_order_id == wo.id, WorkOrderPart.status.in_(("assigned", *HELD)))
+        .order_by(WorkOrderPart.created_at)
+    ).all():
+        p = db.session.get(Part, wp.part_id)
+        if p is None:
+            continue
+        need = max(ZERO, (wp.quantity or ZERO) - (wp.used or ZERO))
+        take = need
+        if need > ZERO and not p.non_stock and not allow_neg:
+            lock_part(org.id, p.id)
+            st = _stock_row(org.id, p.id, wp.location_id)
+            take = min(need, max(ZERO, (st.on_hand if st else ZERO) or ZERO))
+        prev = wp.status
+        if take > ZERO:
+            record(
+                org.id,
+                p.id,
+                wp.location_id,
+                "use",
+                take,
+                work_order_id=wo.id,
+                user_id=m.user_id,
+                allow_negative=allow_neg,
+                unit_cost=wp.unit_cost_override,
+                note=f"Work order #{wo.number} done",
+            )
+        wp.used = (wp.used or ZERO) + take
+        wp.done_from = prev
+        wp.done_used = take
+        wp.shortfall = need - take
+        wp.status = "issued"
+        db.session.flush()
+        if not p.non_stock:
+            refresh_reserved(org.id, p.id, wp.location_id)
+            if take > ZERO:
+                _after_change(org.id, p, wp.location_id)
+        if wp.shortfall > ZERO:
+            short.append(f"{p.name}: used {_q(take)} of {_q(need)} {p.unit} ({_q(wp.shortfall)} short)")
+    if short:
+        emit(
+            "wo.parts_short",
+            entity_type="work_order",
+            entity_id=wo.id,
+            entity_label=_wo_label(wo),
+            summary="Not enough in stock. " + "; ".join(short),
+            data={"lines": short},
+            org_id=org.id,
+        )
+
+
+def _undo_done(org: Organization, m: Membership, wo: WorkOrder) -> None:
+    """Reopened: return what Done took and put the lines back to Planned / Reserved."""
+    for wp in db.session.scalars(
+        select(WorkOrderPart).where(WorkOrderPart.work_order_id == wo.id, WorkOrderPart.done_from.is_not(None))
+    ).all():
+        p = db.session.get(Part, wp.part_id)
+        back = min(wp.done_used or ZERO, wp.used or ZERO)
+        if p is not None and back > ZERO:
+            record(
+                org.id,
+                p.id,
+                wp.location_id,
+                "return",
+                back,
+                work_order_id=wo.id,
+                user_id=m.user_id,
+                note=f"Work order #{wo.number} reopened",
+            )
+        wp.used = (wp.used or ZERO) - back
+        wp.status = wp.done_from if wp.done_from in ("assigned", *HELD) else "assigned"
+        wp.done_from = None
+        wp.done_used = ZERO
+        wp.shortfall = ZERO
+        db.session.flush()
+        if p is not None and not p.non_stock:
+            refresh_reserved(org.id, p.id, wp.location_id)
+            if back > ZERO:
+                _after_change(org.id, p, wp.location_id)
 
 
 def _auto_link_assets(org_id: uuid.UUID, wo: WorkOrder) -> None:

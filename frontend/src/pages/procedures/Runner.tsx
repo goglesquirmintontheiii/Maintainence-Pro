@@ -12,6 +12,7 @@ import { FieldRow, type SaveBody } from "./Fields";
 import { ItemsEditor } from "./Builder";
 import { isField, scoreOf, useLibrary, visibleIds, type Answer, type Corrective, type Item, type Run, type Schema } from "./types";
 import "../../styles/procedures.css";
+import { queueMutation } from "../../lib/offline";
 
 type Props = { items: Item[]; answers: Record<string, Answer>; disabled?: boolean; preview?: boolean; tz?: string; refs?: Run["reference_files"];
   onSave: (fieldId: string, body: SaveBody) => Promise<unknown> | void };
@@ -77,7 +78,11 @@ export function ProcedureRuns({ wo, onChange }: { wo: WODetail; onChange: () => 
   const setRun = (r: Run) => qc.setQueryData<WODetail>(["work-order", wo.id], (prev) => prev ? { ...prev, procedures: (prev.procedures ?? []).map((x) => (x as Run).id === r.id ? r : x) } : prev);
   const save = async (run: Run, fid: string, body: SaveBody) => {
     try {
-      const res = await api<{ run: Run; corrective: Corrective }>(`/work-orders/${wo.id}/procedures/${run.id}/answers/${encodeURIComponent(fid)}`, { method: "PUT", body });
+      // offline (0.6.0, MP-053): the answer is kept on the device and sent when the connection is back
+      const q = await queueMutation<{ run: Run; corrective: Corrective }>({ method: "PUT", path: `/work-orders/${wo.id}/procedures/${run.id}/answers/${encodeURIComponent(fid)}`,
+        body, label: `#${wo.number}: ${run.procedure?.name ?? "procedure"} answer`, woId: wo.id });
+      if (q.queued || !q.result) { toast("Answer saved on this device. It syncs when you're back online."); return; }
+      const res = q.result;
       setRun(res.run);
       if (res.corrective?.prompt) setPrompt({ run: res.run, p: res.corrective.prompt });
       if (res.corrective?.created) toast(`Created corrective work order #${res.corrective.created.number}`);

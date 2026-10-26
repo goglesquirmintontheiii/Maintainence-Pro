@@ -13,9 +13,10 @@ export type PartRow = {
   id: string; name: string; part_number: string; description: string; unit: string; unit_cost: string | null;
   on_hand: string | null; reserved: string | null; available: string | null; ordered: string | null; min_qty: string | null; max_qty: string | null;
   non_stock: boolean; needs_restock: boolean; out_of_stock: boolean; negative: boolean; critical: boolean; types: PartTypeRef[];
-  barcode: string; thumb_url: string | null; deleted: boolean; version: number; updated_at: string; created_at: string;
+  barcode: string; thumb_url: string | null; picture: PartPicture | null; deleted: boolean; version: number; updated_at: string; created_at: string;
   locations: number;
 };
+export type PartPicture = { id: string; url: string; thumb_url: string };
 export type Paged<T> = { items: T[]; total: number; page: number; per_page: number };
 export type PerLocationRow = StockRow & { part: { id: string; name: string; part_number: string; unit: string } };
 export type PartList = Paged<PartRow> & { per_location?: PerLocationRow[] };
@@ -41,8 +42,8 @@ export type Txn = {
 
 export type Availability = { state: "available" | "partial" | "unavailable" | "issued" | "none"; available: string | null; overcommitted: boolean };
 export type WOPartLine = {
-  id: string; part: { id: string; name: string; part_number: string; unit: string; non_stock: boolean; deleted: boolean }; location: Ref | null;
-  quantity: string; used: string; status: string; status_label: string; unit_cost: string | null; unit_cost_override: string | null;
+  id: string; part: { id: string; name: string; part_number: string; unit: string; non_stock: boolean; deleted: boolean; picture: PartPicture | null }; location: Ref | null;
+  quantity: string; used: string; shortfall: string; status: string; status_label: string; unit_cost: string | null; unit_cost_override: string | null;
   line_cost: string | null; note: string; availability: Availability;
 };
 export type WOParts = { items: WOPartLine[]; total_cost: string | null; costs_visible: boolean };
@@ -64,7 +65,8 @@ export type CountRun = {
 
 export type PartOptions = { types: PartTypeRef[]; units: string[]; settings: PartsSettings; costs_visible: boolean };
 
-export const STATUS_OPTIONS: [string, string][] = [["issued", "Used"], ["assigned", "Planned"], ["reserved", "Reserved"], ["kitted", "Kitted"], ["staged", "Staged"]];
+// Planned / Reserved / Used (MP-131: Kitted and Staged were removed)
+export const STATUS_OPTIONS: [string, string][] = [["issued", "Used"], ["assigned", "Planned"], ["reserved", "Reserved"]];
 export const KIND_TONE: Record<string, "success" | "danger" | "info" | "neutral" | "warning"> = {
   restock: "success", receive: "success", return: "info", initial: "neutral", use: "danger", adjust: "warning", count: "warning", transfer_in: "info", transfer_out: "info",
 };

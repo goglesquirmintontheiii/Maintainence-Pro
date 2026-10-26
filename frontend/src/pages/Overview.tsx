@@ -6,6 +6,7 @@ import { useSession } from "../lib/session";
 import { NAV } from "../shell/nav";
 import { Button, EmptyState, ListSkeleton } from "../components/ui";
 import { WORow } from "./workorders/WorkOrders";
+import { PhoneHome } from "../pwa/PhoneHome"; // phone Overview (0.6.0, r290)
 
 const SHIPPED = [
   "Parts and inventory: stock per location, reservations, restocking, cycle counts and a transactions log",
@@ -61,6 +62,8 @@ export function Overview() {
         {can("wo.create") && <Button variant="primary" onClick={() => nav("/work-orders?new=1")}><Plus size={16} />New Work Order</Button>}
       </div>
       {session.test_build && <div className="banner info"><FlaskConical size={18} /><div><b>You're running a test build.</b> All data is stored locally on the host computer and may be lost during development.{session.db_path && <> The database is at <code className="mono db-path">{session.db_path}</code>.</>}</div></div>}
+      <PhoneHome />
+      <div className="overview-desktop">
       {can("wo.view") && <div className="tiles">
         {tile("Open work orders", s?.open, `${s?.assigned_to_me ?? 0} assigned to you`, [{ field: "status", op: "in", value: ["open", "on_hold", "in_progress"] }])}
         {tile("Overdue", s?.overdue, "Past their due date", [{ field: "due_at", op: "overdue" }], "danger")}
@@ -94,6 +97,7 @@ export function Overview() {
             {next && <div className="card-body" style={{ paddingTop: 0 }}><Link to={next.path} className="row small">See what {next.label} will do <ArrowRight size={14} /></Link></div>}
           </section>
         </div>
+      </div>
       </div>
     </div>
   );

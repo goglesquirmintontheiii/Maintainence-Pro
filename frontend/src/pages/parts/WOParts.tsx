@@ -12,7 +12,9 @@ import { Button, Dropdown, Field, Input, Modal, Pill, Select } from "../../compo
 import { MultiPicker } from "../../components/pickers";
 import { RunPanel } from "./CycleCounts";
 import { qsOf, qty, STATUS_OPTIONS, type CountRun, type PartList, type WOPartLine, type WOParts } from "./types";
+import { PartThumb } from "./PartPicture";
 import "./parts.css";
+import { queueMutation } from "../../lib/offline";
 
 const AVAIL: Record<string, { tone: "success" | "warning" | "danger" | "neutral" | "info"; label: string }> = {
   available: { tone: "success", label: "Available" }, partial: { tone: "warning", label: "Partly available" }, unavailable: { tone: "danger", label: "Not available" },
@@ -36,7 +38,8 @@ export function WOPartsSection({ wo }: { wo: WODetail }) {
   const editable = can("parts.use") && !closed;
   const refresh = () => { qc.invalidateQueries({ queryKey: ["wo-parts", wo.id] }); qc.invalidateQueries({ queryKey: ["part"] }); qc.invalidateQueries({ queryKey: ["parts"] }); qc.invalidateQueries({ queryKey: ["wo", wo.id] }); };
   const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
-  const patch = useMutation({ mutationFn: ({ l, body }: { l: WOPartLine; body: Record<string, unknown> }) => api(`/work-orders/${wo.id}/parts/${l.id}`, { method: "PATCH", body }), onSuccess: refresh, onError: err });
+  const patch = useMutation({ mutationFn: ({ l, body }: { l: WOPartLine; body: Record<string, unknown> }) => queueMutation({ method: "PATCH", path: `/work-orders/${wo.id}/parts/${l.id}`, body, label: `#${wo.number}: parts`, woId: wo.id }), // works offline (0.6.0)
+    onSuccess: (r) => { if (r.queued) toast("Saved on this device. It syncs when you're back online."); else refresh(); }, onError: err });
   const ret = useMutation({ mutationFn: (l: WOPartLine) => api(`/work-orders/${wo.id}/parts/${l.id}/return`, { method: "POST", body: {} }), onSuccess: () => { refresh(); toast("Returned to stock"); }, onError: err });
   const del = useMutation({ mutationFn: (l: WOPartLine) => api(`/work-orders/${wo.id}/parts/${l.id}`, { method: "DELETE" }), onSuccess: refresh, onError: err });
   const items = q.data?.items ?? [];
@@ -51,13 +54,14 @@ export function WOPartsSection({ wo }: { wo: WODetail }) {
         {items.length === 0 ? <div className="card-body small faint">No parts yet. Add what you used, or plan and reserve what the job needs.</div>
           : items.map((l) => (
             <div key={l.id} className="list-row wo-part-row">
-              <Package size={16} className="faint" />
+              <PartThumb picture={l.part.picture} />
               <div className="grow" style={{ minWidth: 0 }}>
                 <div className="t">{l.part.deleted ? l.part.name : <Link to={`/parts/${l.part.id}`}>{l.part.name}</Link>}</div>
                 <div className="s">{[l.part.part_number, l.location?.name, l.note].filter(Boolean).join(" · ") || " "}</div>
               </div>
               <span className="wo-part-qty">{l.status === "issued" ? qty(l.used, l.part.unit) : qty(l.quantity, l.part.unit)}</span>
               <Pill tone={l.status === "issued" ? "info" : "neutral"}>{l.status_label}</Pill>
+              {Number(l.shortfall) > 0 && <Pill tone="danger">{qty(l.shortfall, l.part.unit)} short (not in stock)</Pill>}
               {l.status !== "issued" && !l.part.non_stock && <Pill tone={AVAIL[l.availability.state]?.tone ?? "neutral"}>{AVAIL[l.availability.state]?.label}{l.availability.state === "partial" && l.availability.available ? ` (${l.availability.available})` : ""}</Pill>}
               {l.status !== "issued" && l.availability.overcommitted && <Pill tone="danger">Overcommitted</Pill>}
               {q.data?.costs_visible && <span className="small muted wo-part-cost">{currency(l.line_cost, cur)}</span>}
@@ -108,7 +112,7 @@ function AddPartsDialog({ woId, onClose, onDone }: { woId: string; onClose: () =
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!rows.length || add.isPending} onClick={() => add.mutate()}>Add {rows.length || ""} part{rows.length === 1 ? "" : "s"}</Button></>}>
       <MultiPicker label="Parts" placeholder="Search parts by name, number or barcode" value={rows.map((r) => r.part_id)} onChange={pick} searchPlaceholder="Search parts"
         options={[...rows.map((r) => ({ key: r.part_id, label: r.name })), ...(parts.data?.items ?? []).filter((p) => !rows.some((r) => r.part_id === p.id)).map((p) => ({
-          key: p.id, label: p.name, sub: [p.part_number, p.non_stock ? "Non-stock" : `${qty(p.available, p.unit)} available`].filter(Boolean).join(" · ") }))]} />
+          key: p.id, label: p.name, icon: <PartThumb picture={p.picture} size="sm" />, sub: [p.part_number, p.non_stock ? "Non-stock" : `${qty(p.available, p.unit)} available`].filter(Boolean).join(" · ") }))]} />
       <Input aria-label="Filter parts" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Narrow the list (name, number, barcode)" />
       {rows.map((r, i) => {
         const upd = (p: Partial<(typeof rows)[number]>) => setRows((rs) => rs.map((x, j) => (j === i ? { ...x, ...p } : x)));
@@ -121,7 +125,7 @@ function AddPartsDialog({ woId, onClose, onDone }: { woId: string; onClose: () =
             <Select aria-label={`Status of ${r.name}`} value={r.status} onChange={(e) => upd({ status: e.target.value })}>{STATUS_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>
           </div>);
       })}
-      <p className="small faint" style={{ margin: 0 }}>Used takes the parts out of stock now. Planned, Reserved, Kitted and Staged hold them for this work order; they're used when it's done.</p>
+      <p className="small faint" style={{ margin: 0 }}>Used takes the parts out of stock now. Planned and Reserved parts are used when the work order is done; Reserved also holds them so nobody else takes them.</p>
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );

@@ -37,14 +37,28 @@ def body() -> dict[str, Any]:
     return data
 
 
-VIEW = {"asset": "assets.view", "location": "locations.view", "meter": "meters.view", "part": "parts.view"}
-MANAGE = {"asset": "assets.manage", "location": "locations.manage", "meter": "meters.manage", "part": "parts.manage"}
+VIEW = {
+    "asset": "assets.view",
+    "location": "locations.view",
+    "meter": "meters.view",
+    "part": "parts.view",
+    "work_order": "wo.view",  # 0.6.0: codes on work orders and inspection rounds (MP-097)
+    "procedure": "procedures.view",
+}
+MANAGE = {
+    "asset": "assets.manage",
+    "location": "locations.manage",
+    "meter": "meters.manage",
+    "part": "parts.manage",
+    "work_order": "wo.edit",
+    "procedure": "procedures.manage",
+}
 
 
 def _check(entity_type: str, manage: bool = False) -> None:
     perm = (MANAGE if manage else VIEW).get(entity_type)
     if perm is None:
-        abort(422, message="Codes can go on assets, locations, meters and parts.")
+        abort(422, message="Codes can go on assets, locations, meters, parts, work orders and procedures.")
     if not can(g.membership, perm):
         abort(403, message="You don't have permission to do that.")
 
@@ -132,6 +146,8 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
     from mpro.assets.models import Asset, Location
     from mpro.meters.models import Meter
     from mpro.parts.models import Part
+    from mpro.procedures.models import Procedure
+    from mpro.workorders.models import WorkOrder
 
     code_ids = b.get("code_ids")
     if code_ids:  # blank codes (tag first, assign later)
@@ -146,7 +162,14 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
     et = str(b.get("entity_type") or "")
     _check(et)
     ids = b.get("ids")
-    model: Any = {"asset": Asset, "location": Location, "meter": Meter, "part": Part}[et]
+    model: Any = {
+        "asset": Asset,
+        "location": Location,
+        "meter": Meter,
+        "part": Part,
+        "work_order": WorkOrder,
+        "procedure": Procedure,
+    }[et]
     if isinstance(ids, list) and ids:
         if len(ids) > 5000:
             abort(422, message="Print up to 5,000 labels at a time.")
@@ -161,6 +184,10 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
             ).all()
         }
         recs = [found[i] for i in uids if i in found]
+        if et == "work_order":
+            from mpro.workorders.services import can_see
+
+            recs = [r for r in recs if can_see(g.membership, r)]
     elif et == "asset" and isinstance(b.get("query"), dict):
         from mpro.assets.queries import apply_asset_sort, asset_query
 
@@ -202,7 +229,7 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
         c = existing.get(r.id)
         if c is None:
             if not may_create:
-                abort(403, message=f"{r.name} has no QR code yet, and you can't create one.")
+                abort(403, message=f"{_rec_name(et, r)} has no QR code yet, and you can't create one.")
             c = svc.ensure_code(g.org, g.membership, et, r.id, commit=False)
         subtitle = ""
         if et == "asset":
@@ -215,10 +242,12 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
             subtitle = r.unit
         elif et == "part":
             subtitle = r.part_number or ""
+        elif et == "work_order":
+            subtitle = r.location.name if r.location else ""
         items.append(
             lbl.LabelItem(
                 url=svc.code_url(c.value),
-                title=r.name,
+                title=_rec_name(et, r),
                 subtitle=subtitle,
                 code=c.value,
                 barcode=(r.barcode if et in ("asset", "part") and r.barcode else c.value),
@@ -226,6 +255,10 @@ def _items(b: dict[str, Any]) -> list[lbl.LabelItem]:
         )
     db.session.commit()
     return items
+
+
+def _rec_name(et: str, r: Any) -> str:
+    return f"#{r.number} {r.title}" if et == "work_order" else str(r.name)
 
 
 @bp.post("/labels")
@@ -255,3 +288,115 @@ def print_labels() -> Response:
     disp = "attachment" if fmt == "zpl" or request.args.get("download") == "1" else "inline"
     resp.headers["Content-Disposition"] = f'{disp}; filename="labels.{ext}"'
     return resp
+
+
+# ---- 0.6.0 scan actions, check-ins and scan history (MP-097) --------------------------------------------------------
+from mpro.qr import scan as scan_svc  # noqa: E402
+
+scan_svc.register_targets()
+scan_svc.register_hooks()
+
+
+@bp.post("/scan")
+@require("org.view")
+def scan_and_record() -> dict[str, Any]:
+    """Scan a code: {value, source: camera|link|typed|photo, latitude, longitude, accuracy, client_id, scanned_at}.
+    Records the scan and returns the record with the actions this person can take and the default one."""
+    return guard(scan_svc.scan, g.org, g.membership, body())
+
+
+@bp.get("/scan/config")
+@require("org.view")
+def scan_config() -> dict[str, Any]:
+    s = scan_svc.settings(g.org.id)
+    return {"record_gps": s["record_gps"], "require_window_minutes": s["require_window_minutes"]}
+
+
+@bp.get("/scan/settings")
+@require("scan.settings")
+def get_scan_settings() -> dict[str, Any]:
+    return {
+        **scan_svc.settings(g.org.id),
+        "actions": {
+            et: [{"key": k, "label": label} for k, (label, _) in acts.items()] for et, acts in scan_svc.ACTIONS.items()
+        },
+    }
+
+
+@bp.patch("/scan/settings")
+@require("scan.settings")
+def patch_scan_settings() -> dict[str, Any]:
+    return guard(scan_svc.save, g.org, g.membership, body())
+
+
+@bp.post("/scan/events")
+@require("org.view")
+def record_scan_event() -> tuple[dict[str, Any], int]:
+    """An action after a scan, or an offline scan synced later: {entity_type, entity_id, action, work_order_id,
+    code, source, latitude, longitude, accuracy, scanned_at, client_id}. Replays with the same client_id are ignored."""
+    ev, created = guard(scan_svc.record_action, g.org, g.membership, body())
+    return ev, 201 if created else 200
+
+
+@bp.post("/scan/start-procedure")
+@require("org.view")
+def scan_start_procedure() -> dict[str, Any]:
+    """{procedure_id}: continue my open work order with this procedure, or start a new one."""
+    return guard(scan_svc.start_procedure, g.org, g.membership, body())
+
+
+@bp.get("/scan/history")
+@require("org.view")
+def scan_history() -> dict[str, Any]:
+    """Query: entity_type, entity_id, work_order_id, user_id, action, page, per_page. Without scan.history only your
+    own scans are listed."""
+    return guard(scan_svc.history, g.org, g.membership, dict(request.args.items()))
+
+
+@bp.get("/work-orders/<wo_id>/visits")
+@require("wo.view")
+def work_order_visits(wo_id: str) -> dict[str, Any]:
+    """Proof of visit: scans linked to the work order, and of its assets and location while it was open."""
+    from mpro.workorders.models import WorkOrder
+
+    try:
+        wid = uuid.UUID(wo_id)
+    except ValueError:
+        abort(404)
+    wo = db.session.get(WorkOrder, wid)
+    if wo is None or wo.org_id != g.org.id or wo.deleted_at is not None:
+        abort(404)
+    return guard(scan_svc.visits, g.org, g.membership, wo)
+
+
+def _procedure(pid: str) -> Any:
+    from mpro.procedures.services import get_procedure
+
+    p = guard(get_procedure, g.org.id, pid)
+    if p.work_order_id is not None:
+        abort(404)
+    return p
+
+
+@bp.get("/procedures/<pid>/scan-requirement")
+@require("procedures.view")
+def get_scan_requirement(pid: str) -> dict[str, Any]:
+    return scan_svc.requirement(g.org.id, _procedure(pid).id)
+
+
+@bp.put("/procedures/<pid>/scan-requirement")
+@require("procedures.manage")
+def put_scan_requirement(pid: str) -> dict[str, Any]:
+    """{on_start, on_complete}: work orders with this procedure need a scan of their asset, location or own code."""
+    p = _procedure(pid)
+    from mpro.core.permissions import can_on
+
+    if not can_on(g.membership, "procedures.manage", p):
+        abort(403, message="You don't have permission to do that.")
+    return guard(scan_svc.set_requirement, g.org, g.membership, p, body())
+
+
+@bp.get("/public/scan/<code>")
+def public_scan(code: str) -> dict[str, Any]:
+    """Signed out: a printed MPro code on an asset or location leads only to the request form (if allowed)."""
+    return guard(scan_svc.public_scan, code, (request.remote_addr or "")[:64])

@@ -1,7 +1,7 @@
 // One part: header, stock per location, vendors, assets, teams, codes, files, supplier links; transactions,
 // work orders and history tabs. Stock actions open the dialogs in StockDialogs.tsx.
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRightLeft, Link2, MoreHorizontal, Package, PackagePlus, Pencil, Plus, Printer, QrCode, RotateCcw, ShoppingCart, SlidersHorizontal, Trash2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
@@ -14,6 +14,7 @@ import { LabelDialog } from "../../components/LabelDialog";
 import { FilesSection, HistoryList, TeamChips } from "../assets/shared";
 import { ProductLinksPanel } from "../suppliers/ProductLinksPanel";
 import { PartForm } from "./PartForm";
+import { PartPictureControls } from "./PartPicture";
 import { AdjustDialog, LocationDialog, RestockDialog, TransferDialog } from "./StockDialogs";
 import { TxnTable } from "./Transactions";
 import { StockBadge } from "./Parts";
@@ -37,6 +38,13 @@ export function PartDetailView({ id, tab, onTab }: { id: string; tab: PartTab; o
   const [labels, setLabels] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [sp, setSp] = useSearchParams();
+  useEffect(() => { // opened from a scan (0.6.0, MP-097): ?do=restock | adjust
+    const d = sp.get("do");
+    if (d !== "restock" && d !== "adjust") return;
+    setDialog({ kind: d });
+    const next = new URLSearchParams(sp); next.delete("do"); setSp(next, { replace: true });
+  }, [sp, setSp]);
   const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
   const refresh = () => { qc.invalidateQueries({ queryKey: ["part", id] }); qc.invalidateQueries({ queryKey: ["parts"] }); qc.invalidateQueries({ queryKey: ["part-txns"] }); };
   const del = useMutation({ mutationFn: () => api(`/parts/${id}`, { method: "DELETE" }), onSuccess: () => { refresh(); setConfirmDelete(false); toast("Part deleted"); }, onError: (e) => { setConfirmDelete(false); err(e); } });
@@ -54,10 +62,11 @@ export function PartDetailView({ id, tab, onTab }: { id: string; tab: PartTab; o
       {p.deleted && <div className="banner warning"><Trash2 size={18} /><div className="grow">This part was deleted.</div>
         {can("parts.delete") && <Button size="sm" onClick={() => restore.mutate()}><RotateCcw size={14} />Restore</Button>}</div>}
       <div className="wo-head">
-        {p.thumb_url ? <img className="asset-hero" src={p.thumb_url} alt="" /> : <span className="asset-hero ph" aria-hidden="true"><Package size={26} /></span>}
+        {p.picture ? <a href={p.picture.url} target="_blank" rel="noreferrer" title="Open the picture"><img className="asset-hero" src={p.picture.thumb_url} alt={`Picture of ${p.name}`} /></a> : <span className="asset-hero ph" aria-hidden="true"><Package size={26} /></span>}
         <div className="grow">
           <div className="small muted"><Link to="/parts">Parts</Link>{p.part_number && <> · <span className="mono">{p.part_number}</span></>}</div>
           <h1 className="wo-title">{p.name}</h1>
+          {manage && <div style={{ marginTop: 6 }}><PartPictureControls partId={p.id} picture={p.picture} /></div>}
           <div className="row wrap" style={{ marginTop: 6 }}>
             <StockBadge p={p} />
             {p.needs_restock && <Pill tone="warning">Needs restock</Pill>}

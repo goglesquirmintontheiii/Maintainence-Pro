@@ -19,8 +19,8 @@ import { useToast } from "../../components/Toast";
 import { Button, Checkbox, Dropdown, Field, Input, Modal } from "../../components/ui";
 import { AssetPicker, LocationPicker } from "../../components/assetPickers";
 import {
-  arrowHead, bbox, DEFAULT_STYLE, descendants, drawOnCanvas, FILE_FORMAT, intersects, isClosed, leaves, mergeShapes, newId, PALETTE, parents, parseDrawing,
-  ringsPath, scale, textLines, topOf, translate, union, UNITS, type Box, type Pt, type Shape, type ShapeType,
+  arrowHead, bbox, DEFAULT_STYLE, FONTS, textLook, descendants, drawOnCanvas, FILE_FORMAT, intersects, isClosed, leaves, mergeShapes, newId, PALETTE, parents, parseDrawing,
+  ringsPath, scale, textLines, topOf, translate, union, UNITS, type Box, type FontKey, type Pt, type Shape, type ShapeType,
 } from "./floorplanShapes";
 import { PartsListCard, PartsListDialog } from "./FloorPlanParts";
 import { useTouchZoom } from "./floorplanTouch";
@@ -40,7 +40,8 @@ const TOOLS: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
   { id: "pin", label: "Asset pin", key: "I", icon: <MapPin size={17} /> },
   { id: "parts", label: "Parts list", key: "S", icon: <Package size={17} /> },
 ];
-type Style = { stroke: string; fill: string; stroke_width: number; fill_opacity: number; font_size: number };
+type Style = { stroke: string; fill: string; stroke_width: number; fill_opacity: number; font_size: number;
+  font: FontKey; bold: boolean; italic: boolean; outline: string; outline_width?: number };
 type Drag =
   | { kind: "move"; start: Pt; before: Shape[]; ids: string[]; moved: boolean }
   | { kind: "scale"; corner: number; box: Box; before: Shape[]; ids: string[] }
@@ -100,11 +101,11 @@ function ShapeSvg({ s, aspect, hit }: { s: Shape; aspect: number; hit?: boolean 
       ? <path d={ringsPath(s.rings, H)} fillRule="evenodd" {...common} {...hitProps} />
       : <polygon points={ptsAttr} {...common} {...hitProps} />;
     case "text": {
-      const fs = s.font_size ?? DEFAULT_STYLE.font_size;
+      const look = textLook(s), fs = look.fs;
       return (
-        <text x={(s.x ?? 0) * UNITS} y={(s.y ?? 0) * H} fontSize={fs} fontWeight={600} fill={stroke === "none" ? DEFAULT_STYLE.stroke : stroke}
-          stroke="#ffffff" strokeWidth={Math.max(2, fs * 0.16)} paintOrder="stroke" strokeLinejoin="round" dominantBaseline="text-before-edge"
-          style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }} pointerEvents={hit ? "all" : undefined}>
+        <text x={(s.x ?? 0) * UNITS} y={(s.y ?? 0) * H} fontSize={fs} fontWeight={look.weight} fontStyle={look.italic ? "italic" : undefined} fill={stroke === "none" ? DEFAULT_STYLE.stroke : stroke}
+          stroke={look.outline ?? "none"} strokeWidth={look.outline ? look.outlineWidth : 0} paintOrder="stroke" strokeLinejoin="round" dominantBaseline="text-before-edge"
+          style={{ fontFamily: look.family }} pointerEvents={hit ? "all" : undefined}>
           {textLines(s).map((l, i) => <tspan key={i} x={(s.x ?? 0) * UNITS} dy={i ? fs * 1.2 : 0}>{l || " "}</tspan>)}
         </text>);
     }
@@ -135,7 +136,7 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   const [future, setFuture] = useState<Shape[][]>([]);
   const [sel, setSel] = useState<string[]>([]);
   const [tool, setTool] = useState<Tool>("select");
-  const [style, setStyle] = useState<Style>({ ...DEFAULT_STYLE });
+  const [style, setStyle] = useState<Style>({ ...DEFAULT_STYLE, font: "sans", bold: true, italic: false, outline: "#ffffff" });
   const [drag, setDrag] = useState<Drag | null>(null);
   const [poly, setPoly] = useState<{ pts: Pt[]; hover: Pt | null } | null>(null);
   const [pinDraft, setPinDraft] = useState<{ x: number; y: number } | null>(null);
@@ -164,6 +165,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   const selLeaves = useMemo(() => leaves(sel, byId), [sel, byId]);
   const selBox = useMemo(() => union(selLeaves.map((id) => bbox(byId.get(id)!, aspect))), [selLeaves, byId, aspect]);
   const single = sel.length === 1 ? byId.get(sel[0]) ?? null : null;
+  // label styles (MP-132) apply to every selected text label; the panel shows the first one's
+  const selText = useMemo(() => selLeaves.map((id) => byId.get(id)).find((x) => x?.type === "text") ?? null, [selLeaves, byId]);
 
   // a new text shape: put the cursor in its text box
   useEffect(() => {
@@ -326,7 +329,8 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
   const newShape = (type: Shape["type"], p: Pt): Shape => {
     const st = { stroke: style.stroke, stroke_width: style.stroke_width };
     if (type === "rect" || type === "ellipse") return { id: newId(), type, x: p[0], y: p[1], w: 0, h: 0, ...st, fill: style.fill, fill_opacity: style.fill_opacity };
-    if (type === "text") return { id: newId(), type, x: p[0], y: p[1], w: 0, h: 0, text: "Text", stroke: style.stroke, font_size: style.font_size };
+    if (type === "text") return { id: newId(), type, x: p[0], y: p[1], w: 0, h: 0, text: "Text", stroke: style.stroke, font_size: style.font_size,
+      font: style.font, bold: style.bold, italic: style.italic, outline: style.outline, ...(style.outline_width !== undefined ? { outline_width: style.outline_width } : {}) };
     return { id: newId(), type, points: [p, p], ...st };
   };
 
@@ -629,6 +633,27 @@ export function FloorPlanEditor({ locId, plan, editable, startEditing = false, o
             {(!single || single.type === "text") && <label className="fp-row"><span className="fp-lbl">Text size</span>
               <input type="range" min={8} max={120} step={1} value={single?.font_size ?? style.font_size} onChange={(e) => applyStyle({ font_size: Number(e.target.value) })} aria-label="Text size" />
               <span className="small tnum">{single?.font_size ?? style.font_size}</span></label>}
+            {(sel.length === 0 || selText) && (() => {
+              const t = selText ?? null, look = t ? textLook(t) : null;
+              const bold = t ? t.bold !== false : style.bold, italic = t ? !!t.italic : style.italic;
+              const outline = t ? (look!.outline ?? "none") : style.outline;
+              const ow = t ? Math.round(look!.outlineWidth) : style.outline_width ?? Math.round(Math.max(2, style.font_size * 0.16));
+              return <>
+                <label className="fp-row"><span className="fp-lbl">Font</span>
+                  <select className="select" value={t?.font ?? style.font} aria-label="Font" onChange={(e) => applyStyle({ font: e.target.value as FontKey })}>
+                    {FONTS.map(([k, label, family]) => <option key={k} value={k} style={{ fontFamily: family }}>{label}</option>)}</select></label>
+                <div className="fp-row"><span className="fp-lbl">Style</span>
+                  <span className="seg" role="group" aria-label="Text style">
+                    <button type="button" className={"seg-btn" + (bold ? " on" : "")} aria-pressed={bold} title="Bold" onClick={() => applyStyle({ bold: !bold })}><b>B</b></button>
+                    <button type="button" className={"seg-btn" + (italic ? " on" : "")} aria-pressed={italic} title="Italic" onClick={() => applyStyle({ italic: !italic })}><i>I</i></button>
+                  </span></div>
+                <div className="fp-row col"><span className="fp-lbl">Outline</span>
+                  <Swatches value={outline} onPick={(c) => applyStyle({ outline: c })} none label="Outline colour" /></div>
+                {outline !== "none" && <label className="fp-row"><span className="fp-lbl">Outline width</span>
+                  <input type="range" min={0} max={20} step={1} value={ow} onChange={(e) => applyStyle({ outline_width: Number(e.target.value) })} aria-label="Outline width" />
+                  <span className="small tnum">{ow}</span></label>}
+              </>;
+            })()}
             </>}
             {single?.type === "text" && <Field label="Text">{(id) => <textarea ref={textRef} id={id} className="input" rows={2} maxLength={500} value={single.text ?? ""}
               onChange={(e) => setShapes(shapes.map((s) => (s.id === single.id ? { ...s, text: e.target.value } : s)))}

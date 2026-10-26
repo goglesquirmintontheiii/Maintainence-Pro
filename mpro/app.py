@@ -188,11 +188,14 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
             if path.startswith("assets/"):
                 resp.cache_control.max_age = 31536000
                 resp.cache_control.immutable = True
+            elif path in ("sw.js", "sw-push.js", "manifest.webmanifest"):  # the phone app checks these for updates
+                resp.cache_control.no_cache = True
+                resp.cache_control.max_age = 0
             return resp
         if (STATIC_APP / "index.html").is_file():
             resp = send_from_directory(STATIC_APP, "index.html")
             resp.cache_control.no_cache = True
-            if path.startswith("x/"):  # external work order links (0.5.0): the token is in the URL
+            if path.startswith(("x/", "v/")):  # external work-order and vendor PO links: the token is in the URL
                 resp.headers["Referrer-Policy"] = "no-referrer"
                 resp.cache_control.no_store = True
             return resp

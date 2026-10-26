@@ -12,6 +12,7 @@ import { useToast } from "../../components/Toast";
 import { Button, Checkbox, EmptyState, Field, Input, ListSkeleton, Modal, Pill, Select } from "../../components/ui";
 import { AssetPicker, LocationPicker } from "../../components/assetPickers";
 import { LabelDialog } from "../../components/LabelDialog";
+import { ScanSettingsCard } from "./ScanSettings";
 
 type State = "all" | "unassigned" | "assigned" | "retired";
 
@@ -47,6 +48,7 @@ export function QrCodesPage() {
           <Button variant="primary" onClick={() => setMaking(true)}><Plus size={15} />Blank codes</Button>
         </div>
       </div>
+      <ScanSettingsCard />
       <div className="row wrap">
         <div className="seg" role="radiogroup" aria-label="Show">{(["all", "unassigned", "assigned", "retired"] as const).map((s) => (
           <button key={s} type="button" role="radio" aria-checked={state === s} className={"seg-btn" + (state === s ? " on" : "")} onClick={() => { setState(s); setPage(1); setSel([]); }}>

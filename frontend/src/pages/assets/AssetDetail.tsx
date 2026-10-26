@@ -19,6 +19,7 @@ import { AssetStatusPill, BarChart2, Crumbs, FilesSection, fmtSeconds, HistoryLi
 import { WarrantyFiles } from "./WarrantyFiles";
 import { AssetPackageSuggestions } from "./AssetHub";
 import { SparePartsTab } from "../suppliers/SpareParts";
+import { ScanHistory } from "../scan/ScanHistory";
 
 export const ASSET_TABS = [["details", "Details"], ["work-orders", "Work Orders"], ["insights", "Insights"], ["photos", "Photos"], ["downtime", "Downtime"],
   ["spare-parts", "Spare Parts"], ["lifecycle", "Lifecycle"], ["history", "History"]] as const;
@@ -97,7 +98,7 @@ export function AssetDetailView({ id, tab, onTab }: { id: string; tab: AssetTab;
       {tab === "downtime" && <DowntimeTab a={a} tz={tz} />}
       {tab === "spare-parts" && <SparePartsTab assetId={a.id} canEdit={manage} />}
       {tab === "lifecycle" && <LifecycleTab a={a} />}
-      {tab === "history" && <HistoryList path={`/assets/${a.id}/history`} tz={tz} />}
+      {tab === "history" && <><ScanHistory entityType="asset" entityId={a.id} /><HistoryList path={`/assets/${a.id}/history`} tz={tz} /></>}
 
       {editing && <AssetForm edit={a} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
       {addSub && <AssetForm parentId={a.id} onClose={() => setAddSub(false)} onSaved={(n) => { setAddSub(false); refresh(); nav(`/assets/${n.id}`); }} />}

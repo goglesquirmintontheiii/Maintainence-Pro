@@ -31,6 +31,7 @@ class OutboundEmail(IdMixin, db.Model):  # type: ignore[name-defined]
     cc: Mapped[str] = mapped_column(String(1000), default="")  # comma-separated (0.5.0)
     # [{"file_id": "...", "name": "PO-12.pdf"}] — files stored in MPro, read when the message is sent (0.5.0)
     attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    html: Mapped[str] = mapped_column(Text, default="", server_default="")  # optional HTML version (0.6.0, r312)
     status: Mapped[str] = mapped_column(String(16), default="queued")  # queued | sent | not_configured | failed
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
@@ -63,6 +64,7 @@ def send_email(
     org_id: uuid.UUID | None = None,
     cc: list[str] | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    html: str = "",
 ) -> OutboundEmail:
     """Queue an email. `attachments`: [{"file_id": <FileObject id>, "name": "file.pdf"}] (files of `org_id`)."""
     cc_text = ", ".join(clean_subject(c) for c in (cc or []) if c and "@" in c)[:1000]
@@ -70,7 +72,9 @@ def send_email(
         {"file_id": str(a["file_id"]), "name": clean_subject(str(a.get("name") or "attachment"))}
         for a in attachments or []
     ]
-    m = OutboundEmail(to=to, subject=clean_subject(subject), body=body, org_id=org_id, cc=cc_text, attachments=atts)
+    m = OutboundEmail(
+        to=to, subject=clean_subject(subject), body=body, org_id=org_id, cc=cc_text, attachments=atts, html=html
+    )
     db.session.add(m)
     db.session.flush()
     enqueue("send_email", {"id": str(m.id)}, org_id=org_id)
@@ -92,6 +96,8 @@ def _send(payload: dict[str, Any]) -> None:
     if m.cc:
         msg["Cc"] = m.cc
     msg.set_content(m.body)
+    if m.html:
+        msg.add_alternative(m.html, subtype="html")
     for a in m.attachments or []:
         data, ctype = _attachment(m.org_id, a)
         if data is None:

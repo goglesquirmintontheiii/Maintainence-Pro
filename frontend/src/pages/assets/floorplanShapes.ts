@@ -15,7 +15,24 @@ export type Shape = {
   rings?: Pt[][];
   /** pinned parts list (MP-128): the parts shown, and whether the list starts expanded */
   part_ids?: string[]; open?: boolean;
+  /** text label style (MP-132); missing keys keep the original look (bold sans-serif with a white outline) */
+  font?: FontKey; bold?: boolean; italic?: boolean; outline?: string; outline_width?: number;
 };
+export type FontKey = "sans" | "serif" | "mono" | "rounded";
+export const FONTS: [FontKey, string, string][] = [
+  ["sans", "Sans", 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'],
+  ["serif", "Serif", 'Georgia, "Times New Roman", serif'],
+  ["mono", "Mono", 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'],
+  ["rounded", "Rounded", 'ui-rounded, "Arial Rounded MT Bold", "Nunito", system-ui, sans-serif'],
+];
+/** How a text label is drawn, shared by the editor, the viewer, the location card and the PNG export. */
+export function textLook(s: Shape) {
+  const fs = s.font_size ?? DEFAULT_STYLE.font_size;
+  const family = (FONTS.find((f) => f[0] === (s.font ?? "sans")) ?? FONTS[0])[2];
+  const outline = s.outline === undefined ? "#ffffff" : s.outline;
+  const width = s.outline_width ?? Math.max(2, fs * 0.16);
+  return { fs, family, weight: s.bold === false ? 400 : 600, italic: !!s.italic, outline: outline === "none" || width <= 0 ? null : outline, outlineWidth: width };
+}
 export type Drawing = { shapes: Shape[] };
 export type Box = { x: number; y: number; w: number; h: number };
 
@@ -85,7 +102,8 @@ export function bbox(s: Shape, aspect: number): Box {
     const fs = s.font_size ?? DEFAULT_STYLE.font_size;
     const lines = textLines(s);
     const longest = Math.max(...lines.map((l) => l.length), 1);
-    return { x: s.x ?? 0, y: s.y ?? 0, w: (longest * fs * 0.56) / UNITS, h: (lines.length * fs * 1.2) / (UNITS * aspect) };
+    const per = s.font === "mono" ? 0.62 : s.bold === false ? 0.52 : 0.56;
+    return { x: s.x ?? 0, y: s.y ?? 0, w: (longest * fs * per) / UNITS, h: (lines.length * fs * 1.2) / (UNITS * aspect) };
   }
   return { x: s.x ?? 0, y: s.y ?? 0, w: s.w ?? 0, h: s.h ?? 0 };
 }
@@ -197,12 +215,13 @@ export function drawOnCanvas(ctx: CanvasRenderingContext2D, shapes: Shape[], pin
     ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.lineWidth = sw;
     if (stroke) ctx.strokeStyle = stroke;
     if (s.type === "text") {
-      const fs = (s.font_size ?? DEFAULT_STYLE.font_size) * k;
-      ctx.font = `600 ${fs}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+      const look = textLook(s);
+      const fs = look.fs * k;
+      ctx.font = `${look.italic ? "italic " : ""}${look.weight} ${fs}px ${look.family}`;
       ctx.textBaseline = "top";
       textLines(s).forEach((line, i) => {
         const x = (s.x ?? 0) * W, y = (s.y ?? 0) * H + i * fs * 1.2;
-        ctx.lineWidth = Math.max(2, fs * 0.16); ctx.strokeStyle = "#ffffff"; ctx.strokeText(line, x, y);
+        if (look.outline) { ctx.lineWidth = look.outlineWidth * k; ctx.strokeStyle = look.outline; ctx.strokeText(line, x, y); }
         ctx.fillStyle = stroke ?? DEFAULT_STYLE.stroke; ctx.fillText(line, x, y);
       });
       ctx.restore();

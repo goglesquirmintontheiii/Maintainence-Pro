@@ -441,15 +441,34 @@ def delete_time(wo_id: str, tid: str) -> dict[str, Any]:
 @require("wo.time")
 def start_timer(wo_id: str) -> dict[str, Any]:
     wo = _wo(wo_id)
-    guard(act.start_timer, g.org, g.membership, wo, body().get("time_type"))
+    b = body()
+    guard(act.start_timer, g.org, g.membership, wo, b.get("time_type"), b.get("at"))
     return _detail(wo)
 
 
 @bp.delete("/work-orders/<wo_id>/timer")
 @require("wo.time")
 def stop_timer(wo_id: str) -> dict[str, Any]:
+    """`?at=` (ISO time) when the phone stopped it offline (r090)."""
     wo = _wo(wo_id)
-    guard(act.stop_timer, g.org, g.membership, wo, request.args.get("discard") == "1")
+    guard(act.stop_timer, g.org, g.membership, wo, request.args.get("discard") == "1", request.args.get("at"))
+    return _detail(wo)
+
+
+@bp.post("/work-orders/<wo_id>/timer/pause")
+@require("wo.time")
+def pause_timer(wo_id: str) -> dict[str, Any]:
+    """{at?}: pause my timer on this work order; time so far is kept (r090)."""
+    wo = _wo(wo_id)
+    guard(act.pause_timer, g.org, g.membership, wo, body().get("at"))
+    return _detail(wo)
+
+
+@bp.post("/work-orders/<wo_id>/timer/resume")
+@require("wo.time")
+def resume_timer(wo_id: str) -> dict[str, Any]:
+    wo = _wo(wo_id)
+    guard(act.resume_timer, g.org, g.membership, wo, body().get("at"))
     return _detail(wo)
 
 

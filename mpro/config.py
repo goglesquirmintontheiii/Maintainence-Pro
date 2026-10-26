@@ -84,6 +84,10 @@ def load_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         "VALIDATION_ERROR_STATUS_CODE": 422,
         "JSON_SORT_KEYS": False,
     }
+    # values saved in the data folder's server.json (MP-134, MP-136); environment variables still win
+    from mpro.sysadmin.server_settings import apply_to_config
+
+    apply_to_config(cfg, data_dir)
     if overrides:
         cfg.update(overrides)
     return cfg

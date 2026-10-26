@@ -6,7 +6,7 @@ transaction under a row lock (`mpro.parts.ledger`) so two technicians can't both
 Quantities and money are Decimal (G-12); unit costs are in the organization's currency.
 
 MaintainX parity: part fields (r214), multi-location stock with area/bin, min and max (r218), part statuses and
-availability (r219/r220: Assigned, Reserved, Kitted, Staged, Issued), parts used on work orders (r029), cycle counts
+availability (r219/r220, MP-131: Planned, Reserved, Used), parts used on work orders (r029), cycle counts
 (r222) and the transactions log (r223).
 """
 
@@ -37,7 +37,7 @@ TXN_KINDS = (
     "count",  # cycle count correction (r222)
     "initial",  # opening balance when a part or location stock is created
 )
-RESERVATION_STATUSES = ("assigned", "reserved", "kitted", "staged", "issued", "released")
+RESERVATION_STATUSES = ("assigned", "reserved", "issued", "released")  # Planned / Reserved / Used (MP-131)
 
 
 class PartType(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
@@ -67,7 +67,7 @@ class Part(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model): 
     custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # custom part fields (r245)
     # cached totals across locations, kept by the ledger
     on_hand: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))
-    reserved: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))  # reserved + kitted + staged
+    reserved: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))  # held by Reserved work-order lines
     ordered: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))  # on open POs, not yet received
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -157,7 +157,7 @@ class InventoryTransaction(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[n
 
 
 class WorkOrderPart(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
-    """A part on a work order: planned, reserved/kitted/staged, then issued when used (r029, r219, r239)."""
+    """A part on a work order: planned or reserved, then issued (used) (r029, r219, r239, MP-131)."""
 
     __tablename__ = "work_order_parts"
 
@@ -170,6 +170,11 @@ class WorkOrderPart(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type:
     unit_cost_override: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)  # per-WO cost (r239)
     note: Mapped[str] = mapped_column(String(500), default="")
     added_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    # Done uses up Planned and Reserved lines (MP-131). What it used and the status before, so reopening the work
+    # order can put them back; `shortfall` is what couldn't be taken because there wasn't enough stock.
+    done_from: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    done_used: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))
+    shortfall: Mapped[Decimal] = mapped_column(QTY, default=Decimal("0"))
 
 
 class CycleCount(IdMixin, TimestampMixin, SoftDeleteMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

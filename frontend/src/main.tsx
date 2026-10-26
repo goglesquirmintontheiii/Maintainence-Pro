@@ -23,6 +23,8 @@ import { AssetSettingsPage } from "./pages/assets/AssetSettings";
 import { MetersPage } from "./pages/meters/Meters";
 import { ScanPage } from "./pages/scan/Scan";
 import { QrResolve } from "./pages/scan/QrResolve";
+import { PublicScan } from "./pages/scan/PublicScan";
+import { ScanHistoryPage } from "./pages/scan/ScanHistory";
 import { QrCodesPage } from "./pages/scan/QrCodes";
 import { PMPage } from "./pages/pm/PM";
 import { ProceduresPage } from "./pages/procedures/Procedures";
@@ -39,11 +41,16 @@ import { SupplierSettingsPage } from "./pages/suppliers/SupplierSettings";
 import { ExternalWorkOrder } from "./pages/external/ExternalWorkOrder";
 import { AssetHubPage } from "./pages/assets/AssetHub";
 import { PublicQuotePage } from "./pages/vendors/PublicQuote";
+import { VendorPOPage } from "./pages/purchasing/VendorPO";
 import { RequestsPage } from "./pages/requests/Requests";
+import { RequestSettingsPage } from "./pages/requests/RequestSettings";
+import { PublicPortalPage, RequestStatusPage } from "./pages/requests/PublicPortal";
 import { MessagesPage } from "./pages/messages/Messages";
 import { NotificationsPage } from "./pages/notifications/Notifications";
+import { NotificationRulesPage } from "./pages/notifications/NotificationRules";
 import { ManagementPage } from "./pages/sysadmin/Management";
 import "./devtools/feedback"; // TEMPORARY Ctrl+Shift+F feedback capture (0.4.2). Remove by 1.9.0, see devtools/feedback/README.md
+import { registerServiceWorker } from "./pwa/OfflineUI";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
 
@@ -58,17 +65,25 @@ function Gate() {
   const isPublic = publicPaths.some((p) => loc.pathname.startsWith(p));
   // a customer's quote link (r235) works signed in or out
   if (loc.pathname.startsWith("/quote/")) return <Routes><Route path="/quote/:token" element={<PublicQuotePage />} /></Routes>;
+  // public request portals and the submitter's status page (0.6.0, r279/r603) work signed in or out
+  if (loc.pathname.startsWith("/portal/") || loc.pathname.startsWith("/request-status/")) return (
+    <Routes><Route path="/portal/:slug" element={<PublicPortalPage />} /><Route path="/request-status/:token" element={<RequestStatusPage />} /></Routes>);
+  // a vendor's purchase-order link (r261) works signed in or out
+  if (loc.pathname.startsWith("/v/")) return <Routes><Route path="/v/:token" element={<VendorPOPage />} /></Routes>;
   if (!session.authenticated) {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/q/:code" element={<PublicScan />} />{/* 0.6.0: a printed label leads to the request form (MP-097) */}
         <Route path="*" element={<Navigate to={`/login${loc.pathname !== "/" ? `?next=${encodeURIComponent(loc.pathname + loc.search)}` : ""}`} replace />} />
       </Routes>
     );
   }
   if (isPublic && !loc.pathname.startsWith("/reset-password")) return <Navigate to="/" replace />;
+  // MPro Management has its own shell and works for sysadmins who aren't in any organization (MP-136)
+  if (loc.pathname.startsWith("/mpro-management")) return <Routes><Route path="/mpro-management/*" element={<ManagementPage />} /></Routes>;
   if (!session.org) return <Routes><Route path="/reset-password/:token" element={<ResetPassword />} /><Route path="*" element={<NoOrganization />} /></Routes>;
   return (
     <Routes>
@@ -115,8 +130,8 @@ function Gate() {
         <Route path="messages" element={<MessagesPage />} />
         <Route path="messages/:id" element={<MessagesPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="mpro-management/*" element={<ManagementPage />} />
         <Route path="scan" element={<ScanPage />} />
+        <Route path="scan/history" element={<ScanHistoryPage />} />
         <Route path="q/:code" element={<QrResolve />} />
         <Route path="categories" element={<Categories />} />
         <Route path="downloads" element={<Downloads />} />
@@ -129,6 +144,8 @@ function Gate() {
           <Route path="parts" element={<PartsSettingsPage />} />
           <Route path="purchasing" element={<PurchasingSettingsPage />} />
           <Route path="suppliers" element={<SupplierSettingsPage />} />
+          <Route path="requests" element={<RequestSettingsPage />} />
+          <Route path="notifications" element={<NotificationRulesPage />} />
           <Route path="roles" element={<RolesPage />} />
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="jobs" element={<Jobs />} />
@@ -142,6 +159,8 @@ function Gate() {
     </Routes>
   );
 }
+
+registerServiceWorker(); // installable phone app with offline work orders (0.6.0, MP-053)
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

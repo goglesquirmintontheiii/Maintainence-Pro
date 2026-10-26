@@ -192,3 +192,23 @@ class Approval(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: igno
     decided_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     comment: Mapped[str] = mapped_column(Text, default="")
+
+
+class PurchaseOrderVendorLink(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
+    """The no-login link in the email that sends a PO to the vendor (r261). The vendor sees the PO and can acknowledge
+    it, propose a delivery date or decline it with a note. Only the token's sha256 is stored; a new send replaces the
+    previous link, and links stop working once the PO is complete or canceled."""
+
+    __tablename__ = "purchase_order_vendor_links"
+
+    purchase_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("purchase_orders.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | replaced
+    recipients: Mapped[list[str]] = mapped_column(JSON, default=list)
+    response: Mapped[str] = mapped_column(String(16), default="")  # "" | acknowledged | proposed_date | declined
+    responder_name: Mapped[str] = mapped_column(String(200), default="")
+    proposed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)

@@ -50,7 +50,8 @@ docker compose exec app mpro create-admin --email you@example.com --name "Your N
 | `MPRO_SMTP_HOST`, `MPRO_SMTP_PORT`, `MPRO_SMTP_USER`, `MPRO_SMTP_PASSWORD`, `MPRO_MAIL_FROM` | not set | Send real email. Without them, emails wait in Settings → Email outbox |
 | `MPRO_MAX_UPLOAD_MB` | `50` | Largest photo or file people can attach |
 
-The REST API is documented at `/api/docs` on any running server.
+The REST API is documented at `/api/docs` on any running server. For phones (installing, supported devices and
+browsers, offline mode) see [docs/phone-app.md](docs/phone-app.md).
 
 ## Editions
 

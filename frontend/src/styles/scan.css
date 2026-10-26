@@ -43,3 +43,18 @@ tr.qr-retired td { color: var(--c-text-3); }
   .lbl-grid { grid-template-columns: minmax(0, 1fr); }
   .scan-view.live { aspect-ratio: 3 / 4; max-height: 62vh; }
 }
+/* 0.6.0 scan actions, history and public scans (MP-097) */
+.scan-sheet { gap: var(--s-4); }
+.scan-head { gap: var(--s-3); align-items: center; }
+.scan-ico { width: 44px; height: 44px; border-radius: var(--r-lg); background: var(--c-primary-soft); color: var(--c-primary); display: grid; place-items: center; flex: none; }
+.scan-title { margin: 0; font-size: var(--fs-lg); overflow-wrap: anywhere; }
+.scan-acts { display: grid; gap: var(--s-2); }
+.scan-acts .btn { min-height: 48px; justify-content: center; }
+.scan-list { border: 1px solid var(--c-border-soft); border-radius: var(--r-md); }
+.scan-evs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.scan-ev { display: flex; gap: var(--s-3); align-items: flex-start; padding: var(--s-2) 0; border-bottom: 1px solid var(--c-border-soft); }
+.scan-ev:last-child { border-bottom: 0; }
+.scan-ev > svg { margin-top: 3px; flex: none; }
+.scan-set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3) var(--s-4); }
+.public-scan { min-height: 100%; display: grid; place-items: center; padding: var(--s-4); background: var(--c-bg); }
+.public-scan-card { width: 100%; max-width: 420px; }

@@ -30,7 +30,10 @@ class DecryptError(ValueError):
 
 
 def _fernet() -> Fernet:
-    secret = str(current_app.config["SECRET_KEY"])
+    return _fernet_for(str(current_app.config["SECRET_KEY"]))
+
+
+def _fernet_for(secret: str) -> Fernet:
     f = _cache.get(secret)
     if f is None:
         key = hashlib.sha256(b"mpro-at-rest-v1:" + secret.encode()).digest()
@@ -79,3 +82,13 @@ def mask(value: str | None, keep: int = 4) -> str:
     if not value:
         return ""
     return "•" * 6 + value[-keep:] if len(value) > keep else "•" * len(value)
+
+
+def decrypt_str_with(secret: str, token: str) -> str:
+    """Like decrypt_str, before the app exists (reading server settings at startup, MP-136)."""
+    if not token.startswith(PREFIX):
+        raise DecryptError("Not an encrypted value.")
+    try:
+        return _fernet_for(secret).decrypt(token[len(PREFIX) :].encode()).decode()
+    except InvalidToken as e:
+        raise DecryptError("Can't decrypt this value. Was the instance's secret key changed?") from e

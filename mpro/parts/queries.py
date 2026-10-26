@@ -259,12 +259,20 @@ def summaries(m: Membership, rows: list[Part]) -> list[dict[str, Any]]:
                 "types": types.get(p.id, []),
                 "critical": any(t["critical"] for t in types.get(p.id, [])),
                 "thumb_url": f"/api/v1/files/{pic.id}/thumb" if pic else None,
+                "picture": _picture(pic.id) if pic else None,
                 "deleted": p.deleted_at is not None,
                 "updated_at": iso(p.updated_at),
                 "version": p.version,
             }
         )
     return out
+
+
+def _picture(fid: uuid.UUID | None) -> dict[str, str] | None:
+    """The part's picture (MP-131) as {id, url, thumb_url}."""
+    if fid is None:
+        return None
+    return {"id": str(fid), "url": f"/api/v1/files/{fid}", "thumb_url": f"/api/v1/files/{fid}/thumb"}
 
 
 def stock_dict(org_id: uuid.UUID, st: PartStock, trig: str, loc_names: dict[uuid.UUID, str]) -> dict[str, Any]:
@@ -385,6 +393,7 @@ def part_detail(m: Membership, p: Part) -> dict[str, Any]:
             + (f"&vendor_id={preferred['vendor']['id']}" if preferred else "")
             + f"&quantity={order_qty}",
             "picture_file_id": str(p.picture_file_id) if p.picture_file_id else None,
+            "picture": _picture(p.picture_file_id),
             "files": [file_dict(link.file, link.role, link.id) for link in links_for("part", p.id)],
             "codes": codes_for(org_id, "part", p.id),
             "value": str(((p.on_hand or ZERO) * (p.unit_cost or ZERO)).quantize(Decimal("0.01")))
@@ -577,12 +586,14 @@ def work_order_parts(m: Membership, wo: WorkOrder) -> dict[str, Any]:
                     "unit": p.unit,
                     "non_stock": p.non_stock,
                     "deleted": p.deleted_at is not None,
+                    "picture": _picture(p.picture_file_id),
                 },
                 "location": {"id": str(wp.location_id), "name": names.get(wp.location_id, "")}
                 if wp.location_id
                 else None,
                 "quantity": q(wp.quantity),
                 "used": q(wp.used),
+                "shortfall": q(wp.shortfall or ZERO),
                 "status": wp.status,
                 "status_label": svc.STATUS_LABELS.get(wp.status, wp.status),
                 "unit_cost": money(cost) if show_cost else None,

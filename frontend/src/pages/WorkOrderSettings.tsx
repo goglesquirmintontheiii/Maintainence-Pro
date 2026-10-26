@@ -157,7 +157,7 @@ function FieldModal({ field, onClose, onDone }: { field?: CustomFieldDef; onClos
       {f.type === "select" && <Field label="Options (one per line)">{(id) => <textarea id={id} className="textarea" value={f.options} onChange={(e) => setF({ ...f, options: e.target.value })} />}</Field>}
       <Checkbox checked={f.required} onChange={(x) => setF({ ...f, required: x })} label="Required" />
       <Checkbox checked={f.copy_on_repeat} onChange={(x) => setF({ ...f, copy_on_repeat: x })} label="Copy the value to repeating work orders (0.4.0)" />
-      <Checkbox checked={f.on_request_form} onChange={(x) => setF({ ...f, on_request_form: x })} label="Show on request forms (0.6.0)" />
+      <Checkbox checked={f.on_request_form} onChange={(x) => setF({ ...f, on_request_form: x })} label="Show on request forms" />
       {err && <div className="banner warning" role="alert">{err}</div>}
     </Modal>
   );

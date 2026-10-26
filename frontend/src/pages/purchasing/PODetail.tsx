@@ -13,7 +13,7 @@ import { Avatar, Button, Dropdown, EmptyState, Field, Input, ListSkeleton, Modal
 import { LocationPicker } from "../../components/assetPickers";
 import { FilesSection } from "../assets/shared";
 import { POForm } from "./POForm";
-import { addrLines, PO_TONE, q, type PODetail as PD, type POLine } from "./types";
+import { addrLines, PO_TONE, q, type PODetail as PD, type POLine, type VendorAck } from "./types";
 
 export function usePO(id: string | undefined) {
   return useQuery({ queryKey: ["po", id], queryFn: () => api<PD>(`/purchase-orders/${id}`), enabled: !!id });
@@ -123,6 +123,7 @@ export function PODetailView({ id }: { id: string }) {
         {p.notes && <div className="span2"><dt>Notes</dt><dd className="prewrap">{p.notes}</dd></div>}
       </dl>
 
+      {p.vendor_ack && <VendorAckCard a={p.vendor_ack} tz={tz} />}
       {p.receipts.length > 0 && <section className="card">
         <div className="card-head"><h3 className="sec-h" style={{ margin: 0 }}>Received</h3></div>
         {p.receipts.map((r) => <div key={r.id} className="list-row" style={{ alignItems: "flex-start" }}>
@@ -259,4 +260,20 @@ function Comments({ id }: { id: string }) {
       </div>
     </section>
   );
+}
+
+/** What the vendor said through the emailed link (r261). */
+function VendorAckCard({ a, tz }: { a: VendorAck; tz?: string }) {
+  const tone = a.response === "declined" ? "danger" : a.response === "proposed_date" ? "warning" : a.response ? "success" : "neutral";
+  return <section className="card" aria-label="Vendor's answer">
+    <div className="card-head"><h3 className="sec-h" style={{ margin: 0 }}>Vendor's answer</h3><Pill tone={tone}>{a.response_label}</Pill></div>
+    <div className="card-body small stack" style={{ gap: 4 }}>
+      {a.response ? <>
+        <div><b>{a.responder_name}</b>{a.responded_at && <span className="faint"> · {dateTime(a.responded_at, tz)}</span>}</div>
+        {a.proposed_date && <div>Can deliver by <b>{new Date(a.proposed_date + "T00:00").toLocaleDateString()}</b></div>}
+        {a.note && <div className="prewrap">“{a.note}”</div>}
+      </> : <div className="muted">{a.last_viewed_at ? `The vendor opened the order ${dateTime(a.last_viewed_at, tz)} but hasn't answered yet.` : "The vendor hasn't opened the link in the email yet."}</div>}
+      {a.status === "replaced" && <div className="faint">This was an earlier send; the latest email has a new link.</div>}
+    </div>
+  </section>;
 }

@@ -135,3 +135,6 @@ def _seed_work(org: Organization) -> None:
         seed_notifications(org, admin)
         seed_sync(org, admin)
         seed_sysadmin(org, admin)
+        from mpro.qr.demo import seed_scans
+
+        seed_scans(org, admin)  # 0.6.0 F5: check-ins on an inspection round

@@ -436,8 +436,8 @@ def wo_parts(wid: str) -> dict[str, Any]:
 @bp.post("/work-orders/<wid>/parts")
 @require("parts.use")
 def add_wo_part(wid: str) -> tuple[dict[str, Any], int]:
-    """{part_id, quantity, location_id, status (assigned|reserved|kitted|staged|issued; default issued = used now),
-    unit_cost_override, note}"""
+    """{part_id, quantity, location_id, status (assigned = Planned | reserved | issued = Used; default issued = used
+    now), unit_cost_override, note}"""
     b = body()
     if b.get("unit_cost_override") not in (None, "") and not can(g.membership, "costs.view"):
         abort(403, message="You don't have permission to change costs.")

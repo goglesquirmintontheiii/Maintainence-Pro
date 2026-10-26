@@ -24,6 +24,7 @@ class Organization(IdMixin, TimestampMixin, SoftDeleteMixin, db.Model):  # type:
     units: Mapped[str] = mapped_column(String(16), default="imperial")  # imperial | metric
     plan: Mapped[str] = mapped_column(String(32), default="selfhosted")  # selfhosted | free | pro | expert
     home_region: Mapped[str] = mapped_column(String(32), default="local")
+    email: Mapped[str] = mapped_column(String(320), default="", server_default="")  # contact (MP-136)
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="org", lazy="selectin")
 

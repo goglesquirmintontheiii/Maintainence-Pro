@@ -402,3 +402,34 @@ def _po_ok(pid: uuid.UUID, edit: bool) -> bool:
 
 
 register_entity("purchase_order", lambda pid: _po_ok(pid, False), lambda pid: _po_ok(pid, True))
+
+
+# ---------------------------------------------------------------- vendor acknowledgment (r261), no sign-in
+# The secret link in the PO email is the credential: no session, exempt from the session CSRF check, rate limited
+# per IP and per link (shared with external work-order links), and it only ever touches its own purchase order.
+@bp.get("/vendor-po/<token>")
+@bp.doc(security=[])
+def vendor_po(token: str) -> dict[str, Any]:
+    from mpro.purchasing import vendor_ack
+
+    link, po, org = guard(vendor_ack.resolve, token)
+    return guard(vendor_ack.public_view, link, po, org)
+
+
+@bp.post("/vendor-po/<token>/respond")
+@bp.doc(security=[])
+def vendor_po_respond(token: str) -> dict[str, Any]:
+    """{response: acknowledged | proposed_date | declined, name, date? (YYYY-MM-DD), note?}"""
+    from mpro.purchasing import vendor_ack
+
+    link, po, org = guard(vendor_ack.resolve, token, True)
+    return {"answer": guard(vendor_ack.respond, link, po, org, body())}
+
+
+def _exempt_vendor_links() -> None:
+    from mpro.auth.api import CSRF_EXEMPT
+
+    CSRF_EXEMPT.update({"purchasing.vendor_po", "purchasing.vendor_po_respond"})
+
+
+_exempt_vendor_links()

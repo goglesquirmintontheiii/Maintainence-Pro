@@ -1,5 +1,5 @@
 import {
-  Activity, BarChart3, Download, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
+  Activity, BellRing, BarChart3, Download, Boxes, Building2, CalendarClock, ClipboardCheck, ClipboardList, Gauge, Home, Inbox, LayoutDashboard,
   MapPin, MessageSquare, Package, PlugZap, QrCode, Receipt, ScanLine, Settings, ShieldCheck, ShoppingCart, Tags, Truck, Users, Workflow, type LucideIcon,
 } from "lucide-react";
 
@@ -56,6 +56,8 @@ export const SETTINGS_NAV = [
   { path: "/settings/parts", label: "Parts and inventory", icon: Package, perm: "parts.settings" },
   { path: "/settings/purchasing", label: "Purchase orders", icon: ShoppingCart, perm: "po.settings" },
   { path: "/settings/suppliers", label: "Supplier connections", icon: PlugZap, perm: "suppliers.connections" },
+  { path: "/settings/requests", label: "Requests", icon: Inbox, perm: "requests.portals" },
+  { path: "/settings/notifications", label: "Notifications", icon: BellRing, perm: "notifications.rules" },
   { path: "/settings/roles", label: "Roles and permissions", icon: ShieldCheck, perm: "users.view" },
   { path: "/settings/audit-log", label: "Audit log", icon: Activity, perm: "audit.view" },
   { path: "/settings/jobs", label: "Background jobs", icon: Workflow, perm: "jobs.view" },

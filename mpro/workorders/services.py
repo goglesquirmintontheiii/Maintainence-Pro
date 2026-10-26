@@ -171,6 +171,11 @@ def visibility_clause(m: Membership) -> Any:
     """SQL condition for work orders this member may see (None = everything)."""
     from mpro.orgs.roles import forces_limited
 
+    if m.role == "guest":  # r236: work at their sites only (0.6.0)
+        from mpro.workrequests.guests import wo_clause
+
+        return wo_clause(m)
+
     if (m.wo_visibility != "limited" and not forces_limited(m)) or m.role in (
         "owner",
         "admin",
@@ -195,6 +200,10 @@ def visibility_filter(m: Membership) -> Any:
 def can_see(m: Membership | None, wo: WorkOrder) -> bool:
     if m is None or not can(m, "wo.view", wo):
         return False
+    if m.role == "guest":  # r236 (0.6.0)
+        from mpro.workrequests.guests import can_see_wo
+
+        return can_see_wo(m, wo)
     from mpro.orgs.roles import forces_limited
 
     if (m.wo_visibility != "limited" and not forces_limited(m)) or m.role in (
@@ -406,7 +415,7 @@ def _resolve_assignees(org_id: uuid.UUID, items: list[Any]) -> list[tuple[str, u
             role = db.session.scalar(
                 select(Membership.role).where(Membership.org_id == org_id, Membership.user_id == uid)
             )
-            if role in ("requester", "viewer"):
+            if role in ("requester", "viewer", "guest"):
                 raise RuleError("Requesters and view-only users can't be assigned work orders.", 422)
         else:
             ok = db.session.scalar(
@@ -654,6 +663,7 @@ CompletionCheck = Callable[[Organization, Membership, WorkOrder], str | None]  #
 CreateHook = Callable[[Organization, Membership, WorkOrder, dict[str, Any]], None]  # after a WO is created
 STATUS_HOOKS: list[StatusHook] = []
 COMPLETION_CHECKS: list[CompletionCheck] = []
+START_CHECKS: list[CompletionCheck] = []  # message blocks moving to In Progress (0.6.0: scan to start)
 CREATE_HOOKS: list[CreateHook] = []
 
 
@@ -1103,6 +1113,11 @@ def set_status(
     if sub_status and sub_status not in s["sub_statuses"].get(status, []):
         raise RuleError(f"{sub_status!r} isn't a sub-status of {STATUS_LABELS[status]}.", 422)
     from_status = wo.status
+    if status == "in_progress" and from_status != "in_progress":
+        for check in START_CHECKS:
+            problem = check(org, m, wo)
+            if problem:
+                raise RuleError(problem, 422)
     if status == "done" and from_status != "done":
         for check in COMPLETION_CHECKS:  # e.g. procedures with unanswered required fields (0.4.0)
             problem = check(org, m, wo)

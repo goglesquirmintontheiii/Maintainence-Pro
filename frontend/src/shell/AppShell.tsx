@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Bell, Boxes, Building2, Gauge, MapPin, ScanLine, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Home, Keyboard, LogOut, Menu, MessageSquare, Monitor, Moon,
-  Handshake, MoreHorizontal, Package, Pin, Plus, Search, ShoppingCart, Sun, Tags, Truck, UserRound, Zap } from "lucide-react";
+import { Boxes, Building2, ShieldCheck, Gauge, MapPin, ScanLine, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Keyboard, LogOut, Menu, Monitor, Moon,
+  Handshake, Package, Pin, Plus, Search, ShoppingCart, Sun, Tags, Truck, UserRound, Zap } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Session, type Template } from "../lib/api";
 import { applyTheme, useSession } from "../lib/session";
@@ -9,7 +9,14 @@ import { useToast } from "../components/Toast";
 import { Avatar, Button, Dropdown, Modal } from "../components/ui";
 import { LogoMark } from "../components/Logo";
 import { CommandPalette } from "./CommandPalette";
+import { NotificationBell } from "./NotificationBell";
 import { NAV } from "./nav";
+import { RequestsBadge } from "../pages/requests/Requests";
+import { NavBadge } from "./NavBadge";
+import { OfflineBanner, OfflineSync, SyncBadge, UpdatePrompt } from "../pwa/OfflineUI"; // phone app (0.6.0, MP-053)
+import { RunningTimers } from "../pwa/Timers";
+import { PhoneTabs } from "../pwa/PhoneNav";
+import { forgetSavedWork, isOnline, useOfflineState } from "../lib/offline";
 
 function readCollapsed(): boolean { try { return localStorage.getItem("mpro.sidebar") === "collapsed"; } catch { return false; } }
 
@@ -46,12 +53,18 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [nav]);
 
-  const signOut = useCallback(async () => { set(await api<Session>("/auth/logout", { method: "POST" })); nav("/login"); }, [set, nav]);
+  const signOut = useCallback(async () => { set(await api<Session>("/auth/logout", { method: "POST" })); await forgetSavedWork(); nav("/login"); }, [set, nav]);
+  const offline = useOfflineState();
   const setTheme = async (theme: "system" | "light" | "dark") => {
     applyTheme(theme);
     set(await api<Session>("/auth/preferences", { method: "PATCH", body: { theme } }));
   };
-  const switchOrg = async (id: string) => { set(await api<Session>("/auth/switch-org", { method: "POST", body: { org_id: id } })); nav("/"); toast("Switched organization"); };
+  const switchOrg = async (id: string) => {
+    // no switching while offline or with changes still waiting to sync: they belong to this organization (r291)
+    if (!isOnline()) { toast("You can switch organizations when you're back online.", { kind: "error" }); return; }
+    if (offline.pending) { toast("Sync your saved changes first (the cloud button at the top).", { kind: "error" }); return; }
+    set(await api<Session>("/auth/switch-org", { method: "POST", body: { org_id: id } })); nav("/"); toast("Switched organization");
+  };
 
   let group = "";
   const user = session.user!;
@@ -72,6 +85,7 @@ export function AppShell() {
               <button key={o.id} className="menu-item" onClick={() => { close(); if (o.id !== session.org?.id) void switchOrg(o.id); }}>
                 <Building2 size={15} /><span className="grow">{o.name}</span>{o.id === session.org?.id && <Check size={15} className="r" />}
               </button>))}
+            {user.sysadmin && <Link className="menu-item" to="/mpro-management" onClick={close}><ShieldCheck size={15} /><span className="grow">MPro Management</span></Link>}
             {can("org.manage") && <><div className="menu-sep" /><Link className="menu-item" to="/settings/organization" onClick={close}>Organization settings</Link></>}
           </>}
         </Dropdown>
@@ -83,7 +97,7 @@ export function AppShell() {
               <div key={n.id}>
                 {head}
                 <NavLink to={n.path} end={n.path === "/"} className={({ isActive }) => "sb-item" + (isActive ? " active" : "")} title={collapsed ? n.label : undefined}>
-                  <Icon size={18} /><span>{n.label}</span>{n.phase && <span className="soon" title={`Arrives in ${n.phase}`}>{n.phase.replace(/\.0$/, "")}</span>}
+                  <Icon size={18} /><span>{n.label}</span>{n.id === "requests" && <RequestsBadge />}{n.phase && <span className="soon" title={`Arrives in ${n.phase}`}>{n.phase.replace(/\.0$/, "")}</span>}<NavBadge id={n.id} />
                 </NavLink>
               </div>
             );
@@ -125,14 +139,20 @@ export function AppShell() {
               {can("customers.manage") && <button className="menu-item" onClick={() => { close(); nav("/customers?new=1"); }}><Handshake size={15} />Customer</button>}
             </>}
           </Dropdown>
-          <Dropdown trigger={(_, toggle) => <Button variant="ghost" icon aria-label="Notifications" onClick={toggle}><Bell size={18} /></Button>}>
-            {() => <div style={{ padding: 16, width: 280 }} className="small muted">Notifications arrive in 0.6.0. Until then, unread work orders show a blue dot in the Work Orders list.</div>}
-          </Dropdown>
+          <SyncBadge />
+          <NotificationBell />
           <Dropdown trigger={(_, toggle) => <button className="btn ghost icon" onClick={toggle} aria-label="Account menu" style={{ width: 40 }}><Avatar name={user.name} initials={user.initials} src={user.avatar_url} size="sm" /></button>}>
             {(close) => <>
               <div style={{ padding: "8px 10px" }}><div style={{ fontWeight: 600 }}>{user.name}</div><div className="small muted">{user.email}</div>
                 <div className="small faint">{session.role_label} · {session.org?.name}</div></div>
               <div className="menu-sep" />
+              {(session.orgs?.length ?? 0) > 1 && <>
+                <div className="menu-label">Switch organization</div>
+                {session.orgs!.map((o) => (
+                  <button key={o.id} className="menu-item" onClick={() => { close(); if (o.id !== session.org?.id) void switchOrg(o.id); }}>
+                    <Building2 size={15} /><span className="grow">{o.name}</span>{o.id === session.org?.id && <Check size={15} className="r" />}
+                  </button>))}
+                <div className="menu-sep" /></>}
               <Link className="menu-item" to="/profile" onClick={close}><UserRound size={15} />Profile &amp; password</Link>
               {can("exports.use") && <Link className="menu-item" to="/downloads" onClick={close}><Download size={15} />Download Center</Link>}
               <button className="menu-item" onClick={() => { close(); setHelp(true); }}><Keyboard size={15} />Keyboard shortcuts<span className="r kbd">?</span></button>
@@ -144,14 +164,14 @@ export function AppShell() {
             </>}
           </Dropdown>
         </header>
+        <OfflineBanner />
         <main className="content" id="main"><Outlet /></main>
       </div>
 
-      <nav className="bottomnav" aria-label="Quick navigation">
-        {([["/", "Overview", Home], ["/work-orders", "Work Orders", ClipboardList], ["/assets", "Assets", Boxes], ["/messages", "Messages", MessageSquare]] as const).map(([p, l, Icon]) => (
-          <NavLink key={p} to={p} end={p === "/"} className={({ isActive }) => (isActive ? "active" : "")}><Icon size={20} />{l}</NavLink>))}
-        <button onClick={() => setDrawer(true)}><MoreHorizontal size={20} />More</button>
-      </nav>
+      <PhoneTabs onMore={() => setDrawer(true)} />
+      <RunningTimers />
+      <OfflineSync />
+      <UpdatePrompt />
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
       {help && <ShortcutsHelp onClose={() => setHelp(false)} />}
     </div>

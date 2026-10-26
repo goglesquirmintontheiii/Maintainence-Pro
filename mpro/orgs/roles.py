@@ -375,6 +375,10 @@ def resolve_role(org_id: uuid.UUID, role: Any) -> tuple[str, Role | None]:
     role = str(role or "")
     if role.startswith("custom:"):
         return "custom", get_role(org_id, role)
+    if role == "guest":  # r236: a plan feature (0.6.0)
+        from mpro.workrequests.guests import check_entitled
+
+        check_entitled(db.session.get(Organization, org_id))
     if role in ROLES:
         return role, None
     raise RuleError("Unknown role.", 422)
@@ -400,6 +404,8 @@ def view_as(org: Organization, role: str, custom: Role | None) -> dict[str, Any]
         "role": role,
         "label": custom.name if custom is not None else ROLES.get(role, {}).get("label", role),
         "permissions": sorted(perms),
-        "work_orders": "Only work assigned to them or their teams" if limited else "All work orders",
+        "work_orders": "Only work at their sites"
+        if role == "guest"
+        else ("Only work assigned to them or their teams" if limited else "All work orders"),
         "areas": areas,
     }

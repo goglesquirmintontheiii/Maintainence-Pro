@@ -45,6 +45,7 @@ PLANS: dict[str, dict[str, Any]] = {
             "api",
             "supplier_cards",
             "ai_byok",
+            "request_portals",
         },
         "limits": {
             "full_users": UNLIMITED,

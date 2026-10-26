@@ -11,6 +11,8 @@ import {
   api, ApiError, upload, type ActivityItem, type AssetStatus, type AssetTask, type CommentItem, type FileItem, type MiniWO, type WODetail, type WOOptions, type WOStatus,
 } from "../../lib/api";
 import { useSession } from "../../lib/session";
+import { useLiveInvalidate } from "../../lib/live";
+import { WorkOrderThreadButton } from "../messages/Messages";
 import { currency, dateTime, timeAgo } from "../../lib/format";
 import { absoluteUrl, copyText, dueLabel, fmtDuration, fmtMinutes, money, STATUS_LABEL, useWOOptions, WORK_TYPE_LABEL } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
@@ -21,11 +23,15 @@ import { ASSET_STATUS_LABEL } from "../../lib/assets";
 import { FileViewer } from "../../components/FileViewer";
 import { DropZone } from "../../components/DropZone";
 import { ProcedureRuns } from "../procedures/Runner";
+import { WorkOrderVisits } from "../scan/ScanHistory";
 import { offerCloseSubs, RecurrenceChip, SubRollup } from "../pm/WOParts";
 import { WOPartsSection } from "../parts/WOParts";
 import { WorkOrderOutside } from "./WorkOrderVendors";
 import { WOCustomerRow } from "../vendors/WOCustomer";
 import { WOReceipts } from "../finance/Receipts";
+import { addCachedComment, patchCachedWO, queueMutation } from "../../lib/offline"; // offline work orders (0.6.0, MP-053)
+import { WOTimerButtons } from "../../pwa/Timers";
+import { CameraButton, PhotoMarkup } from "../../pwa/PhotoMarkup";
 
 const REACTIONS = ["👍", "👀", "✅", "🎉", "❤️", "⚠️"];
 const STATUS_BTNS: { id: WOStatus; label: string; icon: typeof Clock }[] = [
@@ -51,6 +57,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
   const tz = session.org?.timezone;
+  // someone else changed it, commented or completed it: refresh (0.6.0 realtime, r269)
+  useLiveInvalidate(`wo:${id}`, [["work-order", id], ["wo-activity", id]]);
 
   useEffect(() => {
     // mark read happens on GET; refresh list unread dots
@@ -79,13 +87,21 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
     else toast(ae.message, { kind: "error" });
   };
   const statusM = useMutation({
-    mutationFn: (b: Record<string, unknown>) => api<WODetail>(`/work-orders/${id}/status`, { method: "POST", body: { version: q.data?.version, ...b } }),
+    mutationFn: async (b: Record<string, unknown>): Promise<WODetail | null> => {
+      const r = await queueMutation<WODetail>({ method: "POST", path: `/work-orders/${id}/status`, body: { version: q.data?.version, ...b }, woId: id,
+        label: `#${q.data?.number}: ${STATUS_LABEL[b.status as WOStatus] ?? b.status}` });
+      if (!r.queued) return r.result!;
+      const saved = await patchCachedWO(id, (d) => ({ ...d, status: b.status as WOStatus, sub_status: (b.sub_status as string) ?? "" }));
+      if (saved) qc.setQueryData(["work-order", id], saved);
+      return null; // saved on this device; sent when the connection is back
+    },
     onMutate: async (b) => { // optimistic
       const prev = qc.getQueryData<WODetail>(["work-order", id]);
       if (prev && b.status !== "done") qc.setQueryData(["work-order", id], { ...prev, status: b.status as WOStatus, sub_status: (b.sub_status as string) ?? "" });
       return { prev };
     },
     onSuccess: (wo, b, ctx) => {
+      if (!wo) { setStatusAsk(null); toast("Saved on this device. It syncs when you're back online."); return; }
       refresh(wo); setStatusAsk(null);
       if (!b.undo && ctx?.prev?.status !== "done") offerCloseSubs(wo, toast, qc); // MaintainX offers to close open sub-work orders (0.4.0)
       const from = ctx?.prev?.status;
@@ -157,6 +173,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
               <button className="menu-item" onClick={() => { close(); setPdfOpen(true); }}><Printer size={15} />Export to PDF</button>
               <button className="menu-item" onClick={async () => { close(); toast((await copyText(absoluteUrl(`/work-orders/${wo.id}`))) ? "Link copied" : "Couldn't copy the link"); }}><Link2 size={15} />Copy link</button>
               <a className="menu-item" href={`mailto:?subject=${encodeURIComponent(`Work order #${wo.number}: ${wo.title}`)}&body=${encodeURIComponent(absoluteUrl(`/work-orders/${wo.id}`))}`} onClick={close}><Mail size={15} />Email a link</a>
+              <WorkOrderThreadButton woId={wo.id} />
               {inDrawer && <Link className="menu-item" to={`/work-orders/${wo.id}`} onClick={close}><ExternalLink size={15} />Open full page</Link>}
               <button className="menu-item" onClick={() => { close(); unread.mutate(); }}><Undo2 size={15} />Mark as unread</button>
               {editable && wo.status !== "canceled" && wo.status !== "done" && <button className="menu-item" onClick={() => { close(); setStatusAsk("canceled"); }}><Ban size={15} />Cancel work order</button>}
@@ -209,6 +226,7 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
       <Attachments wo={wo} editable={editable} onChange={() => refresh()} />
       {wo.asset_tasks.length > 0 && <AssetTasks wo={wo} editable={editable && !["done", "canceled"].includes(wo.status)} onChange={(w) => refresh(w)} />}
       {can("procedures.view") && <ProcedureRuns wo={wo} onChange={() => refresh()} />}
+      <WorkOrderVisits woId={wo.id} canAdd={editable && !["done", "canceled"].includes(wo.status)} />
 
       {(wo.completion_summary || wo.signature) && (
         <section className="card card-pad stack">
@@ -231,6 +249,8 @@ export function WorkOrderDetail({ id, backTo, inDrawer, onClose }: { id: string;
       {newSub && <WorkOrderForm init={{ parent_id: wo.id, assignees: wo.assignees.map((a) => `${a.type}:${a.id}`), categories: wo.categories.map((c) => c.id), priority: wo.priority }}
         onClose={() => setNewSub(false)} onSaved={() => refresh()} />}
       {copyInit && <WorkOrderForm init={copyInit} onClose={() => setCopyInit(null)} />}
+      {editable && !["done", "canceled"].includes(wo.status) && <div className="wo-sticky-complete">
+        <Button variant="primary" disabled={statusM.isPending} onClick={() => changeStatus("done")}><CheckCircle2 size={16} />Complete</Button></div>}
       {statusAsk && <StatusDialog wo={wo} target={statusAsk} options={opts.data} onClose={() => setStatusAsk(null)} busy={statusM.isPending}
         onConfirm={(b) => statusM.mutate({ status: statusAsk, ...b })} />}
       {pdfOpen && <PdfDialog wo={wo} onClose={() => setPdfOpen(false)} />}
@@ -333,6 +353,7 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
   const { toast } = useToast();
   const [busy, setBusy] = useState(0);
   const [view, setView] = useState<FileItem | null>(null);
+  const [markup, setMarkup] = useState<FileItem | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const add = async (fl: FileList | File[] | null, role = "file") => {
     for (const f of Array.from(fl ?? [])) {
@@ -357,7 +378,8 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
   return (
     <DropZone disabled={!editable} onFiles={(fs) => void add(fs)}><section>
       <div className="row" style={{ justifyContent: "space-between" }}><h3 className="sec-h">Pictures and files {wo.attachments.length > 0 && <span className="faint">({wo.attachments.length})</span>}</h3>
-        {editable && <Button size="sm" variant="ghost" onClick={() => input.current?.click()} disabled={busy > 0}><Paperclip size={14} />{busy ? `Uploading ${busy}…` : "Add"}</Button>}
+        {editable && <span className="row" style={{ gap: 4 }}><CameraButton disabled={busy > 0} onFiles={(fs) => add(fs)} />
+          <Button size="sm" variant="ghost" onClick={() => input.current?.click()} disabled={busy > 0}><Paperclip size={14} />{busy ? `Uploading ${busy}…` : "Add"}</Button></span>}
         <input ref={input} type="file" multiple hidden onChange={(e) => { void add(e.target.files); e.target.value = ""; }} /></div>
       {!wo.attachments.length && <div className="dropzone small" onClick={() => input.current?.click()}><ImagePlus size={18} className="faint" />Drag photos or files here</div>}
       {images.length > 0 && <div className="thumbs">{images.map((f) => (
@@ -374,9 +396,12 @@ function Attachments({ wo, editable, onChange }: { wo: WODetail; editable: boole
           {editable && <Button size="sm" variant="ghost" icon aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><X size={14} /></Button>}</div>))}</div>}
       {view && <FileViewer files={viewList} index={Math.max(0, viewList.findIndex((f) => f.id === view.id))} onClose={() => setView(null)}
         actions={(f) => editable && f.is_image && ["file", "photo", "before", "after"].includes((f as FileItem).role ?? "file")
-          ? (f.id === coverId ? <span className="small" style={{ color: "var(--c-viewer-muted)" }}>Work order image</span>
-            : <Button size="sm" className="viewer-btn" aria-label="Use as work order image" title="Use as work order image" onClick={() => void setCover(f.id)}><ImagePlus size={14} /><span className="desktop-only">Use as work order image</span></Button>)
+          ? <>
+            <Button size="sm" className="viewer-btn" aria-label="Mark up a copy" title="Mark up a copy" onClick={() => { setMarkup(f as FileItem); setView(null); }}><Pencil size={14} /><span className="desktop-only">Mark up</span></Button>
+            {f.id === coverId ? <span className="small" style={{ color: "var(--c-viewer-muted)" }}>Work order image</span>
+            : <Button size="sm" className="viewer-btn" aria-label="Use as work order image" title="Use as work order image" onClick={() => void setCover(f.id)}><ImagePlus size={14} /><span className="desktop-only">Use as work order image</span></Button>}</>
           : null} />}
+      {markup && <PhotoMarkup src={markup.url} name={markup.name} onClose={() => setMarkup(null)} onSave={async (file) => { setMarkup(null); await add([file]); }} />}
     </section></DropZone>
   );
 }
@@ -397,23 +422,16 @@ function TimeAndCosts({ wo, editable, onChange }: { wo: WODetail; editable: bool
   const [addTime, setAddTime] = useState(false);
   const [addCost, setAddCost] = useState(false);
   const c = wo.costs;
-  const mine = c.timers.find((t) => t.user.id === session.user?.id);
   const cur = session.org?.currency ?? "USD";
   const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
   const after = () => { qc.invalidateQueries({ queryKey: ["work-order", wo.id] }); qc.invalidateQueries({ queryKey: ["wo-activity", wo.id] }); };
-  const timer = useMutation({
-    mutationFn: (start: boolean) => start ? api<WODetail>(`/work-orders/${wo.id}/timer`, { method: "POST", body: {} }) : api<WODetail>(`/work-orders/${wo.id}/timer`, { method: "DELETE" }),
-    onSuccess: (w, start) => { onChange(w); qc.invalidateQueries({ queryKey: ["my-timers"] }); toast(start ? "Timer started" : "Time logged"); }, onError: err,
-  });
   const delTime = useMutation({ mutationFn: (tid: string) => api(`/work-orders/${wo.id}/time/${tid}`, { method: "DELETE" }), onSuccess: after, onError: err });
   const delCost = useMutation({ mutationFn: (cid: string) => api(`/work-orders/${wo.id}/costs/${cid}`, { method: "DELETE" }), onSuccess: after, onError: err });
   return (
     <section className="card">
       <div className="card-head"><h2>Time and costs</h2>
         <div className="row">
-          {editable && wo.status !== "done" && (mine
-            ? <Button size="sm" variant="primary" onClick={() => timer.mutate(false)} disabled={timer.isPending}><Square size={13} />Stop <Elapsed since={mine.started_at} /></Button>
-            : <Button size="sm" onClick={() => timer.mutate(true)} disabled={timer.isPending}><Timer size={14} />Start timer</Button>)}
+          {editable && wo.status !== "done" && <WOTimerButtons wo={wo} onChange={onChange} />}
           {editable && <Button size="sm" onClick={() => setAddTime(true)}><Clock size={14} />Log time</Button>}
           {editable && <Button size="sm" onClick={() => setAddCost(true)}><Plus size={14} />Add cost</Button>}
         </div></div>
@@ -446,9 +464,9 @@ function TimeModal({ wo, types, onClose, onDone }: { wo: WODetail; types: string
   const [f, setF] = useState({ hours: "", minutes: "", time_type: types.includes("Work") ? "Work" : types[0], user_id: session.user!.id, note: "", rate: "" });
   const total = (Number(f.hours) || 0) * 60 + (Number(f.minutes) || 0);
   const m = useMutation({
-    mutationFn: () => api(`/work-orders/${wo.id}/time`, { method: "POST", body: { minutes: total, time_type: f.time_type, user_id: f.user_id, note: f.note,
-      rate_cents: f.rate === "" ? undefined : Math.round(Number(f.rate) * 100) } }),
-    onSuccess: () => { onDone(); onClose(); toast(`Logged ${fmtMinutes(total)}`); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }),
+    mutationFn: () => queueMutation({ method: "POST", path: `/work-orders/${wo.id}/time`, label: `#${wo.number}: log ${fmtMinutes(total)}`, woId: wo.id,
+      body: { minutes: total, time_type: f.time_type, user_id: f.user_id, note: f.note, rate_cents: f.rate === "" ? undefined : Math.round(Number(f.rate) * 100) } }),
+    onSuccess: (r) => { onDone(); onClose(); toast(r.queued ? `${fmtMinutes(total)} saved on this device. It syncs when you're back online.` : `Logged ${fmtMinutes(total)}`); }, onError: (e) => toast((e as ApiError).message, { kind: "error" }),
   });
   return (
     <Modal title="Log time" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={total <= 0 || m.isPending} onClick={() => m.mutate()}>Log time</Button></>}>
@@ -551,8 +569,19 @@ function ActivityFeed({ wo, options }: { wo: WODetail; options: WOOptions | unde
   const [showHistory, setShowHistory] = useState(true);
   const err = (e: unknown) => toast((e as ApiError).message, { kind: "error" });
   const reload = () => { qc.invalidateQueries({ queryKey: ["wo-activity", wo.id] }); qc.invalidateQueries({ queryKey: ["work-order", wo.id] }); qc.invalidateQueries({ queryKey: ["work-orders"] }); };
-  const post = useMutation({ mutationFn: () => api<CommentItem>(`/work-orders/${wo.id}/comments`, { method: "POST", body: { body, file_ids: files.map((f) => f.id) } }),
-    onSuccess: () => { setBody(""); setFiles([]); reload(); }, onError: err });
+  const post = useMutation({
+    mutationFn: async () => {
+      const r = await queueMutation<CommentItem>({ method: "POST", path: `/work-orders/${wo.id}/comments`, body: { body, file_ids: files.map((f) => f.id) },
+        label: `#${wo.number}: comment`, woId: wo.id });
+      if (r.queued) {
+        const me = session.user!;
+        const next = await addCachedComment(wo.id, body, { id: me.id, name: me.name, initials: me.initials });
+        if (next) qc.setQueryData(["wo-activity", wo.id], next);
+        toast("Comment saved on this device. It's posted when you're back online.");
+      }
+      return r;
+    },
+    onSuccess: (r) => { setBody(""); setFiles([]); if (!r.queued) reload(); }, onError: err });
   const edit = useMutation({ mutationFn: (cid: string) => api(`/work-orders/${wo.id}/comments/${cid}`, { method: "PATCH", body: { body: editBody } }),
     onSuccess: () => { setEditing(null); reload(); }, onError: err });
   const del = useMutation({ mutationFn: (cid: string) => api(`/work-orders/${wo.id}/comments/${cid}`, { method: "DELETE" }), onSuccess: reload, onError: err });

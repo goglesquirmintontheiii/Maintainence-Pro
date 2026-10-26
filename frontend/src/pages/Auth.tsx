@@ -136,6 +136,7 @@ export function NoOrganization() {
     <AuthLayout>
       <h1>You're not in an organization</h1>
       <p className="muted">{session.user?.email} isn't a member of any organization right now. Ask an administrator to invite you again.</p>
+      {session.user?.sysadmin && <a className="btn primary" href="/mpro-management">Open MPro Management</a>}
       <Button onClick={async () => set(await api<Session>("/auth/logout", { method: "POST" }))}>Sign out</Button>
     </AuthLayout>
   );

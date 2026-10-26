@@ -41,7 +41,7 @@ export type BudgetCheck = { budget_id: string; name: string; level: "ok" | "warn
 export type PODetail = PORow & {
   lines: POLine[]; costs: POCost[]; notes: string; custom: Record<string, unknown>; vendor_contact_ids: string[];
   shipping_address: Address | null; billing_address: Address | null; budget: BudgetCheck | null; tax_certificate_id: string | null;
-  rejected_reason: string; receipts: Receipt[]; requested_by: string | null; approved_by: string | null;
+  rejected_reason: string; receipts: Receipt[]; vendor_ack: VendorAck | null; requested_by: string | null; approved_by: string | null;
   approvals: { id: string; status: string; approvers: (string | null)[]; team_ids: string[]; decided_by: string | null; decided_at: string | null; comment: string }[];
   can: { edit: boolean; decide: boolean; receive: boolean; send: boolean; cancel: boolean; delete: boolean; complete: boolean; reopen: boolean; costs: boolean };
   files: FileItem[]; warnings?: string[];
@@ -72,3 +72,9 @@ export function q(v: string | null | undefined): string {
   const n = Number(v);
   return Number.isNaN(n) ? v : String(+n.toFixed(4));
 }
+
+/** The vendor's answer through the PO email link (r261). */
+export type VendorAck = {
+  status: "active" | "replaced"; response: "acknowledged" | "proposed_date" | "declined" | null; response_label: string; responder_name: string;
+  proposed_date: string | null; note: string; responded_at: string | null; last_viewed_at: string | null; sent_at: string | null; recipients: string[];
+};

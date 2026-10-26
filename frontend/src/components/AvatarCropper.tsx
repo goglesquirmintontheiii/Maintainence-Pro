@@ -94,12 +94,12 @@ export function AvatarCropper({ file, onCancel, onSave, busy }: { file: File; on
 }
 
 /** "Change photo" button + cropper; calls onBlob with the cropped square. */
-export function PhotoPickerButton({ onBlob, busy, label = "Change photo" }: { onBlob: (b: Blob) => void; busy?: boolean; label?: string }) {
+export function PhotoPickerButton({ onBlob, busy, label = "Change photo", inputLabel = "Choose a profile photo" }: { onBlob: (b: Blob) => void; busy?: boolean; label?: string; inputLabel?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   return <DropZone className="row-inline" multiple={false} accept="image/jpeg,image/png,image/webp,image/gif" disabled={busy || !!file} label="Drop a photo" onFiles={(fs) => setFile(fs[0])}>
     <Button size="sm" onClick={() => input.current?.click()} disabled={busy}><ImagePlus size={14} />{label}</Button>
-    <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden aria-label="Choose a profile photo"
+    <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden aria-label={inputLabel}
       onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) setFile(f); }} />
     {file && <AvatarCropper file={file} busy={busy} onCancel={() => setFile(null)} onSave={(b) => { onBlob(b); setFile(null); }} />}
   </DropZone>;

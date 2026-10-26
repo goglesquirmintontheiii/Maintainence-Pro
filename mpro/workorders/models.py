@@ -250,6 +250,9 @@ class Timer(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), index=True)
     started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     time_type: Mapped[str] = mapped_column(String(60), default="Work")
+    # pause / resume (0.6.0, r090): time before the last resume is kept in `accumulated_seconds`
+    paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    accumulated_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class CostEntry(IdMixin, TimestampMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined]

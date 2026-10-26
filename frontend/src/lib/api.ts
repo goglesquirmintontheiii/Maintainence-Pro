@@ -8,14 +8,18 @@ export class ApiError extends Error {
   constructor(public status: number, message: string, public detail?: unknown) { super(message); }
 }
 
-type Opts = { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; signal?: AbortSignal };
+type Opts = { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; signal?: AbortSignal; headers?: Record<string, string> };
+
+// Whether the server answered the last call (0.6.0 offline mode, lib/offline.ts listens).
+let onReach: ((ok: boolean) => void) | null = null;
+export const setReachabilityHandler = (fn: (ok: boolean) => void) => { onReach = fn; };
 
 let onUnauthorized: (() => void) | null = null;
 export const setUnauthorizedHandler = (fn: () => void) => { onUnauthorized = fn; };
 
 export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T> {
   const method = opts.method ?? "GET";
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", ...opts.headers };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET") headers["X-CSRF-Token"] = csrf;
   let res: Response;
@@ -24,8 +28,11 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body) });
   } catch (e) {
     if ((e as Error).name === "AbortError") throw e;
+    onReach?.(false);
     throw new ApiError(0, "Can't reach the MPro server. Check that it's running and your connection is up.");
   }
+  if (res.headers.get("X-MPro-Offline") === "1") onReach?.(false); // a saved copy from the service worker
+  else onReach?.(true);
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -41,7 +48,7 @@ export type Session = {
   db_path?: string; // test builds only: where the database is (MP-122)
   demo_login?: { email: string; password: string } | null;
   user?: { id: string; name: string; email: string; initials: string; theme: "system" | "light" | "dark"; avatar_url?: string | null;
-    prefs?: { upcoming_days?: number } };
+    prefs?: { upcoming_days?: number }; sysadmin?: boolean };
   org?: Org | null; role?: string | null; role_label?: string | null; permissions?: string[];
   entitlements?: { plan: string; features: string[]; limits: Record<string, number | null> };
   orgs?: { id: string; name: string; role: string }[];

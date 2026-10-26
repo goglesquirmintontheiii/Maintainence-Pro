@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -284,17 +285,45 @@ def delete_time(m: Membership, wo: WorkOrder, t: TimeEntry) -> None:
     db.session.commit()
 
 
-def start_timer(org: Organization, m: Membership, wo: WorkOrder, time_type: str | None = None) -> Timer:
+def client_time(value: Any) -> datetime | None:
+    """When the phone says something happened (offline changes are sent later, r090): an ISO time from the last
+    week and not in the future. Anything else means "now"."""
+    if not value:
+        return None
+    try:
+        at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    now = utcnow()
+    return at if now - timedelta(days=7) <= at <= now + timedelta(minutes=1) else None
+
+
+def _my_timer(wo: WorkOrder, m: Membership) -> Timer | None:
+    return db.session.scalars(select(Timer).where(Timer.work_order_id == wo.id, Timer.user_id == m.user_id)).first()
+
+
+def timer_seconds(t: Timer, until: datetime | None = None) -> int:
+    run = 0 if t.paused_at is not None else max(0, int(((until or utcnow()) - t.started_at).total_seconds()))
+    return (t.accumulated_seconds or 0) + run
+
+
+def start_timer(org: Organization, m: Membership, wo: WorkOrder, time_type: str | None = None, at: Any = None) -> Timer:
     if wo.status in ("done", "canceled"):
         raise RuleError("Reopen the work order to time more work.", 409)
-    existing = db.session.scalars(select(Timer).where(Timer.work_order_id == wo.id, Timer.user_id == m.user_id)).first()
+    existing = _my_timer(wo, m)
     if existing:
+        if existing.paused_at is not None:  # starting a paused timer resumes it
+            return resume_timer(org, m, wo, at)
         return existing
     t = Timer(
         org_id=org.id,
         work_order_id=wo.id,
         user_id=m.user_id,
         time_type=_check_time_type(org.id, time_type or wo_settings(org.id)["time_types"][0]),
+        started_at=client_time(at) or utcnow(),
+        accumulated_seconds=0,
     )
     db.session.add(t)
     if wo.status == "open":  # starting work moves the WO to In Progress, as on MaintainX mobile
@@ -305,12 +334,53 @@ def start_timer(org: Organization, m: Membership, wo: WorkOrder, time_type: str 
     return t
 
 
-def stop_timer(org: Organization, m: Membership, wo: WorkOrder, discard: bool = False) -> TimeEntry | None:
-    t = db.session.scalars(select(Timer).where(Timer.work_order_id == wo.id, Timer.user_id == m.user_id)).first()
+def pause_timer(org: Organization, m: Membership, wo: WorkOrder, at: Any = None) -> Timer:
+    t = _my_timer(wo, m)
     if t is None:
         raise RuleError("You don't have a timer running on this work order.", 409)
-    minutes = max(1, round((utcnow() - t.started_at).total_seconds() / 60))
-    started, ttype = t.started_at, t.time_type
+    if t.paused_at is None:
+        when = max(client_time(at) or utcnow(), t.started_at)
+        t.accumulated_seconds = timer_seconds(t, when)
+        t.paused_at = when
+        emit(
+            "wo.timer_paused",
+            entity_type="work_order",
+            entity_id=wo.id,
+            entity_label=label(wo),
+            summary="Paused a timer",
+        )
+        db.session.commit()
+    return t
+
+
+def resume_timer(org: Organization, m: Membership, wo: WorkOrder, at: Any = None) -> Timer:
+    t = _my_timer(wo, m)
+    if t is None:
+        raise RuleError("You don't have a timer on this work order.", 409)
+    if t.paused_at is not None:
+        t.started_at = max(client_time(at) or utcnow(), t.paused_at)
+        t.paused_at = None
+        emit(
+            "wo.timer_resumed",
+            entity_type="work_order",
+            entity_id=wo.id,
+            entity_label=label(wo),
+            summary="Resumed a timer",
+        )
+        db.session.commit()
+    return t
+
+
+def stop_timer(
+    org: Organization, m: Membership, wo: WorkOrder, discard: bool = False, at: Any = None
+) -> TimeEntry | None:
+    t = _my_timer(wo, m)
+    if t is None:
+        raise RuleError("You don't have a timer running on this work order.", 409)
+    end = max(client_time(at) or utcnow(), t.started_at)
+    seconds = timer_seconds(t, end)
+    minutes = max(1, round(seconds / 60))
+    started, ttype = end - timedelta(seconds=seconds), t.time_type
     db.session.delete(t)
     if discard:
         db.session.commit()
@@ -329,6 +399,8 @@ def timers_for(wo: WorkOrder) -> list[dict[str, Any]]:
                 "user": {"id": str(t.user_id), "name": u.name if u else "", "initials": u.initials if u else ""},
                 "started_at": iso(t.started_at),
                 "time_type": t.time_type,
+                "paused": t.paused_at is not None,
+                "elapsed_seconds": timer_seconds(t),
             }
         )
     return out
@@ -341,7 +413,14 @@ def my_timers(m: Membership) -> list[dict[str, Any]]:
         .where(Timer.org_id == m.org_id, Timer.user_id == m.user_id)
     ).all()
     return [
-        {"work_order_id": str(w.id), "number": w.number, "title": w.title, "started_at": iso(t.started_at)}
+        {
+            "work_order_id": str(w.id),
+            "number": w.number,
+            "title": w.title,
+            "started_at": iso(t.started_at),
+            "paused": t.paused_at is not None,
+            "elapsed_seconds": timer_seconds(t),
+        }
         for t, w in rows
     ]
 

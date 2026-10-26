@@ -111,6 +111,7 @@ def session_payload() -> dict[str, Any]:
             "theme": user.theme,
             "prefs": dict(user.ui_prefs or {}),
             "avatar_url": avatar_url(user),
+            "sysadmin": bool(user.is_sysadmin),  # MPro Management (MP-136)
         },
         "org": org_dict(g.org) if getattr(g, "org", None) else None,
         "role": m.role if m else None,

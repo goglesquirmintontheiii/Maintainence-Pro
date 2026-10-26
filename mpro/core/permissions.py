@@ -47,6 +47,12 @@ ROLES: dict[str, dict[str, Any]] = {
         "rank": 10,
         "description": "Can look at everything they're given access to; changes nothing.",
     },
+    "guest": {
+        "label": "Guest",
+        "rank": 5,
+        "description": "A customer's contact: submits requests, sees and completes work at their locations, "
+        "and approves quotes. Nothing else.",
+    },
 }
 
 ALL = {"owner", "admin", "limited_admin", "technician", "operator", "requester", "viewer"}
@@ -304,6 +310,14 @@ for _any, _own in OWN_ACTIONS.items():
 
 # Roles whose people only see work orders assigned to them, whatever their own setting says.
 FORCED_LIMITED_VISIBILITY = {"operator"}
+
+# Guest (r236, 0.6.0): a customer contact scoped to their locations (see mpro/workrequests/guests.py). Kept out of
+# ALL on purpose so new actions never reach guests by accident.
+GUEST_ACTIONS = ("org.view", "wo.view", "wo.status", "wo.comment", "requests.view", "requests.create")
+for _a in GUEST_ACTIONS:
+    ACTIONS[_a] = ACTIONS[_a] | {"guest"}
+ACTIONS["quotes.approve"] = {"guest"}
+ACTION_INFO["quotes.approve"] = ("vendors", "Approve quotes for their customer")
 
 
 def role_can(role: str | None, action: str) -> bool:
