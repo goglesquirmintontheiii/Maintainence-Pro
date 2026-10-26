@@ -34,6 +34,8 @@ def server(tmp_path_factory: Any) -> Iterator[str]:
         "MPRO_DATA_DIR": str(data),
         "MPRO_BASE_URL": f"http://127.0.0.1:{port}",
         "MPRO_SECRET_KEY": "e2e",
+        # like the .exe / .AppImage test builds: the demo admin is the server's sysadmin (MPro Management e2e)
+        "MPRO_TEST_BUILD": "1",
     }
     subprocess.run([sys.executable, "-m", "mpro", "seed-demo"], env=env, check=True, capture_output=True)
     proc = subprocess.Popen(
