@@ -57,7 +57,9 @@ def test_part_statuses_and_picture(page: Any, server: str) -> None:  # noqa: F81
     pid = parts[0]["id"]
     page.goto(server + f"/parts/{pid}")
     page.get_by_role("button", name=re.compile("^(Add|Change) picture$")).first.wait_for()
-    page.get_by_label("Choose a part picture").first.set_input_files({"name": "bearing.png", "mimeType": "image/png", "buffer": PNG})
+    page.get_by_label("Choose a part picture").first.set_input_files(
+        {"name": "bearing.png", "mimeType": "image/png", "buffer": PNG}
+    )
     page.get_by_role("button", name="Save photo").click()
     page.get_by_text("Picture saved").wait_for()
     page.get_by_role("img", name=re.compile("^Picture of ")).wait_for()
@@ -68,7 +70,9 @@ def test_part_statuses_and_picture(page: Any, server: str) -> None:  # noqa: F81
     try:
         page.get_by_role("button", name="Add parts").first.click(timeout=15000)
     except Exception:
-        page.screenshot(path="/tmp/claude-0/-home-claude/a6c7f219-40df-576e-87a0-bb15ad28a918/scratchpad/f6dbg.png", full_page=True)
+        page.screenshot(
+            path="/tmp/claude-0/-home-claude/a6c7f219-40df-576e-87a0-bb15ad28a918/scratchpad/f6dbg.png", full_page=True
+        )
         raise
     page.get_by_role("dialog", name="Add parts").wait_for()
     page.get_by_role("dialog", name="Add parts").get_by_role("button", name="Parts", exact=True).click()
@@ -83,21 +87,51 @@ def test_floor_plan_label_styles_render(page: Any, server: str) -> None:  # noqa
     loc = api(page, "POST", "/locations", {"name": "E2E plant"})
     fid = upload_png(page)
     fp = api(page, "POST", f"/locations/{loc['id']}/floor-plans", {"name": "Ground", "file_id": fid})
-    shapes = [{"id": "t1", "type": "text", "x": 0.1, "y": 0.1, "text": "Boiler", "font_size": 40, "stroke": "#334155",
-               "font": "serif", "bold": False, "italic": True, "outline": "#d97706", "outline_width": 5}]
-    r = api(page, "PUT", f"/locations/{loc['id']}/floor-plans/{fp['id']}/annotations", {"annotations": {"shapes": shapes}, "version": 0})
+    shapes = [
+        {
+            "id": "t1",
+            "type": "text",
+            "x": 0.1,
+            "y": 0.1,
+            "text": "Boiler",
+            "font_size": 40,
+            "stroke": "#334155",
+            "font": "serif",
+            "bold": False,
+            "italic": True,
+            "outline": "#d97706",
+            "outline_width": 5,
+        }
+    ]
+    r = api(
+        page,
+        "PUT",
+        f"/locations/{loc['id']}/floor-plans/{fp['id']}/annotations",
+        {"annotations": {"shapes": shapes}, "version": 0},
+    )
     assert r["version"] == 1, r
     page.goto(server + f"/locations/{loc['id']}/floor-plans")
     t = page.locator(".fp-preview svg text").first
     t.wait_for()
-    look = t.evaluate("el => { const s = getComputedStyle(el); return [s.fontFamily, s.fontStyle, el.getAttribute('stroke'), el.getAttribute('font-weight')]; }")
+    look = t.evaluate(
+        "el => { const s = getComputedStyle(el); return [s.fontFamily, s.fontStyle, el.getAttribute('stroke'), el.getAttribute('font-weight')]; }"
+    )
     assert "Georgia" in look[0] and look[1] == "italic" and look[2] == "#d97706" and look[3] == "400", look
 
 
 def test_vendor_po_page(page: Any, server: str) -> None:  # noqa: F811
     _login(page, server)
     v = api(page, "POST", "/vendors", {"name": "E2E Supply", "email": "orders@e2e.example"})
-    po = api(page, "POST", "/purchase-orders", {"title": "E2E order", "vendor_id": v["id"], "lines": [{"description": "Gloves", "quantity": "2", "unit_cost": "10"}]})
+    po = api(
+        page,
+        "POST",
+        "/purchase-orders",
+        {
+            "title": "E2E order",
+            "vendor_id": v["id"],
+            "lines": [{"description": "Gloves", "quantity": "2", "unit_cost": "10"}],
+        },
+    )
     if po["status"] != "approved":
         api(page, "POST", f"/purchase-orders/{po['id']}/approve", {})
     sent = api(page, "POST", f"/purchase-orders/{po['id']}/send", {"to": ["orders@e2e.example"]})
