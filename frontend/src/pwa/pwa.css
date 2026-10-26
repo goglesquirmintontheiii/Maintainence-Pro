@@ -72,3 +72,7 @@
 .annot-stage { position: relative; background: var(--c-sunken); border-radius: var(--r-md); overflow: hidden; touch-action: none; }
 .annot-stage canvas { display: block; width: 100%; height: auto; }
 .annot-text { position: absolute; z-index: 2; min-width: 120px; }
+
+/* the work order's Time and costs header holds the timer buttons: let it wrap on narrow screens */
+.card-head:has(.wo-timer) { flex-wrap: wrap; gap: var(--s-2); }
+.card-head:has(.wo-timer) > .row { flex-wrap: wrap; }

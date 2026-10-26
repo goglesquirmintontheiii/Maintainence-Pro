@@ -124,12 +124,12 @@ export function WOTimerButtons({ wo, onChange }: { wo: WODetail; onChange: (w?: 
       toast((e as ApiError).message, { kind: "error" });
     } finally { setBusy(false); }
   };
-  if (!mine) return <Button size="sm" onClick={() => void go("start")} disabled={busy}><Timer size={14} />Start timer</Button>;
-  return <>
+  if (!mine) return <Button size="sm" className="wo-timer" onClick={() => void go("start")} disabled={busy}><Timer size={14} />Start timer</Button>;
+  return <span className="row wo-timer" style={{ gap: 6 }}>
     <span className={"timer-clock" + (mine.paused ? " paused" : "")} aria-label={mine.paused ? "Timer paused" : "Timer running"}>{clock(seconds)}</span>
     {mine.paused
       ? <Button size="sm" onClick={() => void go("resume")} disabled={busy}><Play size={13} />Resume</Button>
       : <Button size="sm" onClick={() => void go("pause")} disabled={busy}><Pause size={13} />Pause</Button>}
     <Button size="sm" variant="primary" onClick={() => void go("stop")} disabled={busy}><Square size={13} />Stop</Button>
-  </>;
+  </span>;
 }
