@@ -1160,6 +1160,9 @@ def public_upload(p: RequestPortal, org: Organization, up: Any, ip: str) -> dict
     from mpro.core.files import IMAGE_TYPES, save_file_stream
 
     check_rate(ip, p, True, "upload")
+    name = str(up.filename or "").lower()
+    if not name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".avif", ".pdf", ".mp4", ".mov")):
+        raise RuleError("Attach pictures, videos or PDFs.", 422)
     f = save_file_stream(org.id, up.filename, up.stream, None, org)
     if f.content_type not in IMAGE_TYPES | {"application/pdf", "video/mp4", "video/quicktime"}:
         db.session.rollback()
@@ -1190,3 +1193,20 @@ def status_by_token(token: str, ip: str) -> dict[str, Any]:
         "created_at": iso(r.created_at),
         "updated_at": iso(r.status_changed_at or r.updated_at),
     }
+
+
+def cleanup_portal_uploads(older_than: timedelta = timedelta(days=1)) -> int:
+    """Files uploaded on a portal but never sent with a request are removed after a day."""
+    cutoff = utcnow() - older_than
+    links = db.session.scalars(
+        select(FileLink)
+        .where(FileLink.entity_type == "request_portal_upload", FileLink.created_at < cutoff)
+        .limit(1000)
+    ).all()
+    for link in links:
+        f = db.session.get(FileObject, link.file_id)
+        if f is not None and f.deleted_at is None:
+            f.deleted_at = utcnow()
+        db.session.delete(link)
+    db.session.commit()
+    return len(links)

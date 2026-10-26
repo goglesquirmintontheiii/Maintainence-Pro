@@ -96,20 +96,23 @@ def test_complete_and_comment_offline_then_sync(phone: tuple[Any, Any], server: 
     pg.get_by_role("button", name="Send", exact=False).first.click()
     pg.get_by_text("Checked offline, all good").first.wait_for()
     pg.locator(".wo-sticky-complete").get_by_role("button", name="Complete").click()
+    pg.wait_for_timeout(700)
     dialog = pg.get_by_role("dialog")
-    if dialog.count():  # completion summary / signature settings
+    if dialog.count():  # completion summary / signature / asset status settings
         dialog.get_by_role("button", name="Done", exact=False).last.click()
-    pg.get_by_role("button", name="changes waiting to sync", exact=False).wait_for()
+    pg.get_by_role("button", name="2 changes waiting to sync").wait_for()
     # survives a reload while offline
     pg.reload()
-    pg.get_by_role("button", name="changes waiting to sync", exact=False).wait_for()
+    pg.get_by_role("button", name="2 changes waiting to sync").wait_for()
 
     # ---- back online: the queue is sent in order and the server has both changes
     ctx.set_offline(False)
-    pg.wait_for_timeout(8000)
-    print("DBG", pg.evaluate("""() => new Promise((resolve) => { const o = indexedDB.open('mpro-offline'); o.onsuccess = () => { const r = o.result.transaction('queue').objectStore('queue').getAll(); r.onsuccess = () => resolve(JSON.stringify(r.result.map(q => [q.status, q.error, q.path, q.method]))); }; })"""))  # DBG
     pg.get_by_role("button", name="changes waiting to sync", exact=False).wait_for(state="detached", timeout=30000)
-    after = _api(pg, "GET", f"/work-orders/{wid}?mark_read=0")
+    for _ in range(40):  # the last change lands a moment after the badge goes
+        after = _api(pg, "GET", f"/work-orders/{wid}?mark_read=0")
+        if after["status"] == "done":
+            break
+        pg.wait_for_timeout(250)
     assert after["status"] == "done"
     acts = _api(pg, "GET", f"/work-orders/{wid}/activity")["items"]
     bodies = [a.get("body") for a in acts if a["kind"] == "comment"]

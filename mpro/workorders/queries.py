@@ -803,6 +803,8 @@ def filter_options(m: Membership) -> dict[str, Any]:
     from mpro.orgs.services import members_query
 
     ms = db.session.scalars(members_query(m.org_id).order_by(func.lower(User.name))).all()
+    if m.role == "guest":  # r236: an outside contact doesn't get the staff and team lists (0.6.0)
+        ms, teams = [], []
     return {
         "statuses": [{"id": k, "label": v} for k, v in STATUS_LABELS.items()],
         "priorities": [{"id": k, "label": v} for k, v in PRIORITY_LABELS.items()],

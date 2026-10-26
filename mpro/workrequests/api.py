@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from apiflask import APIBlueprint, abort
@@ -10,6 +11,7 @@ from flask import Response, current_app, g, jsonify, request
 from sqlalchemy import func, select
 
 from mpro.core.files import FileError, links_for, register_entity
+from mpro.core.jobs import job, periodic
 from mpro.core.permissions import can
 from mpro.core.search import like
 from mpro.core.tenancy import require
@@ -398,6 +400,14 @@ def _can_edit_request(rid: uuid.UUID) -> bool:
 
 
 register_entity("work_request", _can_view_request, _can_edit_request)
+
+
+@job("requests.cleanup_portal_uploads")
+def _cleanup_uploads(_: dict[str, Any]) -> None:
+    svc.cleanup_portal_uploads()
+
+
+periodic("requests.cleanup_portal_uploads", timedelta(hours=6))
 
 
 def _register() -> None:

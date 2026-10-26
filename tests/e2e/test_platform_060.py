@@ -73,8 +73,8 @@ def test_part_statuses_and_picture(page: Any, server: str) -> None:  # noqa: F81
     page.get_by_role("dialog", name="Add parts").wait_for()
     page.get_by_role("dialog", name="Add parts").get_by_role("button", name="Parts", exact=True).click()
     page.get_by_role("option", name=re.compile("Ball bearing 6205")).first.click()
-    page.keyboard.press("Escape")
-    sel = page.get_by_role("combobox", name=re.compile("^Status of "))
+    sel = page.get_by_role("combobox", name=re.compile("^Status of ")).first
+    sel.wait_for(state="attached")
     assert sel.locator("option").all_inner_texts() == ["Used", "Planned", "Reserved"]
 
 

@@ -33,6 +33,8 @@ let state: State = { online: typeof navigator === "undefined" ? true : navigator
   lastSync: null, error: null, cached: 0 };
 const listeners = new Set<() => void>();
 function setState(p: Partial<State>) { state = { ...state, ...p }; listeners.forEach((l) => l()); }
+// for support and browser tests: window.__mproOffline() shows the connection and queue state
+if (typeof window !== "undefined") (window as unknown as { __mproOffline: () => unknown }).__mproOffline = () => ({ ...state, ctx, running: !!running });
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 
 export function isOnline(): boolean { return state.online && state.reachable; }
@@ -214,8 +216,8 @@ let running: Promise<void> | null = null;
 /** Send queued changes, then fetch what changed in my work orders since the last sync. */
 export function syncNow(): Promise<void> {
   if (running) return running;
+  if (!ctx || !isOnline()) return Promise.resolve();
   running = (async () => {
-    if (!ctx || !isOnline()) return;
     setState({ syncing: true, error: null });
     try {
       await flush();
@@ -266,7 +268,7 @@ function start() {
   setReachabilityHandler((ok) => {
     const was = isOnline();
     if (ok === state.reachable && (!ok || state.online)) return;
-    setState({ reachable: ok, online: ok ? true : state.online });
+    setState({ reachable: ok, online: ok ? navigator.onLine || state.online : state.online });
     if (!was && isOnline()) void syncNow();
   });
   // the server might be back even when the browser didn't notice: check now and then while there's work to send

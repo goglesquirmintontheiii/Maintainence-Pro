@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Work requests, request portals, customer portals and the Guest role (0.6.0: MP-047, MP-048, r236, r265)."""
 
 from __future__ import annotations
@@ -116,7 +117,9 @@ def test_approve_creates_linked_work_order_and_requester_sees_number_only(app: A
     assert jamie.get(f"{API}/requests/{r['id']}").json["status"] == "done"
     assert admin.post(f"{API}/work-orders/{wo['id']}/status", {"status": "open"}).status_code == 200
     assert jamie.get(f"{API}/requests/{r['id']}").json["status"] == "approved"
-    assert admin.post(f"{API}/work-orders/{wo['id']}/status", {"status": "canceled", "comment": "dup"}).status_code == 200
+    assert (
+        admin.post(f"{API}/work-orders/{wo['id']}/status", {"status": "canceled", "comment": "dup"}).status_code == 200
+    )
     assert jamie.get(f"{API}/requests/{r['id']}").json["status"] == "canceled"
     # searching by the linked work order's number finds the request (r298)
     assert admin.get(f"{API}/requests?q=%23{wo['number']}").json["total"] == 1
@@ -334,9 +337,13 @@ def test_portal_fields_targeting_and_inactive(app: Any, admin: Api) -> None:
 def test_portal_rate_limits_and_bot_field(app: Any, admin: Api) -> None:
     p = admin.post(f"{API}/request-portals", {"name": "Busy"}).json
     c = anon(app, "10.1.0.4")
-    assert c.post(f"{API}/portal/{p['slug']}/requests", json={"title": "x", "name": "B", "website": "spam"}).status_code == 422
+    assert (
+        c.post(f"{API}/portal/{p['slug']}/requests", json={"title": "x", "name": "B", "website": "spam"}).status_code
+        == 422
+    )
     codes = [
-        c.post(f"{API}/portal/{p['slug']}/requests", json={"title": f"r{i}", "name": "S"}).status_code for i in range(12)
+        c.post(f"{API}/portal/{p['slug']}/requests", json={"title": f"r{i}", "name": "S"}).status_code
+        for i in range(12)
     ]
     assert codes.count(201) <= 10 and 429 in codes
     # guessing slugs is limited too
@@ -435,3 +442,25 @@ def test_deleting_the_work_order_cancels_the_request(app: Any, admin: Api) -> No
         process_outbox()
     seen = jamie.get(f"{API}/requests/{r['id']}").json
     assert seen["status"] == "canceled"
+
+
+def test_portal_uploads_only_media_and_unclaimed_ones_expire(app: Any, admin: Api) -> None:
+    p = admin.post(f"{API}/request-portals", {"name": "Uploads"}).json
+    c = anon(app, "10.1.0.9")
+    bad = c.post(f"{API}/portal/{p['slug']}/files", data={"file": (io.BytesIO(b"hello"), "notes.txt")},
+                 content_type="multipart/form-data")  # fmt: skip
+    assert bad.status_code == 422
+    up = c.post(f"{API}/portal/{p['slug']}/files", data={"file": (io.BytesIO(PNG_1PX), "x.png")},
+                content_type="multipart/form-data")  # fmt: skip
+    assert up.status_code == 201
+    with app.app_context():
+        from datetime import timedelta
+
+        from mpro.core.files import FileObject
+        from mpro.extensions import db
+        from mpro.workrequests.services import cleanup_portal_uploads
+
+        assert cleanup_portal_uploads(timedelta(seconds=-1)) == 1
+        assert db.session.get(FileObject, uuid.UUID(up.json["id"])).deleted_at is not None
+    r = c.post(f"{API}/portal/{p['slug']}/requests", json={"title": "x", "name": "S", "file_ids": [up.json["id"]]})
+    assert r.status_code == 422

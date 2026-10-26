@@ -1,4 +1,4 @@
-# ruff: noqa: E501
+# ruff: noqa: E501, F811
 """Browser check for work requests (0.6.0, MP-047/MP-048): a portal request, then a requester's request approved
 into a work order. Needs a built frontend."""
 
@@ -40,7 +40,9 @@ def test_request_to_work_order(page: Any, server: str) -> None:
 def test_public_portal_submit_and_status(page: Any, server: str) -> None:
     page.goto(server + "/login")
     _login(page, server)
-    slug = page.evaluate("fetch('/api/v1/request-portals').then(r => r.json()).then(d => d.items.find(x => x.name === 'Report a problem').slug)")
+    slug = page.evaluate(
+        "fetch('/api/v1/request-portals').then(r => r.json()).then(d => d.items.find(x => x.name === 'Report a problem').slug)"
+    )
     page.context.clear_cookies()
     page.goto(server + f"/portal/{slug}")
     page.get_by_label("What's wrong? *").fill("E2E: lobby light flickering")
