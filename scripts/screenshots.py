@@ -482,11 +482,171 @@ def capture_050(ctx: Any, shot: Any, url: str) -> None:
     c.close()
 
 
+def capture_060(ctx: Any, shot: Any, url: str) -> None:
+    """0.6.0: requests and portals, messaging, notifications, the phone app and offline, scan actions, MPro
+    Management, and the 0.5 testing requests."""
+    import re
+
+    def items(pg: Page, path: str, key: str = "items") -> list[dict[str, Any]]:
+        data = api(pg, "GET", path) or {}
+        return list(data.get(key, [])) if isinstance(data, dict) else []
+
+    def first(pg: Page, path: str, pick: Any = None, key: str = "items") -> dict[str, Any] | None:
+        rows = items(pg, path, key)
+        if pick:
+            rows = [r for r in rows if pick(r)] or rows
+        return rows[0] if rows else None
+
+    def links(pg: Page, pattern: str) -> list[str]:
+        out: list[str] = []
+        for m in items(pg, "/admin/outbox"):
+            out += re.findall(pattern, str(m.get("body", "")) + str(m.get("html", "")))
+        return out
+
+    c, pg = ctx()
+    login(pg, url)
+    shot(pg, "01-overview", 1200)
+    # requests (MP-047)
+    pg.goto(url + "/requests")
+    shot(pg, "02-requests", 1500)
+    req = first(pg, "/requests?per_page=20", pick=lambda r: r.get("status") == "pending")
+    if req:
+        pg.goto(url + f"/requests/{req['id']}")
+        shot(pg, "03-request-detail", 1500)
+        _try(
+            "approve dialog",
+            lambda: (pg.get_by_role("button", name="Approve").first.click(), shot(pg, "04-approve", 800)),
+        )
+        pg.keyboard.press("Escape")
+        _try(
+            "decline dialog",
+            lambda: (pg.get_by_role("button", name="Decline").first.click(), shot(pg, "05-decline", 800)),
+        )
+        pg.keyboard.press("Escape")
+    pg.goto(url + "/requests?new=1")
+    _try("new request", lambda: pg.get_by_role("button", name="New request").first.click())
+    shot(pg, "06-new-request", 1200)
+    pg.keyboard.press("Escape")
+    pg.goto(url + "/settings/requests")
+    shot(pg, "07-request-settings", 1500)
+    shot(pg, "08-request-settings-full", 300, True)
+    # notifications (MP-050..052)
+    _try("bell", lambda: (pg.get_by_role("button", name="Notifications").first.click(), shot(pg, "09-bell", 1000)))
+    pg.keyboard.press("Escape")
+    pg.goto(url + "/notifications")
+    shot(pg, "10-notifications", 1500)
+    _try(
+        "notification settings",
+        lambda: (
+            pg.get_by_role("tab", name="Settings").first.click(),
+            shot(pg, "11-notification-settings", 1000, True),
+        ),
+    )
+    pg.goto(url + "/settings/notifications")
+    shot(pg, "12-escalation-rules", 1500, True)
+    # messaging (MP-049)
+    pg.goto(url + "/messages")
+    shot(pg, "13-messages", 1500)
+    conv = first(pg, "/conversations", pick=lambda r: r.get("kind") == "team")
+    if conv:
+        pg.goto(url + f"/messages/{conv['id']}")
+        shot(pg, "14-team-chat", 1800)
+    ann = first(pg, "/conversations", pick=lambda r: r.get("kind") == "all_team")
+    if ann:
+        pg.goto(url + f"/messages/{ann['id']}")
+        shot(pg, "15-announcement", 1800)
+    wo = first(pg, "/work-orders?tab=todo&per_page=50", pick=lambda r: "Conveyor 3" in r.get("title", ""))
+    if wo:
+        pg.goto(url + f"/work-orders/{wo['id']}")
+        shot(pg, "16-work-order-visits-parts", 1800)
+        shot(pg, "17-work-order-full", 300, True)
+    # parts changes (MP-131), user ID (MP-133), floor plan labels (MP-132)
+    part = first(pg, "/parts?per_page=50")
+    if part:
+        pg.goto(url + f"/parts/{part['id']}")
+        shot(pg, "18-part-picture", 1500)
+    pg.goto(url + "/profile")
+    shot(pg, "19-profile-user-id", 1200, True)
+    loc = first(pg, "/locations?per_page=50", pick=lambda r: r.get("has_floor_plan") or r.get("floor_plan"))
+    if loc:
+        pg.goto(url + f"/locations/{loc['id']}/floor-plan")
+        shot(pg, "20-floor-plan", 1800)
+    # scanning (MP-097)
+    pg.goto(url + "/settings/qr-codes")
+    shot(pg, "21-scan-settings", 1500, True)
+    pg.goto(url + "/scan/history")
+    shot(pg, "22-scan-history", 1500)
+    # vendor PO acknowledgment (r261): send one PO and open the vendor's link
+    po = first(pg, "/purchase-orders?per_page=50", pick=lambda r: r.get("status") == "approved")
+    if po:
+        api(pg, "POST", f"/purchase-orders/{po['id']}/send", {})
+        pg.goto(url + f"/purchase-orders/{po['id']}")
+        shot(pg, "23-po-vendor-answer", 1500)
+    vlinks = links(pg, r"/v/[A-Za-z0-9_-]{20,}")
+    # MPro Management (MP-136)
+    for i, (path, name) in enumerate((("", "overview"), ("server", "server-settings"), ("api-keys", "api-keys"),
+                                      ("users", "user-database"), ("orgs", "org-database"))):  # fmt: skip
+        pg.goto(url + "/mpro-management/" + path)
+        shot(pg, f"{24 + i:02d}-management-{name}", 1500)
+    u = first(pg, "/sysadmin/users?q=example.com")
+    if u:
+        pg.goto(url + f"/mpro-management/user-management/{u['id']}")
+        shot(pg, "29-management-user", 1500, True)
+    o = first(pg, "/sysadmin/orgs")
+    if o:
+        pg.goto(url + f"/mpro-management/org-management/{o['id']}")
+        shot(pg, "30-management-org", 1500, True)
+    portal = first(pg, "/request-portals", pick=lambda r: not r.get("customer"))
+    status_links = links(pg, r"/request-status/[A-Za-z0-9_-]{20,}")
+    c.close()
+    # public pages (no login)
+    c, pg = ctx()
+    if portal:
+        pg.goto(url + portal.get("path", f"/portal/{portal.get('slug')}"))
+        shot(pg, "31-public-portal", 1500, True)
+    if status_links:
+        pg.goto(url + status_links[0])
+        shot(pg, "32-request-status-link", 1500)
+    if vlinks:
+        pg.goto(url + vlinks[0])
+        shot(pg, "33-vendor-po-link", 1500, True)
+    c.close()
+    # phones
+    c, pg = ctx(mobile=True)
+    login(pg, url)
+    shot(pg, "34-phone-overview", 1500)
+    pg.goto(url + "/requests")
+    shot(pg, "35-phone-requests", 1500)
+    pg.goto(url + "/messages")
+    shot(pg, "36-phone-messages", 1500)
+    if conv:
+        pg.goto(url + f"/messages/{conv['id']}")
+        shot(pg, "37-phone-conversation", 1500)
+    code = first(
+        pg, "/qr-codes?state=assigned&per_page=20", pick=lambda r: (r.get("target") or {}).get("type") == "asset"
+    )
+    if code:
+        pg.goto(url + "/q/" + code["value"])
+        shot(pg, "38-phone-scan-actions", 1500)
+    if wo:
+        pg.goto(url + f"/work-orders/{wo['id']}")
+        shot(pg, "39-phone-work-order", 1800)
+        pg.context.set_offline(True)
+        pg.wait_for_timeout(800)
+        shot(pg, "40-phone-offline", 1000)
+        pg.context.set_offline(False)
+    pg.goto(url + "/notifications")
+    shot(pg, "41-phone-notifications", 1500)
+    c.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://127.0.0.1:8080")
     ap.add_argument("--out", default="")
-    ap.add_argument("--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0"))
+    ap.add_argument(
+        "--release", default="0.4.0", choices=("0.2.0", "0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0", "0.6.0")
+    )
     a = ap.parse_args()
     out = Path(a.out or f"docs/screenshots/{a.release}")
     out.mkdir(parents=True, exist_ok=True)
@@ -507,13 +667,14 @@ def main() -> int:
             pg.wait_for_timeout(wait)
             pg.screenshot(path=out / f"{name}.png", full_page=full)
 
-        if a.release in ("0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0"):
+        if a.release in ("0.3.0", "0.4.0", "0.4.2", "0.4.3", "0.5.0", "0.6.0"):
             runs = {
                 "0.3.0": capture_030,
                 "0.4.0": capture_040,
                 "0.4.2": capture_042,
                 "0.4.3": capture_043,
                 "0.5.0": capture_050,
+                "0.6.0": capture_060,
             }
             runs[a.release](ctx, shot, url)
             b.close()
