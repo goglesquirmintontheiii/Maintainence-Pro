@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ClipboardList, Copy, Globe, Inbox, MapPin, MoreHorizontal, Pencil, Plus, Search, Send, Users, X } from "lucide-react";
 import { api, ApiError, type Template } from "../../lib/api";
 import { useSession } from "../../lib/session";
+import { useLiveInvalidate } from "../../lib/live";
 import { dateTime, timeAgo } from "../../lib/format";
 import { fromLocalInput, useWOOptions } from "../../lib/wo";
 import { useToast } from "../../components/Toast";
@@ -232,6 +233,9 @@ function DeclineDialog({ r, onClose, onDone }: { r: WorkRequest; onClose: () => 
 
 /** The red count next to Requests in the sidebar (r299). */
 export function RequestsBadge() {
+  const { can } = useSession();
+  // new and changed requests arrive live for people who see everyone's requests (the sidebar keeps this mounted)
+  useLiveInvalidate(can("requests.view_all") ? "requests" : null, [["requests"]]);
   const b = useBadge();
   const n = b.data?.new ?? 0;
   return n > 0 ? <span className="nav-badge" aria-label={`${n} new requests`}>{n > 99 ? "99+" : n}</span> : null;

@@ -341,7 +341,7 @@ def run_desktop(
     with app.app_context():
         seed_demo()
     stop = start_background_worker(app)
-    server = create_server(app, host=host, port=port, threads=8)
+    server = create_server(app, host=host, port=port, threads=24)
     with contextlib.suppress(OSError):
         _instance_file(data_dir).write_text(json.dumps({"url": url, "pid": os.getpid()}), encoding="utf-8")
     banner = BANNER.format(version=__version__, data=data_dir, url=url, email=DEMO_EMAIL, password=DEMO_PASSWORD)

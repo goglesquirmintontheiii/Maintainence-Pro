@@ -228,6 +228,8 @@ def test_scan_resolves_a_typed_code(page: Any, server: str) -> None:
         """async () => (await (await fetch('/api/v1/qr-codes?state=assigned&per_page=1')).json()).items[0]"""
     )
     page.goto(server + "/q/" + code["value"])
+    # 0.6.0 (MP-097): an asset scan shows what you can do with it; "Open the asset" goes to its page
+    page.get_by_role("group", name="What do you want to do?").get_by_role("button", name="Open the asset").click()
     page.wait_for_url("**/assets/*")
     page.get_by_role("heading", name=code["target"]["label"]).wait_for()
 

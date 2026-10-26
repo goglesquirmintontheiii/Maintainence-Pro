@@ -356,7 +356,7 @@ def realtime_stream() -> Any:
     Each tab keeps one stream. When the server's stream budget is used up (MPRO_REALTIME_MAX_STREAMS, waitress gives
     each open stream a thread), it answers 429 and the browser polls /realtime/poll instead."""
     app = current_app._get_current_object()  # type: ignore[attr-defined]
-    limit = int(app.config.get("MPRO_REALTIME_MAX_STREAMS", 4))
+    limit = int(app.config.get("MPRO_REALTIME_MAX_STREAMS", 16))
     if realtime.broker.count() >= limit:
         return {"mode": "poll", "message": "Live updates are busy; polling instead."}, 429, {"Retry-After": "60"}
     org_id, user_id = g.org.id, g.user.id

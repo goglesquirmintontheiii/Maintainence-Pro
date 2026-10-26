@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> Any:
     s.add_argument("--host", default=None, help="address to listen on (default: MPRO_HOST, server.json, 0.0.0.0)")
     s.add_argument("--port", type=int, default=None, help="port (default: MPRO_PORT, server.json, 8080)")
     s.add_argument("--no-worker", action="store_true")
-    s.add_argument("--threads", type=int, default=8)
+    s.add_argument("--threads", type=int, default=32)
     sub.add_parser("worker", help="Run background jobs")
     sub.add_parser("migrate", help="Create or upgrade the database")
     d = sub.add_parser("seed-demo", help="Create the demo organization")

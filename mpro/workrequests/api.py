@@ -10,6 +10,7 @@ from apiflask import APIBlueprint, abort
 from flask import Response, current_app, g, jsonify, request
 from sqlalchemy import func, select
 
+from mpro.core import realtime
 from mpro.core.files import FileError, links_for, register_entity
 from mpro.core.jobs import job, periodic
 from mpro.core.permissions import can
@@ -18,9 +19,19 @@ from mpro.core.tenancy import require
 from mpro.extensions import db
 from mpro.orgs.models import Membership, Team
 from mpro.orgs.services import RuleError
+from mpro.qr.scan import PUBLIC_REQUEST_URL
 from mpro.workrequests import guests
 from mpro.workrequests import services as svc
 from mpro.workrequests.models import WorkRequest
+
+# public scans of asset/location stickers open a request portal (MP-097 × MP-048)
+if svc.portal_url_for_scan not in PUBLIC_REQUEST_URL:
+    PUBLIC_REQUEST_URL.append(svc.portal_url_for_scan)
+
+# live updates (r269): every request event reaches the "requests" topic, which only people who see everyone's
+# requests may receive (requesters see their own requests by refetching)
+realtime.watch_entity("work_request", lambda ev: ["requests"])
+realtime.register_topic("requests", lambda m, rest: rest == "" and can(m, "requests.view_all"))
 
 bp = APIBlueprint("workrequests", __name__, url_prefix="/api/v1", tag="Requests")
 

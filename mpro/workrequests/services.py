@@ -1210,3 +1210,53 @@ def cleanup_portal_uploads(older_than: timedelta = timedelta(days=1)) -> int:
         db.session.delete(link)
     db.session.commit()
     return len(links)
+
+
+# ---- public scans (MP-097 × MP-048): a scanned asset or location sticker opens the best matching portal ------
+def portal_url_for_scan(org_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> str | None:
+    """Registered in mpro.qr.scan.PUBLIC_REQUEST_URL. Picks the most specific active portal that covers the record:
+    one made for this asset, then one limited to a location containing it, then an organization-wide portal.
+    Customer portals are left out (they belong to one customer). None when no portal fits or portals aren't in
+    the plan."""
+    from mpro.assets.models import Asset, Location
+    from mpro.core.entitlements import entitlements_for
+
+    org = db.session.get(Organization, org_id)
+    if org is None or not entitlements_for(org).can_use("request_portals"):
+        return None
+    if entity_type == "asset":
+        a = db.session.get(Asset, entity_id)
+        if a is None or a.org_id != org_id or a.deleted_at is not None:
+            return None
+        asset_id, loc_id = a.id, a.location_id
+    elif entity_type == "location":
+        loc = db.session.get(Location, entity_id)
+        if loc is None or loc.org_id != org_id or loc.deleted_at is not None:
+            return None
+        asset_id, loc_id = None, loc.id
+    else:
+        return None
+    portals = db.session.scalars(
+        select(RequestPortal)
+        .where(
+            RequestPortal.org_id == org_id,
+            RequestPortal.active.is_(True),
+            RequestPortal.deleted_at.is_(None),
+            RequestPortal.customer_id.is_(None),
+        )
+        .order_by(RequestPortal.created_at)
+    ).all()
+    best: tuple[int, RequestPortal] | None = None
+    for p in portals:
+        if p.asset_id is not None:
+            rank = 3 if asset_id is not None and p.asset_id == asset_id else -1
+        elif p.location_id is not None:
+            rank = 2 if _within(loc_id, p.location_id) else -1
+        else:
+            rank = 1
+        if rank > 0 and (best is None or rank > best[0]):
+            best = (rank, p)
+    if best is None:
+        return None
+    p = best[1]
+    return f"/portal/{p.slug}?asset={asset_id}" if asset_id else f"/portal/{p.slug}?location={loc_id}"

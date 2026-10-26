@@ -34,6 +34,7 @@ export type EscalationRule = {
 };
 
 export const UNREAD_KEY = ["notifications", "unread"];
+let refetchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // The unread count for the bell: refetched on focus, every minute, and live when the realtime service pushes "user:<id>".
 export function useUnread() {
@@ -41,7 +42,11 @@ export function useUnread() {
   const qc = useQueryClient();
   const uid = session.user?.id ?? null;
   useLive(uid ? `user:${uid}` : null, (e) => {
-    if (e.type.startsWith("notification")) { qc.invalidateQueries({ queryKey: ["notifications"] }); }
+    // a burst (a due-date scan, a bulk assign) sends many events at once: refetch once at the end of it
+    if (e.type.startsWith("notification")) {
+      if (refetchTimer) clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(() => { refetchTimer = null; qc.invalidateQueries({ queryKey: ["notifications"] }); }, 400);
+    }
   });
   return useQuery({
     queryKey: UNREAD_KEY, enabled: !!session.org,

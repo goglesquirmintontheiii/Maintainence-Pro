@@ -281,11 +281,12 @@ def test_public_scans_only_lead_to_the_request_form(app: Any, admin: Api) -> Non
     admin.patch(f"{API}/scan/settings", {"public_scans": True})
     from mpro.qr import scan as scan_svc
 
-    scan_svc.PUBLIC_REQUEST_URL.append(lambda org_id, et, eid: f"/portal/demo?{et}_id={eid}")
+    saved = list(scan_svc.PUBLIC_REQUEST_URL)
+    scan_svc.PUBLIC_REQUEST_URL[:] = [lambda org_id, et, eid: f"/portal/demo?{et}_id={eid}"]
     try:
         r = anon.get(f"{API}/public/scan/{v}")
     finally:
-        scan_svc.PUBLIC_REQUEST_URL.clear()
+        scan_svc.PUBLIC_REQUEST_URL[:] = saved
     assert r.status_code == 200, r.json
     assert set(r.json) == {"organization", "entity_type", "label", "request_url"}
     assert r.json["request_url"] == f"/portal/demo?asset_id={a['id']}"

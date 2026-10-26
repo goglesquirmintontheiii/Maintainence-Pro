@@ -58,6 +58,9 @@ def load_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         "MPRO_BASE_URL": os.environ.get("MPRO_BASE_URL", "http://localhost:8080"),
         "MPRO_INLINE_JOBS": _bool("MPRO_INLINE_JOBS"),
         "MPRO_TEST_BUILD": _bool("MPRO_TEST_BUILD"),
+        # live updates (0.6.0): open streams per process (waitress holds a thread each) and how long one lasts
+        "MPRO_REALTIME_MAX_STREAMS": int(os.environ.get("MPRO_REALTIME_MAX_STREAMS", "16")),
+        "MPRO_REALTIME_STREAM_SECONDS": int(os.environ.get("MPRO_REALTIME_STREAM_SECONDS", "300")),
         "SQLALCHEMY_DATABASE_URI": db_url,
         "SQLALCHEMY_ENGINE_OPTIONS": {"pool_pre_ping": True},
         "SESSION_COOKIE_HTTPONLY": True,
