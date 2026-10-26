@@ -106,6 +106,8 @@ def test_complete_and_comment_offline_then_sync(phone: tuple[Any, Any], server: 
 
     # ---- back online: the queue is sent in order and the server has both changes
     ctx.set_offline(False)
+    pg.wait_for_timeout(8000)
+    print("DBG", pg.evaluate("""() => new Promise((resolve) => { const o = indexedDB.open('mpro-offline'); o.onsuccess = () => { const r = o.result.transaction('queue').objectStore('queue').getAll(); r.onsuccess = () => resolve(JSON.stringify(r.result.map(q => [q.status, q.error, q.path, q.method]))); }; })"""))  # DBG
     pg.get_by_role("button", name="changes waiting to sync", exact=False).wait_for(state="detached", timeout=30000)
     after = _api(pg, "GET", f"/work-orders/{wid}?mark_read=0")
     assert after["status"] == "done"

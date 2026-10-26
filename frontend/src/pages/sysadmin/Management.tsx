@@ -196,7 +196,7 @@ function ServerSettingsPage() {
   const host = String(val(items.host) || items.host.running || "");
   return (
     <div className="page page-narrow">
-      <Head title="Server Settings" sub={<>Saved in <code>{q.data.file}</code>. Environment variables win over these; settings they fix are locked here.</>}
+      <Head title="Server Settings" sub={<>Saved in <code className="mgmt-path">{q.data.file}</code>. Environment variables win over these; settings they fix are locked here.</>}
         actions={<Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>Save</Button>} />
       {(warning || host === "0.0.0.0") && <div className="banner warning" role="note"><strong>Listening on 0.0.0.0.</strong> {q.data.everywhere_warning}</div>}
       {GROUPS.map((g) => (
@@ -216,7 +216,7 @@ function ServerSettingsPage() {
 function SettingField({ item, value, onChange }: { item: SettingItem; value: string | number | boolean; onChange: (v: string | boolean) => void }) {
   const hint = item.locked ? `Set by ${item.env}. Change it there.` : [
     item.applies === "restart" ? "Takes effect after a restart." : "Takes effect straight away.",
-    item.running !== undefined && item.running !== null && item.running !== "" && String(item.running) !== String(value) ? `Now running with ${String(item.running)}.` : "",
+    value !== "" && item.running !== undefined && item.running !== null && item.running !== "" && String(item.running) !== String(value) ? `Now running with ${String(item.running)}.` : "",
   ].filter(Boolean).join(" ");
   if (item.type === "bool") {
     return <div className="field"><Toggle checked={Boolean(value === "" ? item.running ?? true : value)} disabled={item.locked} onChange={(v) => onChange(v)} label={item.label} hint={hint} /></div>;
@@ -331,11 +331,12 @@ function UserDatabase() {
       <div className="card table-wrap">
         {query.isLoading ? <ListSkeleton /> : !d?.items.length ? <EmptyState icon={<Users size={28} />} title="No one matches">Try another name or email.</EmptyState> : (
           <table className="table">
-            <thead><tr><th>Name</th><th>Email</th><th className="desktop-only">Phone</th><th>Orgs</th><th className="desktop-only">Last sign-in</th><th /></tr></thead>
+            <thead><tr><th>Name</th><th className="desktop-only">Email</th><th className="desktop-only">Phone</th><th>Orgs</th><th className="desktop-only">Last sign-in</th><th /></tr></thead>
             <tbody>{d.items.map((u) => (
               <tr key={u.id} className="clickable" onClick={() => nav(`${BASE}/user-management/${u.id}`)}>
-                <td><div className="row"><Avatar name={u.name} initials={u.initials} size="sm" /><Link to={`${BASE}/user-management/${u.id}`} onClick={(e) => e.stopPropagation()}>{u.name}</Link></div></td>
-                <td>{u.email}</td><td className="desktop-only">{u.phone || "—"}</td><td>{u.org_count}</td>
+                <td><div className="row"><Avatar name={u.name} initials={u.initials} size="sm" /><span className="mgmt-cell">
+                  <Link to={`${BASE}/user-management/${u.id}`} onClick={(e) => e.stopPropagation()}>{u.name}</Link><span className="small muted mobile-only">{u.email}</span></span></div></td>
+                <td className="desktop-only">{u.email}</td><td className="desktop-only">{u.phone || "—"}</td><td>{u.org_count}</td>
                 <td className="desktop-only">{u.last_login_at ? timeAgo(u.last_login_at) : "Never"}</td>
                 <td><div className="row wrap">{u.sysadmin && <Pill tone="info">Sysadmin</Pill>}{!u.active && <Pill tone="danger">Locked</Pill>}</div></td>
               </tr>))}</tbody>

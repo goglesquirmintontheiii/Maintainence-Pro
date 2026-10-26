@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Boxes, Building2, ShieldCheck, Gauge, MapPin, ScanLine, Check, ChevronsLeft, ChevronsRight, ClipboardList, Download, Keyboard, LogOut, Menu, Monitor, Moon,
-  Handshake, Package, Pin, Plus, Search, ShoppingCart, Sun, Tags, Truck, UserRound, Zap } from "lucide-react";
+  Handshake, Inbox, Package, Pin, Plus, Search, ShoppingCart, Sun, Tags, Truck, UserRound, Zap } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Session, type Template } from "../lib/api";
 import { applyTheme, useSession } from "../lib/session";
@@ -125,6 +125,7 @@ export function AppShell() {
             {(close) => <>
               <div className="menu-label">Create</div>
               {can("wo.create") && <button className="menu-item" onClick={() => { close(); nav("/work-orders?new=1"); }}><ClipboardList size={15} />Work order<span className="r kbd">C</span></button>}
+              {can("requests.create") && <button className="menu-item" onClick={() => { close(); nav("/requests/new"); }}><Inbox size={15} />Request</button>}
               {can("wo.create") && <QuickTemplates close={close} />}
               {can("categories.manage") && <button className="menu-item" onClick={() => { close(); nav("/categories"); }}><Tags size={15} />Category</button>}
               <div className="menu-sep" />

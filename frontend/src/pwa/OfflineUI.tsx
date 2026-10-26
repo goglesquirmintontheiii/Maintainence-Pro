@@ -11,6 +11,7 @@ import "./pwa.css";
 
 // ---------------------------------------------------------------- service worker
 let waiting: ServiceWorker | null = null;
+let updating = false; // set when the person chose "Reload": only then does a new service worker reload the page
 const updateListeners = new Set<() => void>();
 
 export function registerServiceWorker(): void {
@@ -29,7 +30,7 @@ export function registerServiceWorker(): void {
       setInterval(() => { void reg.update().catch(() => undefined); }, 30 * 60_000);
     }).catch(() => undefined);
     let reloading = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloading) { reloading = true; window.location.reload(); } });
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (updating && !reloading) { reloading = true; window.location.reload(); } });
   });
 }
 
@@ -41,7 +42,7 @@ export function UpdatePrompt() {
   return (
     <div className="pwa-update" role="status">
       <RefreshCw size={16} /><span className="grow">A new version of MPro is ready.</span>
-      <Button size="sm" variant="primary" onClick={() => waiting?.postMessage({ type: "SKIP_WAITING" })}>Reload</Button>
+      <Button size="sm" variant="primary" onClick={() => { updating = true; waiting?.postMessage({ type: "SKIP_WAITING" }); }}>Reload</Button>
       <Button size="sm" variant="ghost" onClick={() => setReady(false)}>Later</Button>
     </div>);
 }

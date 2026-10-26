@@ -13,6 +13,7 @@ def _sign_in(b: Any, base: str, email: str) -> Any:
     ctx = b.new_context(viewport={"width": 1280, "height": 860})
     pg = ctx.new_page()
     pg.goto(base + "/login")
+    pg.wait_for_load_state("networkidle")  # the form re-renders once the session check returns
     pg.get_by_label("Email").fill(email)
     pg.get_by_label("Password").fill("mpro-demo-123")
     pg.get_by_role("button", name="Sign in").click()

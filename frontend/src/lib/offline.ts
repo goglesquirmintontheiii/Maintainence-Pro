@@ -264,9 +264,10 @@ function start() {
   window.addEventListener("offline", () => setState({ online: false }));
   setReachabilityHandler((ok) => { if (ok === state.reachable) return; const was = isOnline(); setState({ reachable: ok }); if (!was && isOnline()) void syncNow(); });
   // the server might be back even when the browser didn't notice: check now and then while there's work to send
+  // while offline, check every few seconds whether the server answers again (a real reply flips us back online)
+  setInterval(() => { if (ctx && !isOnline() && document.visibilityState === "visible") void api("/auth/session").catch(() => undefined); }, 5_000);
   setInterval(() => {
-    if (!ctx || document.visibilityState !== "visible") return;
-    if (!isOnline()) { void api("/auth/session").catch(() => undefined); return; } // a real reply flips us back online
+    if (!ctx || document.visibilityState !== "visible" || !isOnline()) return;
     const stale = !state.lastSync || Date.now() - Date.parse(state.lastSync) > SYNC_EVERY_MS;
     if (stale || state.queue.some((q) => q.status === "pending")) void syncNow();
   }, 30_000);

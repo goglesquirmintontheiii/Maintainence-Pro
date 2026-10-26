@@ -83,7 +83,7 @@ function Portals() {
           <div key={p.id} className="list-row req-portal">
             <Globe size={18} className="faint" />
             <span className="grow" style={{ minWidth: 0 }}><span className="t">{p.name} {!p.active && <Pill>Off</Pill>}</span>
-              <span className="s">{[p.customer && `For ${p.customer.name}`, p.location && p.location.name, p.asset && p.asset.name, `${p.request_count ?? 0} requests`].filter(Boolean).join(" · ")}</span></span>
+              <span className="s">{[p.customer && `For ${p.customer.name}`, p.location && p.location.name, p.asset && p.asset.name, `${p.request_count ?? 0} request${p.request_count === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}</span></span>
             <Button size="sm" icon aria-label={`Copy link to ${p.name}`} title="Copy link" onClick={() => copy(p)}><Copy size={14} /></Button>
             <a className="btn btn-sm icon" href={p.path} target="_blank" rel="noopener noreferrer" aria-label={`Open ${p.name}`} title="Open"><ExternalLink size={14} /></a>
             <Button size="sm" icon aria-label={`QR code for ${p.name}`} title="QR code" onClick={() => setQr(p)}><QrCode size={14} /></Button>

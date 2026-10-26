@@ -21,6 +21,6 @@ def test_sysadmin_opens_mpro_management_and_finds_a_user(page: Any, server: str)
     # the organization's own sidebar is replaced by MPro Management's
     assert page.get_by_role("navigation").get_by_role("link", name="Work Orders").count() == 0
     page.get_by_role("link", name="Org Database").click()
-    page.get_by_role("link", name="Acme Manufacturing (Demo)").click()
+    page.get_by_role("table").get_by_role("link", name="Acme Manufacturing (Demo)").click()
     page.get_by_role("heading", name="Members").wait_for()
     page.get_by_text("work orders, assets, files and money stay private").wait_for()

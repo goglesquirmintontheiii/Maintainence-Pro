@@ -25,3 +25,5 @@
   .mgmt-person { flex-direction: column; }
   .mgmt-actions .btn { flex: 1 1 auto; }
 }
+.mgmt-path { overflow-wrap: anywhere; }
+.mgmt-cell { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }

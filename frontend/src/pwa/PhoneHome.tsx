@@ -41,8 +41,8 @@ export function PhoneHome() {
   return (
     <div className="phone-home">
       <div><h1 style={{ margin: 0 }}>Hi {session.user?.name.split(" ")[0]}</h1><div className="small muted">{session.org?.name}</div></div>
-      <div className="ph-shortcuts" role="list" aria-label="Shortcuts">
-        {shortcuts.filter((x) => x[3]).map(([l, Icon, go]) => <button key={l} type="button" role="listitem" className="ph-shortcut" onClick={go}><Icon size={22} />{l}</button>)}
+      <div className="ph-shortcuts" role="group" aria-label="Shortcuts">
+        {shortcuts.filter((x) => x[3]).map(([l, Icon, go]) => <button key={l} type="button" className="ph-shortcut" onClick={go}><Icon size={22} />{l}</button>)}
       </div>
       {can("wo.view") && <div className="ph-tiles">
         {tile("High Priority", s?.high_priority, () => toList([{ field: "status", op: "in", value: OPEN }, { field: "priority", op: "in", value: ["high"] }]), "warning")}
