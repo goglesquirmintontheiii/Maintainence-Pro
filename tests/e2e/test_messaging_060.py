@@ -29,9 +29,7 @@ def test_message_arrives_live_in_another_browser(server: str) -> None:  # noqa: 
         errors: list[str] = []
         alex = _sign_in(b, server, "admin@example.com")
         alex.on("pageerror", lambda e: errors.append(str(e)))
-        jordan_id = alex.evaluate(
-            "async () => (await (await fetch('/api/v1/users?q=jordan')).json()).items[0].id"
-        )
+        jordan_id = alex.evaluate("async () => (await (await fetch('/api/v1/users?q=jordan')).json()).items[0].id")
         alex.goto(f"{server}/people/users/{jordan_id}")
         alex.get_by_role("button", name="Message").click()
         alex.wait_for_url(f"{server}/messages/**")

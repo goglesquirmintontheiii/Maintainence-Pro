@@ -425,7 +425,7 @@ function MessageItem({ m, c, grouped, focused, options, onError, onThread, inThr
           ? <button type="button" key={f.id} className="thumb" aria-label={`View ${f.name}`} onClick={() => setViewing(f.id)}><img src={f.thumb_url ?? f.url} alt={f.name} /></button>
           : <button type="button" key={f.id} className="chip" onClick={() => setViewing(f.id)}><FileText size={13} />{f.name}</button>)}</div>}
         {m.requires_ack && !m.deleted && <div className="msg-ack row wrap">
-          {m.acknowledged ? <span className="small row"><Check size={14} />You confirmed you read this</span>
+          {m.mine ? null : m.acknowledged ? <span className="small row"><Check size={14} />You confirmed you read this</span>
             : <Button size="sm" variant="primary" onClick={() => ack.mutate()} disabled={ack.isPending}><Check size={14} />I've read this</Button>}
           <span className="small faint">{m.ack_count} confirmed</span>
           {(m.mine || canManage) && <button type="button" className="linkbtn small" onClick={() => setAcks(true)}>See who</button>}

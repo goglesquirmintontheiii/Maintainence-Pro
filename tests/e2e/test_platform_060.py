@@ -64,9 +64,14 @@ def test_part_statuses_and_picture(page: Any, server: str) -> None:  # noqa: F81
     # the WO "Add parts" dialog only offers Used / Planned / Reserved
     wo = api(page, "POST", "/work-orders", {"title": "E2E: parts statuses"})
     page.goto(server + f"/work-orders/{wo['id']}")
-    page.get_by_role("button", name="Add parts").click()
-    page.get_by_role("dialog", name="Add parts").get_by_text("Parts", exact=True).first.wait_for()
-    page.get_by_role("dialog", name="Add parts").get_by_label("Parts").click()
+    page.get_by_role("heading", name="E2E: parts statuses").wait_for()
+    try:
+        page.get_by_role("button", name="Add parts").first.click(timeout=15000)
+    except Exception:
+        page.screenshot(path="/tmp/claude-0/-home-claude/a6c7f219-40df-576e-87a0-bb15ad28a918/scratchpad/f6dbg.png", full_page=True)
+        raise
+    page.get_by_role("dialog", name="Add parts").wait_for()
+    page.get_by_role("dialog", name="Add parts").get_by_role("button", name="Parts", exact=True).click()
     page.get_by_role("option", name=re.compile("Ball bearing 6205")).first.click()
     page.keyboard.press("Escape")
     sel = page.get_by_role("combobox", name=re.compile("^Status of "))

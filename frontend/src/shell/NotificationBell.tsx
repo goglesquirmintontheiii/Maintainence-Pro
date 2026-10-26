@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Settings2 } from "lucide-react";
 import { api } from "../lib/api";
+import { removeStalePushWorker } from "../lib/push";
 import { markRead, useUnread, type Notice, type NoticePage } from "../lib/notifications";
 import { Button, Dropdown } from "../components/ui";
 import { NoticeRow } from "../pages/notifications/Notifications";
@@ -19,6 +20,7 @@ export function NotificationBell() {
   const unread = useUnread().data?.unread ?? 0;
   const loc = useLocation();
   const qc = useQueryClient();
+  useEffect(() => { void removeStalePushWorker(); }, []);
   useEffect(() => {
     if (!unread) return;
     for (const [re, entity_type] of ENTITY_PATHS) {

@@ -34,6 +34,10 @@ def seed(org: Any, admin: Any) -> None:
         msg.created_at = utcnow() - timedelta(minutes=minutes_ago)
         if msg.parent_id is None:
             conv.last_message_at = max(conv.last_message_at or msg.created_at, msg.created_at)
+        else:
+            root = db.session.get(Message, msg.parent_id)
+            if root is not None:
+                root.last_reply_at = msg.created_at
         db.session.commit()
         return msg
 

@@ -71,7 +71,9 @@ def test_direct_conversation_unread_and_read(app: Any, admin: Api) -> None:
     detail = admin.get(f"{API}/conversations/{c['id']}").json
     jr = next(p for p in detail["members"] if p["id"] == jordan_id)
     assert jr["last_read_at"] is not None
-    assert admin.post(f"{API}/conversations", {"kind": "direct", "user_id": detail["members"][0]["id"]}).status_code in (
+    assert admin.post(
+        f"{API}/conversations", {"kind": "direct", "user_id": detail["members"][0]["id"]}
+    ).status_code in (
         201,
         422,
     )
@@ -114,7 +116,10 @@ def test_team_chats_and_all_team(app: Any, admin: Api) -> None:
     assert sam.post(f"{API}/teams/{mech}/conversation").status_code == 403
     assert sam.get(f"{API}/conversations/{tc.json['id']}").status_code == 404
     assert avery.patch(f"{API}/conversations/{tc.json['id']}", {"name": "x"}).status_code in (403, 422)
-    assert avery.delete(f"{API}/conversations/{tc.json['id']}/members/{uid(admin, 'avery.kim@example.com')}").status_code == 422
+    assert (
+        avery.delete(f"{API}/conversations/{tc.json['id']}/members/{uid(admin, 'avery.kim@example.com')}").status_code
+        == 422
+    )
     # All Team: everyone sees it; only admins can hide it for everyone
     all_id = next(i["id"] for i in avery.get(f"{API}/conversations").json["items"] if i["kind"] == "all")
     assert avery.patch(f"{API}/conversations/{all_id}", {"hidden_for_all": True}).status_code == 403
@@ -202,7 +207,10 @@ def test_files_on_messages(app: Any, admin: Api) -> None:
     riley = login(app, "riley.chen@example.com")
     assert riley.get(msg["files"][0]["url"]).status_code in (403, 404)
     # someone else's upload can't be attached
-    assert sam.post(f"{API}/conversations/{c['id']}/messages", {"body": "x", "file_ids": [up.json["id"]]}).status_code == 422
+    assert (
+        sam.post(f"{API}/conversations/{c['id']}/messages", {"body": "x", "file_ids": [up.json["id"]]}).status_code
+        == 422
+    )
 
 
 def test_announcements_and_acknowledgements(app: Any, admin: Api) -> None:
@@ -249,7 +257,11 @@ def test_work_order_thread_and_create_wo_from_message(app: Any, admin: Api) -> N
     assert avery.get(f"{API}/conversations/{t.json['id']}/messages").status_code == 404
     # create a work order from a message (r080)
     c = conv_with(admin, uid(admin, "sam.patel@example.com"))
-    msg = send(admin, c["id"], f"@[Sam Patel](user:{uid(admin, 'sam.patel@example.com')}) Panel 4 breaker trips\nWhen the press starts")
+    msg = send(
+        admin,
+        c["id"],
+        f"@[Sam Patel](user:{uid(admin, 'sam.patel@example.com')}) Panel 4 breaker trips\nWhen the press starts",
+    )
     r = admin.post(f"{API}/messages/{msg['id']}/work-order")
     assert r.status_code == 201, r.json
     new = admin.get(f"{API}/work-orders/{r.json['id']}").json
@@ -301,7 +313,12 @@ def test_other_org_cannot_reach_anything(app: Any, admin: Api) -> None:
     assert other.patch(f"{API}/messages/{m['id']}", {"body": "x"}).status_code == 404
     assert other.post(f"{API}/messages/{m['id']}/reactions", {"emoji": "👍"}).status_code == 404
     assert other.post(f"{API}/teams/{mech}/conversation").status_code == 404
-    assert other.post(f"{API}/conversations", {"kind": "direct", "user_id": uid(admin, "sam.patel@example.com")}).status_code == 422
+    assert (
+        other.post(
+            f"{API}/conversations", {"kind": "direct", "user_id": uid(admin, "sam.patel@example.com")}
+        ).status_code
+        == 422
+    )
     assert other.get(f"{API}/messages/search?q=Private").json["messages"] == []
     assert all(i["id"] != c["id"] for i in other.get(f"{API}/conversations").json["items"])
     wo = create(admin)
@@ -336,7 +353,12 @@ def test_realtime_poll_delivers_only_what_people_may_see(app: Any, admin: Api) -
     assert all(not t.startswith(f"conv:{c['id']}") for t, _ in rgot)
     assert (f"wo:{wo['id']}", "wo.created") in rgot
     # limited visibility: Riley stops getting that work order's topic
-    assert admin.patch(f"{API}/users/{uid(admin, 'riley.chen@example.com')}/work-settings", {"wo_visibility": "limited"}).status_code == 200
+    assert (
+        admin.patch(
+            f"{API}/users/{uid(admin, 'riley.chen@example.com')}/work-settings", {"wo_visibility": "limited"}
+        ).status_code
+        == 200
+    )
     assert all(t != f"wo:{wo['id']}" for t, _ in {(e["topic"], e["type"]) for e in _poll(riley, since)})
     # another organization sees nothing of ours
     other = other_org(app)

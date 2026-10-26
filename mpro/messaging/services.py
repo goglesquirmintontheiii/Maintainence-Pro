@@ -127,9 +127,7 @@ def participant_ids(conv: Conversation) -> list[uuid.UUID]:
             elif a.team_id:
                 ids.update(_team_member_ids(a.team_id))
         ids.update(
-            db.session.scalars(
-                select(ConversationMember.user_id).where(ConversationMember.conversation_id == conv.id)
-            )
+            db.session.scalars(select(ConversationMember.user_id).where(ConversationMember.conversation_id == conv.id))
         )
         out = []
         for uid in ids:  # only people who can still see the work order

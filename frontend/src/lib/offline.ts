@@ -262,7 +262,13 @@ function start() {
   const wentOnline = () => { const was = isOnline(); setState({ online: navigator.onLine, reachable: navigator.onLine ? true : state.reachable }); if (!was && isOnline()) void syncNow(); };
   window.addEventListener("online", wentOnline);
   window.addEventListener("offline", () => setState({ online: false }));
-  setReachabilityHandler((ok) => { if (ok === state.reachable) return; const was = isOnline(); setState({ reachable: ok }); if (!was && isOnline()) void syncNow(); });
+  // the server answering is the best sign we're online (browsers don't always fire "online")
+  setReachabilityHandler((ok) => {
+    const was = isOnline();
+    if (ok === state.reachable && (!ok || state.online)) return;
+    setState({ reachable: ok, online: ok ? true : state.online });
+    if (!was && isOnline()) void syncNow();
+  });
   // the server might be back even when the browser didn't notice: check now and then while there's work to send
   // while offline, check every few seconds whether the server answers again (a real reply flips us back online)
   setInterval(() => { if (ctx && !isOnline() && document.visibilityState === "visible") void api("/auth/session").catch(() => undefined); }, 5_000);

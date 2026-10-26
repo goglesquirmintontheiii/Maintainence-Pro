@@ -1,5 +1,5 @@
-/* Web push for Maintenance Pro (MP-051). Imported by the app's service worker (importScripts("/sw-push.js")),
-   or registered on its own when there is no other service worker. Keep it dependency-free. */
+/* Web push for Maintenance Pro (MP-051): push and notification-click handlers only. Never registered on its own:
+   the app's service worker (/sw.js) loads it with importScripts("/sw-push.js"). Keep it dependency-free. */
 /* eslint-env serviceworker */
 self.addEventListener("push", (event) => {
   let msg = {};
