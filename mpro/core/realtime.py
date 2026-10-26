@@ -19,8 +19,8 @@ How it works (G-02: one machine, PostgreSQL or SQLite, no Redis):
   the same table, so it works under gunicorn too.
 - Browsers hold one Server-Sent Events stream per tab (`/api/v1/realtime/stream`), shared by every subscription; the
   stream authorizes each row for its viewer. Waitress gives each open stream a thread, so streams are capped
-  (`MPRO_REALTIME_MAX_STREAMS`, default 16 per process; `mpro serve` runs 32 threads); beyond that, or when a proxy breaks streaming, the browser
-  polls `/api/v1/realtime/poll` every few seconds instead.
+  (`MPRO_REALTIME_MAX_STREAMS`, default 16 per process; `mpro serve` runs 32 threads); beyond that, or when a
+  proxy breaks streaming, the browser polls `/api/v1/realtime/poll` every few seconds instead.
 - Rows older than an hour are deleted by a periodic job.
 """
 
