@@ -81,6 +81,21 @@ ACTIONS: dict[str, dict[str, tuple[str, tuple[str, ...]]]] = {
     },
 }
 # actions recorded in the history besides the scan itself
+# how the scan history reads: "Alex Morgan checked in at Building A"
+PAST = {
+    "scan": "Scanned",
+    "check_in": "Checked in at",
+    "start": "Started",
+    "start_wo": "Started work on",
+    "complete": "Completed",
+    "reading": "Logged a reading on",
+    "use": "Used",
+    "restock": "Restocked",
+    "count": "Counted",
+    "report": "Reported a problem with",
+    "open": "Opened",
+}
+
 RECORDED = {"check_in", "start", "start_wo", "complete", "reading", "use", "restock", "count", "report"}
 
 # Request forms for public scans (F1 registers its portal URL builder): fn(org_id, entity_type, entity_id) -> url
@@ -266,9 +281,7 @@ def _event_dict(ev: ScanEvent, with_gps: bool) -> dict[str, Any]:
         "entity_id": str(ev.entity_id),
         "entity_label": ev.entity_label,
         "action": ev.action,
-        "action_label": "Scanned"
-        if ev.action == "scan"
-        else ACTIONS.get(ev.entity_type, {}).get(ev.action, (ev.action.replace("_", " ").capitalize(),))[0],
+        "action_label": PAST.get(ev.action) or ev.action.replace("_", " ").capitalize(),
         "work_order_id": str(ev.work_order_id) if ev.work_order_id else None,
         "source": ev.source,
         "user": {"id": str(u.id), "name": u.name} if u else None,

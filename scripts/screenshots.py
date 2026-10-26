@@ -553,11 +553,11 @@ def capture_060(ctx: Any, shot: Any, url: str) -> None:
     # messaging (MP-049)
     pg.goto(url + "/messages")
     shot(pg, "13-messages", 1500)
-    conv = first(pg, "/conversations", pick=lambda r: r.get("kind") == "team")
+    conv = first(pg, "/conversations", pick=lambda r: r.get("kind") == "direct")
     if conv:
         pg.goto(url + f"/messages/{conv['id']}")
-        shot(pg, "14-team-chat", 1800)
-    ann = first(pg, "/conversations", pick=lambda r: r.get("kind") == "all_team")
+        shot(pg, "14-direct-message", 1800)
+    ann = first(pg, "/conversations", pick=lambda r: r.get("kind") == "all")
     if ann:
         pg.goto(url + f"/messages/{ann['id']}")
         shot(pg, "15-announcement", 1800)

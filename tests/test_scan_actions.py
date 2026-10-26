@@ -107,7 +107,7 @@ def test_location_check_in_and_context(app: Any, admin: Api) -> None:
         f"{API}/scan/events", {"entity_type": "location", "entity_id": loc["id"], "action": "check_in", "code": v}
     )
     assert ev.status_code == 201, ev.json
-    assert ev.json["action"] == "check_in" and ev.json["action_label"] == "Check in"
+    assert ev.json["action"] == "check_in" and ev.json["action_label"] == "Checked in at"
     hist = admin.get(f"{API}/scan/history?entity_type=location&entity_id={loc['id']}").json
     assert [h["action"] for h in hist["items"]] == ["check_in", "scan"]
     # the audit log shows the check-in

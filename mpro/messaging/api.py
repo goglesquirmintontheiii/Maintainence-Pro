@@ -357,7 +357,7 @@ def realtime_stream() -> Any:
     each open stream a thread), it answers 429 and the browser polls /realtime/poll instead."""
     app = current_app._get_current_object()  # type: ignore[attr-defined]
     limit = int(app.config.get("MPRO_REALTIME_MAX_STREAMS", 16))
-    per_user = int(app.config.get("MPRO_REALTIME_STREAMS_PER_USER", 3))  # one person can't take every stream
+    per_user = int(app.config.get("MPRO_REALTIME_STREAMS_PER_USER", 6))  # one person can't take every stream
     org_id, user_id = g.org.id, g.user.id
     sub = realtime.broker.try_subscribe(app, org_id, user_id, max_total=limit, max_per_user=per_user)
     if sub is None:
@@ -378,7 +378,7 @@ def realtime_stream() -> Any:
             end = time.monotonic() + max_age
             while time.monotonic() < end:
                 try:
-                    first = sub.q.get(timeout=15)
+                    first = sub.q.get(timeout=5)  # a closed tab is noticed at the next ping
                 except queue.Empty:
                     yield ": ping\n\n"
                     continue

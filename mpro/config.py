@@ -61,7 +61,7 @@ def load_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         # live updates (0.6.0): open streams per process (waitress holds a thread each) and how long one lasts
         "MPRO_REALTIME_MAX_STREAMS": int(os.environ.get("MPRO_REALTIME_MAX_STREAMS", "16")),
         "MPRO_REALTIME_STREAM_SECONDS": int(os.environ.get("MPRO_REALTIME_STREAM_SECONDS", "300")),
-        "MPRO_REALTIME_STREAMS_PER_USER": int(os.environ.get("MPRO_REALTIME_STREAMS_PER_USER", "3")),
+        "MPRO_REALTIME_STREAMS_PER_USER": int(os.environ.get("MPRO_REALTIME_STREAMS_PER_USER", "6")),
         # anonymous uploads on request portals (0.6.0 review): smaller than signed-in uploads
         "MPRO_PUBLIC_UPLOAD_MB": int(os.environ.get("MPRO_PUBLIC_UPLOAD_MB", "15")),
         "SQLALCHEMY_DATABASE_URI": db_url,

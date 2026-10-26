@@ -138,3 +138,4 @@ def _seed_work(org: Organization) -> None:
         from mpro.qr.demo import seed_scans
 
         seed_scans(org, admin)  # 0.6.0 F5: check-ins on an inspection round
+        db.session.commit()  # the seeds above only flush; keep what they made
