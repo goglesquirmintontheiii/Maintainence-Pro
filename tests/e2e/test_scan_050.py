@@ -48,7 +48,7 @@ def test_scan_an_asset_code_on_a_phone(server: str) -> None:  # noqa: F811
 
         pg.goto(server + "/scan/history")
         pg.get_by_role("heading", name="Scan history").wait_for()
-        pg.get_by_text("Start or continue its work order").first.wait_for()
+        pg.get_by_text("started work on").first.wait_for()  # the history reads in past tense (0.6.0)
         assert pg.get_by_role("link", name="Air Compressor 1").count() >= 2  # the scan and the action
 
         # signed out, a code only leads to the request form (off by default: sign in)
