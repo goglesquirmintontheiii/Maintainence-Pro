@@ -93,6 +93,7 @@ class PortalHit(IdMixin, db.Model):  # type: ignore[name-defined]
     portal_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     ok: Mapped[bool] = mapped_column(Boolean, default=True)
     write: Mapped[bool] = mapped_column(Boolean, default=False)
+    kind: Mapped[str] = mapped_column(String(10), default="")  # "" (a read), "submit" or "upload": counted apart
     at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 

@@ -645,6 +645,8 @@ def _member(org_id: uuid.UUID, user_id: uuid.UUID) -> Membership | None:
     ).first()
     if m is None or m.user is None or not m.user.active or m.user.deleted_at is not None:
         return None
+    if m.org is None or m.org.deleted_at is not None:  # a deleted organization tells no one anything
+        return None
     return m
 
 
@@ -667,7 +669,7 @@ def deliver(ev: DomainEvent, targets: list[Target]) -> list[Notification]:
     if ev.org_id is None or not targets:
         return []
     org = db.session.get(Organization, ev.org_id)
-    if org is None:
+    if org is None or org.deleted_at is not None:
         return []
     tz = _org_tz(org)
     seen: set[uuid.UUID] = set()
@@ -1179,7 +1181,7 @@ def scan_due(now: datetime | None = None) -> dict[str, int]:
     now = now or utcnow()
     counts = {"due_soon": 0, "overdue": 0, "escalated": 0}
     open_q = select(WorkOrder).where(WorkOrder.deleted_at.is_(None), WorkOrder.status.not_in(CLOSED))
-    org_ids = db.session.scalars(select(Organization.id)).all()
+    org_ids = db.session.scalars(select(Organization.id).where(Organization.deleted_at.is_(None))).all()
     for org_id in org_ids:
         token = current_job_org.set(org_id)
         try:
@@ -1495,6 +1497,10 @@ def save_org_settings(org: Organization, user: User, data: dict[str, Any]) -> di
             f = db.session.get(FileObject, fid) if fid else None
             if f is None or f.org_id != org.id or f.deleted_at is not None or not f.is_image:
                 raise RuleError("The logo must be a picture uploaded to this organization.", 422)
+            # the logo is served without sign-in: only a picture this person uploaded (not, say, a photo from a
+            # work order they can't see), or the one already in use
+            if f.uploaded_by_id != user.id and str(f.id) != str(org_settings(org.id).get("brand_logo_file_id") or ""):
+                raise RuleError("Upload the logo here, rather than picking an existing file.", 422)
             clean["brand_logo_file_id"] = str(f.id)
         else:
             clean["brand_logo_file_id"] = ""
@@ -1564,7 +1570,7 @@ def weekly_report(org: Organization, now: datetime | None = None) -> dict[str, A
 def send_weekly_reports(now: datetime | None = None) -> int:
     now = now or utcnow()
     sent = 0
-    for org in db.session.scalars(select(Organization)):
+    for org in db.session.scalars(select(Organization).where(Organization.deleted_at.is_(None))):
         week = weekly_report_due(org, now)
         if week is None:
             continue

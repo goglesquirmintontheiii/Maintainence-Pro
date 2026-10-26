@@ -165,7 +165,8 @@ def add_member(org_id: str) -> tuple[dict[str, Any], int]:
 @sysadmin_only
 def patch_member(org_id: str, user_id: str) -> dict[str, Any]:
     o = svc.get_org(org_id)
-    svc.change_member_role(g.user, o, user_id, _body().get("role"))
+    body = _body()
+    svc.change_member_role(g.user, o, user_id, body.get("role"), body.get("password"))
     return svc.org_detail(o)
 
 

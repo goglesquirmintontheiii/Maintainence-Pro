@@ -133,6 +133,8 @@ def get_org(org_id: Any, include_deleted: bool = False) -> Organization:
 def confirm_password(actor: User, password: Any) -> None:
     """Risky steps (deleting an organization, resetting a password, sysadmin changes) need the password again."""
     if not password or not actor.check_password(str(password)):
+        # nothing the caller changed before asking goes through: only the failed attempt is recorded
+        db.session.rollback()
         audit(
             "sysadmin.password_check_failed",
             entity_type="user",
@@ -299,6 +301,8 @@ def search_users(q: str = "", page: int = 1, per_page: int = 25, filter: str = "
 
 def update_user(actor: User, u: User, data: dict[str, Any]) -> User:
     """Name, email, phone, locked/unlocked and sysadmin on/off. Sysadmin changes need `password`."""
+    if "sysadmin" in data and bool(data["sysadmin"]) != bool(u.is_sysadmin):
+        confirm_password(actor, data.get("password"))  # before anything changes
     before = {"name": u.name, "email": u.email, "phone": u.phone or "", "active": u.active, "sysadmin": u.is_sysadmin}
     if "name" in data:
         name = str(data["name"] or "").strip()
@@ -325,7 +329,6 @@ def update_user(actor: User, u: User, data: dict[str, Any]) -> User:
             raise SysadminError("This is the last sysadmin, so the account can't be locked.", 409)
         u.active = bool(data["active"])
     if "sysadmin" in data and bool(data["sysadmin"]) != bool(u.is_sysadmin):
-        confirm_password(actor, data.get("password"))
         if data["sysadmin"]:
             add_sysadmin(u.email, actor=actor, via="MPro Management")
         else:
@@ -570,6 +573,8 @@ def add_member(actor: User, o: Organization, data: dict[str, Any]) -> Membership
         raise SysadminError("Enter a valid email address.", 422)
     role, role_id, label = _resolve_role(o, data.get("role") or "technician")
     user = get_user_by_email(email)
+    if _needs_password(actor, user.id if user is not None else None, role):
+        confirm_password(actor, data.get("password"))
     if user is None:
         user = User(email=email, name=str(data.get("name") or "").strip()[:200] or email.split("@")[0])
         db.session.add(user)
@@ -621,11 +626,18 @@ def _membership(o: Organization, user_id: Any) -> Membership:
     return m
 
 
-def change_member_role(actor: User, o: Organization, user_id: Any, role: Any) -> Membership:
+def _needs_password(actor: User, user_id: uuid.UUID | None, role: str) -> bool:
+    """Joining an organization yourself, or making anyone its Owner, opens all of its data: confirm it's you."""
+    return user_id == actor.id or role == "owner"
+
+
+def change_member_role(actor: User, o: Organization, user_id: Any, role: Any, password: Any = None) -> Membership:
     m = _membership(o, user_id)
     new, new_id, label = _resolve_role(o, role)
     if (new, new_id) == (m.role, m.role_id):
         return m
+    if _needs_password(actor, m.user_id, new):
+        confirm_password(actor, password)
     if m.role == "owner" and new != "owner" and _owner_count(o, excluding=m.id) == 0:
         raise SysadminError("Every organization needs at least one Owner. Make someone else Owner first.", 409)
     old = m.custom_role.name if m.custom_role is not None else ROLES.get(m.role, {}).get("label", m.role)

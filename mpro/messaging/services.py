@@ -376,8 +376,11 @@ def update_conversation(m: Membership, conv: Conversation, data: dict[str, Any])
         fid = data["picture_file_id"]
         if fid:
             f = db.session.get(FileObject, _uuid(fid, "picture"))
-            if f is None or f.org_id != conv.org_id or not f.is_image:
+            if f is None or f.org_id != conv.org_id or not f.is_image or f.deleted_at is not None:
                 raise RuleError("Pick a picture to use.", 422)
+            if f.uploaded_by_id != m.user_id and f.id != conv.picture_file_id:
+                # everyone in the conversation sees it: only a picture this person uploaded
+                raise RuleError("Upload the picture here, rather than picking an existing file.", 422)
             attach(f, "conversation", conv.id, "picture")
             conv.picture_file_id = f.id
         else:

@@ -128,6 +128,20 @@ EVERYWHERE_WARNING = (
 )
 
 
+def parse_bool(v: Any, label: str = "This setting") -> bool:
+    """True/false from JSON or text: "false", "0", "no" and "off" are false (bool("false") would be True)."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int | float):
+        return bool(v)
+    t = str(v).strip().lower()
+    if t in {"true", "1", "yes", "on"}:
+        return True
+    if t in {"false", "0", "no", "off", ""}:
+        return False
+    raise SettingsError(f"{label} must be on or off.")
+
+
 def validate(updates: dict[str, Any]) -> dict[str, Any]:
     """Check values coming from MPro Management; returns clean values (secrets in plain text, None = clear)."""
     out: dict[str, Any] = {}
@@ -148,7 +162,7 @@ def validate(updates: dict[str, Any]) -> dict[str, Any]:
                 raise SettingsError("The public address must start with http:// or https://.")
             out[k] = url
         elif typ is bool:
-            out[k] = bool(v)
+            out[k] = parse_bool(v, FIELDS[k][4])
         elif typ is int:
             try:
                 n = int(v)

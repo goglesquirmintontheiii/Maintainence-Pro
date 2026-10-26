@@ -53,9 +53,19 @@ def _create_admin(app: Flask, email: str, name: str, org_name: str, password: st
         user.set_password(password)
         db.session.flush()
         create_org(org_name, user)
-        from mpro.sysadmin.services import make_first_sysadmin
+        from mpro.demo import DEMO_EMAIL
+        from mpro.sysadmin.services import _active_sysadmins, make_first_sysadmin
 
-        if make_first_sysadmin(user, "create-admin"):  # a new server's first administrator runs it (MP-135)
+        current = _active_sysadmins()
+        if current and all(s.email == DEMO_EMAIL for s in current) and not user.is_sysadmin:
+            # the only sysadmin is the demo account (public password): the real administrator takes over
+            user.is_sysadmin = True
+            print(
+                f"Warning: the only sysadmin was the demo account {DEMO_EMAIL}, whose password is public. "
+                f"{user.email} is now a sysadmin too; remove the demo one with `mpro sysadmin remove {DEMO_EMAIL}`.",
+                file=sys.stderr,
+            )
+        elif make_first_sysadmin(user, "create-admin"):  # a new server's first administrator runs it (MP-135)
             print(f"{user.email} is this server's first sysadmin (see `mpro sysadmin --help`).")
         db.session.commit()
 

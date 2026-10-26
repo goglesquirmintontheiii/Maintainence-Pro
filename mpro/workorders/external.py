@@ -362,8 +362,11 @@ class LinkError(RuleError):
 def _ip() -> str:
     from flask import request
 
-    # the TCP peer (or what trusted proxies report, via ProxyFix): a raw X-Forwarded-For would dodge rate limits
-    return (request.remote_addr or "")[:64] or "?"
+    from mpro.core.ratelimit import ip_key
+
+    # the TCP peer (or what trusted proxies report, via ProxyFix): a raw X-Forwarded-For would dodge rate limits.
+    # IPv6 counts per /64 (0.6.0 review L1).
+    return ip_key(request.remote_addr)
 
 
 def throttle(share: ExternalShare | None, ok: bool, write: bool = False) -> None:

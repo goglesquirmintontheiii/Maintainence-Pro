@@ -85,6 +85,13 @@ def codes_for(entity_type: str, eid: str) -> dict[str, Any]:
         uid = uuid.UUID(eid)
     except ValueError:
         abort(404)
+    if entity_type == "work_order":  # limited visibility (0.6.0 review L3)
+        from mpro.workorders.models import WorkOrder
+        from mpro.workorders.services import can_see
+
+        wo = db.session.get(WorkOrder, uid)
+        if wo is None or wo.org_id != g.org.id or not can_see(g.membership, wo):
+            abort(404)
     return {"items": svc.codes_for(g.org.id, entity_type, uid, include_retired=request.args.get("retired") == "1")}
 
 

@@ -41,7 +41,7 @@ class ScanEvent(IdMixin, OrgScopedMixin, db.Model):  # type: ignore[name-defined
 
     __tablename__ = "scan_events"
     __table_args__ = (
-        UniqueConstraint("org_id", "client_id", name="uq_scan_events_org_client"),
+        UniqueConstraint("org_id", "user_id", "client_id", name="uq_scan_events_org_user_client"),
         Index("ix_scan_events_org_entity", "org_id", "entity_type", "entity_id", "scanned_at"),
     )
 

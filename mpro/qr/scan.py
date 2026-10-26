@@ -489,9 +489,11 @@ def scan(org: Organization, m: Membership, data: dict[str, Any]) -> dict[str, An
     s = settings(org.id)
     gps = _gps(data) if s["record_gps"] else (None, None, None)
     client_id = str(data["client_id"])[:64] if data.get("client_id") else None
-    if client_id:
+    if client_id:  # a replay of this person's own scan (0.6.0 review L5: never someone else's)
         dup = db.session.scalars(
-            select(ScanEvent).where(ScanEvent.org_id == org.id, ScanEvent.client_id == client_id)
+            select(ScanEvent).where(
+                ScanEvent.org_id == org.id, ScanEvent.client_id == client_id, ScanEvent.user_id == m.user_id
+            )
         ).first()
     else:
         dup = None
@@ -658,6 +660,8 @@ def history(org: Organization, m: Membership, params: dict[str, Any]) -> dict[st
         page = max(1, int(params.get("page") or 1))
     except ValueError as e:
         raise RuleError("page and per_page must be numbers.", 422) from e
+    if everyone:  # count and page only what this person may see (0.6.0 review L5)
+        q = q.where(or_(ScanEvent.user_id == m.user_id, _visible_clause(org, m)))
     total = db.session.scalar(select(func.count()).select_from(q.subquery())) or 0
     rows = db.session.scalars(
         q.order_by(ScanEvent.scanned_at.desc(), ScanEvent.id.desc()).limit(per_page).offset((page - 1) * per_page)
@@ -671,6 +675,21 @@ def history(org: Organization, m: Membership, params: dict[str, Any]) -> dict[st
         "per_page": per_page,
         "everyone": everyone,
     }
+
+
+def _visible_clause(org: Organization, m: Membership) -> Any:
+    """SQL twin of _may_see_entity for other people's scans: record types this person may view, and for work
+    orders only the ones they may see."""
+    from sqlalchemy import false
+
+    from mpro.workorders.models import WorkOrder
+    from mpro.workorders.services import visibility_filter
+
+    types = [et for et, t in qsvc._targets.items() if can(m, t.view)]
+    if not types:
+        return false()
+    wo_ok = ScanEvent.entity_id.in_(select(WorkOrder.id).where(WorkOrder.org_id == org.id, visibility_filter(m)))
+    return ScanEvent.entity_type.in_(types) & or_(ScanEvent.entity_type != "work_order", wo_ok)
 
 
 def _may_see_entity(m: Membership, ev: ScanEvent) -> bool:
@@ -782,12 +801,22 @@ def _scan_problem(org: Organization, m: Membership, wo: Any, verb: str) -> str |
     targets = _wo_targets(wo)
     window = timedelta(minutes=int(settings(org.id)["require_window_minutes"]))
     since = utcnow() - window
+    # only a scan of a real code on the record counts, and only by the server's clock: a manual check-in or a
+    # phone's clock can't stand in for being there (0.6.0 review M4). Codes are only ever linked to their own record.
+    linked = select(QrCode.id).where(
+        QrCode.org_id == org.id,
+        QrCode.id == ScanEvent.code_id,
+        QrCode.entity_type == ScanEvent.entity_type,
+        QrCode.entity_id == ScanEvent.entity_id,
+    )
     hit = db.session.scalar(
         select(ScanEvent.id)
         .where(
             ScanEvent.org_id == org.id,
             ScanEvent.user_id == m.user_id,
-            ScanEvent.scanned_at >= since,
+            ScanEvent.code_id.is_not(None),
+            linked.exists(),
+            ScanEvent.created_at >= since,
             or_(_target_clause(targets), ScanEvent.work_order_id == wo.id),
         )
         .limit(1)
@@ -833,7 +862,9 @@ def _ip_hash(ip: str) -> str:
 
 
 def _throttle(ip: str, ok: bool | None) -> None:
-    h, now = _ip_hash(ip), utcnow()
+    from mpro.core.ratelimit import ip_key
+
+    h, now = _ip_hash(ip_key(ip)), utcnow()
     per_min = (
         db.session.scalar(
             select(func.count())

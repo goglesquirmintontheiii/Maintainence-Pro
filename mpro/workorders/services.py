@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, inspect, select, update
 
 from mpro.core.events import emit
 from mpro.core.files import FileObject, attach, save_file
@@ -1098,6 +1098,10 @@ def set_status(
     """`undo=True` (Undo right after a change) skips the "comment required" rule; completion rules still apply."""
     if status not in STATUSES:
         raise RuleError("Unknown status.", 422)
+    # Lock the work order and read its status again: two "Done" at once (web + a phone replaying offline work)
+    # must not both run the completion side effects, such as using up parts (FOR UPDATE; SQLite locks the file).
+    if inspect(wo).persistent:
+        db.session.refresh(wo, attribute_names=["status", "sub_status", "version", "deleted_at"], with_for_update=True)
     if wo.deleted_at is not None:
         raise RuleError("This work order was deleted. Restore it first.", 409)
     if expected_version is not None and expected_version != wo.version:

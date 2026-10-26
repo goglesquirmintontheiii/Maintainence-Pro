@@ -8,10 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select
-
 from mpro.core.events import DomainEvent
-from mpro.core.models import utcnow
 from mpro.extensions import db
 from mpro.notifications.services import Target, _uuid, members_who_can, team_members
 from mpro.orgs.models import Membership
@@ -65,10 +62,14 @@ def requests(ev: DomainEvent) -> list[Target]:
 
 
 def messages(ev: DomainEvent) -> list[Target]:
+    """Who hears about a new message comes from the messaging module (participants of the conversation right now,
+    with mute, conversation and thread levels applied); each recipient must still be able to open the conversation
+    when it's delivered (they may have left the team or lost sight of the work order since)."""
     if ev.type != "message.created":
         return []
     try:
-        from mpro.messaging.models import Conversation, ConversationMember, Message
+        from mpro.messaging.models import Conversation, Message
+        from mpro.messaging.services import notification_targets
     except ImportError:  # pragma: no cover
         return []
     data = ev.data or {}
@@ -78,73 +79,38 @@ def messages(ev: DomainEvent) -> list[Target]:
         return []
     mid = _uuid(data.get("message_id"))
     msg = db.session.get(Message, mid) if mid else None
-    if msg is None or msg.deleted_at is not None:
+    if msg is None or msg.deleted_at is not None or msg.conversation_id != conv.id:
         return []
-    mentions = data.get("mentions") or {}
-    mentioned = {u for u in (_uuid(x) for x in mentions.get("users") or []) if u}
-    mentioned |= set(team_members(conv.org_id, mentions.get("teams") or []))
-    now = utcnow()
-    members = {
-        cm.user_id: cm
-        for cm in db.session.scalars(
-            select(ConversationMember).where(
-                ConversationMember.conversation_id == conv.id, ConversationMember.left_at.is_(None)
-            )
-        )
-    }
-    author = _uuid(data.get("author_id")) or ev.actor_id
     who = ev.actor_label or "Someone"
-    direct = conv.kind == "direct"
-    announcement = bool(data.get("announcement"))
     place = conv.name or ("a work order" if conv.kind == "work_order" else "a conversation")
     excerpt = str(data.get("excerpt") or "")
-    parent_id = _uuid(data.get("parent_id"))
-    followers = _thread_levels(parent_id) if parent_id else None
     out: list[Target] = []
-    for uid, cm in members.items():
-        if uid == author:
-            continue
-        is_mention = uid in mentioned
-        if cm.muted_until and cm.muted_until > now and not is_mention:
-            continue
-        level = cm.notify or "all"
-        if followers is not None:  # a reply: only people following the thread (r284)
-            level = followers.get(uid, "none")
-        if level == "none" or (level == "mentions" and not is_mention):
-            continue
-        if direct:
+    for t in notification_targets(msg.id):
+        reason = t["reason"]
+        if reason == "dm":
             title, kind = f"{who} sent you a message", "message.direct"
-        elif is_mention:
+        elif reason == "mention":
             title, kind = f"{who} mentioned you in {place}", "message.direct"
-        elif announcement:
+        elif reason == "announcement":
             title, kind = f"Announcement from {who} in {place}", "message.direct"
         else:
             title, kind = f"{who} in {place}", "message.other"
         out.append(
             Target(
-                uid,
+                t["user_id"],
                 kind,
                 title,
                 excerpt,
                 link=f"/messages/{conv.id}",
                 entity_type="conversation",
                 entity_id=str(conv.id),
-                check=_member_check(members),
+                check=_can_open(conv),
             )
         )
     return out
 
 
-def _member_check(members: dict[uuid.UUID, Any]) -> Any:
-    return lambda m: isinstance(m, Membership) and m.user_id in members
+def _can_open(conv: Any) -> Any:
+    from mpro.messaging.services import can_access
 
-
-def _thread_levels(parent_id: uuid.UUID) -> dict[uuid.UUID, str]:
-    try:
-        from mpro.messaging.models import ThreadFollow
-    except ImportError:  # pragma: no cover
-        return {}
-    return {
-        f.user_id: f.level or "all"
-        for f in db.session.scalars(select(ThreadFollow).where(ThreadFollow.message_id == parent_id))
-    }
+    return lambda m: isinstance(m, Membership) and can_access(m, conv)

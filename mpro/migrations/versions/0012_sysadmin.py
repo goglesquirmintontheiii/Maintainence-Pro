@@ -42,7 +42,9 @@ def upgrade():
     conn = op.get_bind()
     row = conn.execute(sa.text(
         "SELECT m.user_id FROM memberships m JOIN organizations o ON o.id = m.org_id "
+        "JOIN users u ON u.id = m.user_id "
         "WHERE m.role = 'owner' AND m.deleted_at IS NULL AND o.deleted_at IS NULL "
+        "AND u.email <> 'admin@example.com' "  # never the demo account: its password is public
         "ORDER BY o.created_at, m.created_at LIMIT 1"
     )).first()
     if row is not None:

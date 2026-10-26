@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from flask import Flask
-from sqlalchemy import JSON, String, Uuid, delete, event, select
+from sqlalchemy import JSON, String, Uuid, and_, delete, event, or_, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from mpro.core.models import IdMixin, UTCDateTime, iso, utcnow
@@ -113,10 +113,20 @@ def watch_entity(entity_type: str, topics: TopicFn) -> None:
     ENTITY_TOPICS[entity_type] = topics
 
 
+_ADDED_KEY = "mpro_realtime_added"  # (org_id, topic) -> the row already written in this transaction
+
+
+def _collection_topic(topic: str) -> bool:
+    """Topics about a whole list (org:work_order, requests…) rather than one record: a bulk edit needs one push."""
+    return topic.count(":") <= 1 and not topic.startswith(("wo:", "conv:", "user:"))
+
+
 def _drain(session: Session) -> None:
     from mpro.core.events import DomainEvent
 
     rows = session.info.pop(_BUFFER_KEY, None) or []
+    added: dict[tuple[str, str], RealtimeEvent] = session.info.setdefault(_ADDED_KEY, {})
+    derived: list[dict[str, Any]] = []
     for obj in list(session.new):
         if isinstance(obj, DomainEvent) and obj.org_id is not None and obj.entity_type in ENTITY_TOPICS:
             try:
@@ -125,7 +135,7 @@ def _drain(session: Session) -> None:
                 log.exception("realtime topic mapping failed for %s", obj.type)
                 continue
             for t in topics:
-                rows.append(
+                derived.append(
                     {
                         "org_id": obj.org_id,
                         "topic": t,
@@ -134,9 +144,23 @@ def _drain(session: Session) -> None:
                         "user_ids": None,
                     }
                 )
+    wrote = bool(rows)
     for r in rows:
         session.add(RealtimeEvent(**r))
-    if rows:
+    for r in derived:
+        if _collection_topic(r["topic"]):
+            key = (str(r["org_id"]), r["topic"])
+            prev = added.get(key)
+            if prev is not None:  # one push per list topic per transaction, however many records changed
+                prev.data = {**(prev.data or {}), "count": int((prev.data or {}).get("count", 1)) + 1}
+                continue
+            row = RealtimeEvent(**r)
+            added[key] = row
+        else:
+            row = RealtimeEvent(**r)
+        session.add(row)
+        wrote = True
+    if wrote:
         session.info["mpro_realtime_nudge"] = True
 
 
@@ -153,6 +177,9 @@ def _before_commit(session: Session) -> None:
 
 @event.listens_for(Session, "after_commit")
 def _after_commit(session: Session) -> None:
+    if session.in_transaction():  # a SAVEPOINT was released; the real commit comes later
+        return
+    session.info.pop(_ADDED_KEY, None)
     if session.info.pop("mpro_realtime_nudge", False):
         broker.wake.set()
 
@@ -160,6 +187,7 @@ def _after_commit(session: Session) -> None:
 @event.listens_for(Session, "after_rollback")
 def _after_rollback(session: Session) -> None:
     session.info.pop(_BUFFER_KEY, None)
+    session.info.pop(_ADDED_KEY, None)  # rows it held may be gone (even a SAVEPOINT rollback): start a new one
     session.info.pop("mpro_realtime_nudge", None)
 
 
@@ -266,8 +294,9 @@ def prune(older_than: timedelta = timedelta(hours=1)) -> int:
 
 # ---- broker --------------------------------------------------------------------------------------------
 class Subscription:
-    def __init__(self, org_id: uuid.UUID) -> None:
+    def __init__(self, org_id: uuid.UUID, user_id: uuid.UUID | None = None) -> None:
         self.org_id = org_id
+        self.user_id = user_id
         self.q: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1000)
         self.overflow = False
 
@@ -294,16 +323,33 @@ class Broker:
     def subscribe(self, app: Flask, org_id: uuid.UUID) -> Subscription:
         sub = Subscription(org_id)
         with self.lock:
-            self.subs.add(sub)
-            if self.thread is None or not self.thread.is_alive() or self.app is not app:
-                self.app = app  # a new app (tests) gets its own poller; the old thread notices and stops
-                self.generation += 1
-                self.thread = threading.Thread(
-                    target=self._run, args=(app, self.generation), name="mpro-realtime", daemon=True
-                )
-                self.thread.start()
+            self._add(app, sub)
         self.wake.set()
         return sub
+
+    def try_subscribe(
+        self, app: Flask, org_id: uuid.UUID, user_id: uuid.UUID, max_total: int, max_per_user: int
+    ) -> Subscription | None:
+        """Subscribe unless the process (or this person) already holds its share of streams. Checked and added under
+        one lock, so parallel requests can't overshoot."""
+        with self.lock:
+            if len(self.subs) >= max_total or sum(1 for x in self.subs if x.user_id == user_id) >= max_per_user:
+                return None
+            sub = Subscription(org_id, user_id)
+            self._add(app, sub)
+        self.wake.set()
+        return sub
+
+    def _add(self, app: Flask, sub: Subscription) -> None:
+        """Caller holds self.lock."""
+        self.subs.add(sub)
+        if self.thread is None or not self.thread.is_alive() or self.app is not app:
+            self.app = app  # a new app (tests) gets its own poller; the old thread notices and stops
+            self.generation += 1
+            self.thread = threading.Thread(
+                target=self._run, args=(app, self.generation), name="mpro-realtime", daemon=True
+            )
+            self.thread.start()
 
     def unsubscribe(self, sub: Subscription) -> None:
         with self.lock:
@@ -332,27 +378,38 @@ class Broker:
                 finally:
                     db.session.remove()
 
+    PAGE = 2000
+    MAX_PAGES = 50  # 100k rows a poll at most; the rest comes next poll
+
     def poll_once(self, subs: list[Subscription]) -> None:
+        """Deliver new rows. Pages on (at, id) so a burst bigger than one page can't stall the window."""
         assert self.last_at is not None
         orgs = {s.org_id for s in subs}
-        rows = db.session.scalars(
-            select(RealtimeEvent)
-            .where(RealtimeEvent.at >= self.last_at - LOOKBACK, RealtimeEvent.org_id.in_(orgs))
-            .order_by(RealtimeEvent.at, RealtimeEvent.id)
-            .limit(2000)
-        ).all()
-        db.session.rollback()  # never sit in a transaction between polls
-        for r in rows:
-            key = str(r.id)
-            if key in self.seen:
-                continue
-            self.seen[key] = r.at
-            d = {**row_dict(r), "org_id": str(r.org_id), "user_ids": r.user_ids}
-            for s in subs:
-                if s.org_id == r.org_id:
-                    s.put(d)
-            if r.at > self.last_at:
-                self.last_at = r.at
+        cur_at, cur_id = self.last_at - LOOKBACK, None
+        newest = self.last_at
+        for _ in range(self.MAX_PAGES):
+            q = select(RealtimeEvent).where(RealtimeEvent.org_id.in_(orgs))
+            if cur_id is None:
+                q = q.where(RealtimeEvent.at >= cur_at)
+            else:
+                q = q.where(or_(RealtimeEvent.at > cur_at, and_(RealtimeEvent.at == cur_at, RealtimeEvent.id > cur_id)))
+            rows = db.session.scalars(q.order_by(RealtimeEvent.at, RealtimeEvent.id).limit(self.PAGE)).all()
+            db.session.rollback()  # never sit in a transaction between polls
+            for r in rows:
+                key = str(r.id)
+                if key in self.seen:
+                    continue
+                self.seen[key] = r.at
+                d = {**row_dict(r), "org_id": str(r.org_id), "user_ids": r.user_ids}
+                for s in subs:
+                    if s.org_id == r.org_id:
+                        s.put(d)
+                if r.at > newest:
+                    newest = r.at
+            if len(rows) < self.PAGE:
+                break
+            cur_at, cur_id = rows[-1].at, rows[-1].id
+        self.last_at = newest
         cutoff = self.last_at - timedelta(seconds=30)
         if len(self.seen) > 5000 or any(v < cutoff for v in list(self.seen.values())[:50]):
             self.seen = {k: v for k, v in self.seen.items() if v >= cutoff}

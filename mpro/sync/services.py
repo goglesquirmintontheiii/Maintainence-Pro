@@ -264,6 +264,15 @@ def delete_account(user: Any, password: str, confirm: str) -> None:
         raise RuleError("That password isn't right.", 403)
     if (confirm or "").strip().upper() != "DELETE":
         raise RuleError("Type DELETE to confirm.", 422)
+    if user.is_sysadmin:
+        from mpro.sysadmin.services import _active_sysadmins
+
+        if not [x for x in _active_sysadmins() if x.id != user.id]:
+            raise RuleError(
+                "You're the server's only sysadmin. Make someone else a sysadmin (MPro Management or "
+                "`mpro sysadmin add`) before deleting your account.",
+                409,
+            )
     blockers = account_blockers(user)
     if blockers:
         names = ", ".join(b["org"] for b in blockers)
@@ -285,8 +294,10 @@ def delete_account(user: Any, password: str, confirm: str) -> None:
                 org_id=mem.org_id,
                 actor=user,
             )
+    _forget(user)
     user.email = f"deleted-{user.id}@deleted.invalid"
     user.name = "Deleted user"
+    user.is_sysadmin = False
     user.password_hash = ""
     user.phone = ""
     user.active = False
@@ -294,3 +305,23 @@ def delete_account(user: Any, password: str, confirm: str) -> None:
     user.avatar_updated_at = None
     user.deleted_at = now
     db.session.commit()
+
+
+def _forget(user: Any) -> None:
+    """What's left of a deleted account: devices, notification settings and inbox, stored replies, conversation
+    rows go; past events keep their place in history but show "Deleted user" instead of the name (r321)."""
+    from sqlalchemy import delete, update
+
+    from mpro.core.events import DomainEvent
+    from mpro.messaging.models import ConversationMember
+    from mpro.notifications.models import Notification, NotificationPref, PushSubscription
+    from mpro.sync.models import IdempotentRequest
+
+    for model in (PushSubscription, NotificationPref, Notification, IdempotentRequest, ConversationMember):
+        db.session.execute(delete(model).where(model.user_id == user.id))
+    db.session.execute(update(DomainEvent).where(DomainEvent.actor_id == user.id).values(actor_label="Deleted user"))
+    db.session.execute(
+        update(DomainEvent)
+        .where(DomainEvent.entity_type == "user", DomainEvent.entity_id == str(user.id))
+        .values(entity_label="Deleted user")
+    )

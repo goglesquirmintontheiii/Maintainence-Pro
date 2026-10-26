@@ -53,7 +53,18 @@ class User(IdMixin, TimestampMixin, SoftDeleteMixin, db.Model):  # type: ignore[
         return False
 
     def get_id(self) -> str:
-        return str(self.id)
+        # "<id>:<stamp>": the session (and the remember-me cookie) is tied to the current password, so a new
+        # password (reset by email, by a sysadmin, or changed) signs out every other session (0.6.0 review #12)
+        return f"{self.id}:{self.session_stamp()}"
+
+    def session_stamp(self) -> str:
+        import hashlib
+        import hmac
+
+        from flask import current_app
+
+        key = str(current_app.secret_key or "").encode()
+        return hmac.new(key, (self.password_hash or "-").encode(), hashlib.sha256).hexdigest()[:24]
 
     def set_password(self, password: str) -> None:
         self.password_hash = _ph.hash(password)

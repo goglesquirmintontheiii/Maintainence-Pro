@@ -261,7 +261,9 @@ def duplicates(
     return list(db.session.scalars(q.limit(10)).all())
 
 
-def _set_picture(org: Organization, p: Part, fid: Any, changes: dict[str, tuple[Any, Any]]) -> None:
+def _set_picture(
+    org: Organization, p: Part, fid: Any, changes: dict[str, tuple[Any, Any]], user_id: uuid.UUID | None = None
+) -> None:
     """The part's picture (MP-131): an image file from this organization. It's kept with the part's files, so
     removing the picture also takes that photo off the part."""
     from mpro.core.files import FileLink, FileObject, attach
@@ -278,6 +280,9 @@ def _set_picture(org: Organization, p: Part, fid: Any, changes: dict[str, tuple[
         linked = db.session.scalars(
             select(FileLink).where(FileLink.entity_type == "part", FileLink.entity_id == p.id, FileLink.file_id == f.id)
         ).first()
+        if linked is None and f.uploaded_by_id != user_id:
+            # a photo already on this part, or one this person uploaded; not a file from somewhere they can't see
+            raise RuleError("Upload the picture here, or pick one of the part's own photos.", 422)
         if linked is None:
             attach(f, "part", p.id, role="photo")
         p.picture_file_id = f.id
@@ -294,7 +299,9 @@ def _set_picture(org: Organization, p: Part, fid: Any, changes: dict[str, tuple[
         changes["picture"] = ("set" if old else "", "set" if p.picture_file_id else "")
 
 
-def _apply_fields(org: Organization, p: Part, data: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+def _apply_fields(
+    org: Organization, p: Part, data: dict[str, Any], user_id: uuid.UUID | None = None
+) -> dict[str, tuple[Any, Any]]:
     from mpro.workorders.services import _clean_custom
 
     changes: dict[str, tuple[Any, Any]] = {}
@@ -336,7 +343,7 @@ def _apply_fields(org: Organization, p: Part, data: dict[str, Any]) -> dict[str,
             changes["non_stock"] = (p.non_stock, ns)
             p.non_stock = ns
     if "picture_file_id" in data:
-        _set_picture(org, p, data["picture_file_id"], changes)
+        _set_picture(org, p, data["picture_file_id"], changes, user_id)
     if "custom" in data:
         if not isinstance(data["custom"], dict):
             raise RuleError("Custom fields must be an object.", 422)
@@ -418,7 +425,7 @@ def create_part(org: Organization, m: Membership, data: dict[str, Any]) -> Part:
         org_id=org.id, created_by_id=m.user_id, unit="each", unit_cost=ZERO, on_hand=ZERO, reserved=ZERO, ordered=ZERO
     )
     db.session.add(p)
-    _apply_fields(org, p, {"name": data.get("name", ""), **data})
+    _apply_fields(org, p, {"name": data.get("name", ""), **data}, m.user_id)
     db.session.flush()
     _apply_links(org, p, data)
     _check_required(org.id, p, data, True)
@@ -454,7 +461,7 @@ def update_part(org: Organization, m: Membership, p: Part, data: dict[str, Any],
         raise RuleError("Restore the part before changing it.", 409)
     if version is not None and version != p.version:
         raise RuleError("Someone else changed this part. Reload to see their changes.", 409)
-    changes = _apply_fields(org, p, data)
+    changes = _apply_fields(org, p, data, m.user_id)
     _apply_links(org, p, data)
     _check_required(org.id, p, data, False)
     p.version += 1

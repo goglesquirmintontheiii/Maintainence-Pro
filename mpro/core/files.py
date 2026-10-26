@@ -324,9 +324,15 @@ def queue_processing(f: FileObject) -> None:
 
 
 def save_file_stream(
-    org_id: uuid.UUID, name: str, stream: Any, uploaded_by: uuid.UUID | None, org: Any = None
+    org_id: uuid.UUID,
+    name: str,
+    stream: Any,
+    uploaded_by: uuid.UUID | None,
+    org: Any = None,
+    max_bytes: int | None = None,
 ) -> FileObject:
-    """Like save_file, but reads the upload in chunks (uploads up to 150 MB, MP-109). Caller commits."""
+    """Like save_file, but reads the upload in chunks (uploads up to 150 MB, MP-109). `max_bytes` lowers the limit
+    (anonymous portal uploads). Caller commits."""
     name = _clean_name(name)
     head = stream.read(256 * 1024)
     if not head:
@@ -335,7 +341,10 @@ def save_file_stream(
     stream.seek(0)
     fid = uuid.uuid4()
     key = f"{org_id}/{utcnow():%Y/%m}/{fid}"
-    size, digest = storage().put_stream(key, stream, max_upload_bytes(org))
+    limit = max_upload_bytes(org)
+    if max_bytes is not None:
+        limit = min(limit, max_bytes)
+    size, digest = storage().put_stream(key, stream, limit)
     f = FileObject(
         id=fid, org_id=org_id, name=name, content_type=ctype, size=size, sha256=digest, storage_key=key,
         uploaded_by_id=uploaded_by,

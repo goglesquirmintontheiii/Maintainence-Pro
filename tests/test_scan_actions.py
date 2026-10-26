@@ -209,7 +209,8 @@ def test_require_scan_to_start_and_complete(app: Any, admin: Api) -> None:
         from mpro.extensions import db
         from mpro.qr.models import ScanEvent
 
-        db.session.execute(update(ScanEvent).values(scanned_at=datetime.now(UTC) - timedelta(hours=5)))
+        old = datetime.now(UTC) - timedelta(hours=5)  # the window runs on the server's clock (0.6.0 review M4)
+        db.session.execute(update(ScanEvent).values(scanned_at=old, created_at=old))
         db.session.commit()
     assert tech.post(f"{API}/work-orders/{wo['id']}/status", {"status": "in_progress"}).status_code == 422
 

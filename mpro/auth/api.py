@@ -8,7 +8,7 @@ from apiflask import APIBlueprint, Schema, abort
 from apiflask.fields import Boolean, Dict, String
 from apiflask.validators import Length
 from flask import current_app, g, request, session
-from flask_login import login_user, logout_user
+from flask_login import current_user, login_user, logout_user
 
 from mpro import __version__
 from mpro.auth import services as svc
@@ -153,6 +153,19 @@ def login(body: dict[str, Any]) -> dict[str, Any]:
 
 @bp.post("/logout")
 def logout() -> dict[str, Any]:
+    # {push_endpoint?}: this device stops getting the person's push notifications (shared phones, kiosks)
+    endpoint = str((request.get_json(silent=True) or {}).get("push_endpoint") or "")[:2000]
+    if endpoint and current_user.is_authenticated:
+        from sqlalchemy import delete
+
+        from mpro.notifications.models import PushSubscription
+
+        db.session.execute(
+            delete(PushSubscription).where(
+                PushSubscription.user_id == current_user.id, PushSubscription.endpoint == endpoint
+            )
+        )
+        db.session.commit()
     logout_user()
     session.clear()
     g.user = g.org = g.membership = None
@@ -202,6 +215,9 @@ def change(body: dict[str, Any]) -> dict[str, str]:
         svc.change_password(g.user, body["current"], body["new"])
     except AuthError as e:
         fail(e)
+    # other sessions end with the old password; this one carries on with the new stamp
+    remember = bool(request.cookies.get(current_app.config.get("REMEMBER_COOKIE_NAME", "remember_token")))
+    login_user(g.user, remember=remember)
     return {"message": "Password changed."}
 
 

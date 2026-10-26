@@ -54,6 +54,8 @@ LIMIT_FAILED_15MIN = 20
 LIMIT_SUBMITS_PER_HOUR_IP = 10
 LIMIT_SUBMITS_PER_HOUR_PORTAL = 200
 LIMIT_UPLOADS_PER_HOUR_IP = 30
+LIMIT_UPLOADS_PER_HOUR_PORTAL = 300  # whatever the addresses (0.6.0 review L1)
+LIMIT_CONFIRMATIONS_PER_HOUR_EMAIL = 3  # confirmation emails to one address (L2)
 
 
 def request_field_ids(org_id: uuid.UUID) -> list[str]:
@@ -540,19 +542,32 @@ def _emit(r: WorkRequest, type_: str, summary: str, **data: Any) -> None:
     )
 
 
+def _guest_scope(m: Membership, r: WorkRequest) -> None:
+    """Guests only file requests about their own sites: the location and the asset (0.6.0 review M3)."""
+    from mpro.assets.models import Asset
+    from mpro.workrequests.guests import can_see_location
+
+    if r.location_id is not None and not can_see_location(m, r.location_id):
+        raise RuleError("Pick one of your locations.", 422)
+    if r.asset_id is not None:
+        a = db.session.get(Asset, r.asset_id)
+        if a is None or a.location_id is None or not can_see_location(m, a.location_id):
+            raise RuleError("Pick an asset at one of your locations.", 422)
+
+
 def create_request(org: Organization, m: Membership, data: dict[str, Any], source: str = "app") -> WorkRequest:
     s = settings(org.id)
     src = source if source in ("app", "qr") else "app"
     r = WorkRequest(org_id=org.id, created_by_id=m.user_id, status="pending", source=src,
                     custom={}, priority="none", description="", asset_status="")  # fmt: skip
     _apply(org.id, r, data, s["fields"], request_field_ids(org.id), routing=(s["assign_to"], s["allow_other"]), m=m)
-    if m.role == "guest" and r.location_id is not None:
-        from mpro.workrequests.guests import access_of, can_see_location
+    if m.role == "guest":
+        from mpro.workrequests.guests import access_of
 
-        if not can_see_location(m, r.location_id):
-            raise RuleError("Pick one of your locations.", 422)
-        a = access_of(org.id, m.user_id)
-        r.customer_id = a.customer_id if a is not None else None
+        _guest_scope(m, r)
+        if r.location_id is not None:
+            a = access_of(org.id, m.user_id)
+            r.customer_id = a.customer_id if a is not None else None
     files = data.get("file_ids") or []
     if s["fields"]["attachments"] == "required" and not files:
         raise RuleError("Fill in the required fields: Attachments.", 422)
@@ -592,11 +607,8 @@ def update_request(org: Organization, m: Membership, r: WorkRequest, data: dict[
     s = settings(org.id)
     before = {k: getattr(r, k) for k in ("title", "description", "priority", "location_id", "asset_id", "team_id")}
     _apply(org.id, r, data, s["fields"], request_field_ids(org.id), routing=(s["assign_to"], s["allow_other"]), m=m)
-    if m.role == "guest" and r.location_id is not None:
-        from mpro.workrequests.guests import can_see_location
-
-        if not can_see_location(m, r.location_id):
-            raise RuleError("Pick one of your locations.", 422)
+    if m.role == "guest":
+        _guest_scope(m, r)
     changes = {k: (v, getattr(r, k)) for k, v in before.items() if getattr(r, k) != v}
     r.updated_at = utcnow()
     emit("request.updated", entity_type="work_request", entity_id=r.id, entity_label=f"Request #{r.number}",
@@ -976,35 +988,45 @@ def token_hash(token: str) -> str:
 
 
 def check_rate(ip: str, portal: RequestPortal | None, ok: bool, kind: str = "") -> None:
-    """Count this public request and refuse when an IP (or a portal) is too busy. Wrong links count towards the
-    failed-attempt limit, so guessing portal slugs or status tokens gets blocked quickly."""
+    """Count this public request and refuse when an address (or a portal) is too busy. Wrong links count towards the
+    failed-attempt limit, so guessing portal slugs or status tokens gets blocked quickly.
+
+    The hit is written and committed first, then counted, so requests sent in parallel all see each other (0.6.0
+    review L6). Submissions and uploads are counted separately (M2); IPv6 addresses count per /64 (L1)."""
+    from mpro.core.ratelimit import ip_key
+
     now = utcnow()
-    ip = (ip or "")[:64]
+    key = ip_key(ip)
+    db.session.add(PortalHit(ip=key, portal_id=portal.id if portal else None, ok=ok, write=bool(kind),
+                             kind=kind[:10], at=now))  # fmt: skip
+    db.session.execute(delete(PortalHit).where(PortalHit.at < now - timedelta(days=1)))
+    db.session.commit()
 
     def n(*conds: Any) -> int:
         return int(db.session.scalar(select(func.count()).select_from(PortalHit).where(*conds)) or 0)
 
-    per_min = n(PortalHit.ip == ip, PortalHit.at >= now - timedelta(minutes=1))
-    failed = n(PortalHit.ip == ip, PortalHit.ok.is_(False), PortalHit.at >= now - timedelta(minutes=15))
-    submits_ip = (
-        n(PortalHit.ip == ip, PortalHit.write.is_(True), PortalHit.at >= now - timedelta(hours=1)) if kind else 0
+    hour = now - timedelta(hours=1)
+    # counts include this request, so "over the limit" is "more than limit"
+    per_min = n(PortalHit.ip == key, PortalHit.at >= now - timedelta(minutes=1))
+    failed_before = n(PortalHit.ip == key, PortalHit.ok.is_(False), PortalHit.at >= now - timedelta(minutes=15)) - (
+        0 if ok else 1
     )
-    submits_portal = (
-        n(PortalHit.portal_id == portal.id, PortalHit.write.is_(True), PortalHit.at >= now - timedelta(hours=1))
-        if kind == "submit" and portal is not None
-        else 0
-    )
-    db.session.add(PortalHit(ip=ip, portal_id=portal.id if portal else None, ok=ok, write=bool(kind), at=now))
-    db.session.execute(delete(PortalHit).where(PortalHit.at < now - timedelta(days=1)))
-    db.session.commit()
-    if per_min >= LIMIT_PER_MINUTE or failed >= LIMIT_FAILED_15MIN:
+    if per_min > LIMIT_PER_MINUTE or failed_before >= LIMIT_FAILED_15MIN:
         raise RuleError("Too many requests. Wait a few minutes and try again.", 429)
-    if kind == "submit" and (
-        submits_ip >= LIMIT_SUBMITS_PER_HOUR_IP or submits_portal >= LIMIT_SUBMITS_PER_HOUR_PORTAL
-    ):
-        raise RuleError("Too many requests from here in the last hour. Try again later.", 429)
-    if kind == "upload" and submits_ip >= LIMIT_UPLOADS_PER_HOUR_IP:
-        raise RuleError("Too many uploads from here in the last hour. Try again later.", 429)
+    if kind == "submit":
+        by_ip = n(PortalHit.ip == key, PortalHit.kind == "submit", PortalHit.at >= hour)
+        by_portal = (
+            n(PortalHit.portal_id == portal.id, PortalHit.kind == "submit", PortalHit.at >= hour) if portal else 0
+        )
+        if by_ip > LIMIT_SUBMITS_PER_HOUR_IP or by_portal > LIMIT_SUBMITS_PER_HOUR_PORTAL:
+            raise RuleError("Too many requests from here in the last hour. Try again later.", 429)
+    if kind == "upload":
+        by_ip = n(PortalHit.ip == key, PortalHit.kind == "upload", PortalHit.at >= hour)
+        by_portal = (
+            n(PortalHit.portal_id == portal.id, PortalHit.kind == "upload", PortalHit.at >= hour) if portal else 0
+        )
+        if by_ip > LIMIT_UPLOADS_PER_HOUR_IP or by_portal > LIMIT_UPLOADS_PER_HOUR_PORTAL:
+            raise RuleError("Too many uploads from here in the last hour. Try again later.", 429)
 
 
 def resolve_portal(slug: str, ip: str) -> tuple[RequestPortal, Organization]:
@@ -1039,17 +1061,25 @@ def public_portal(p: RequestPortal, org: Organization, asset_id: str | None, loc
     # a pre-targeted portal (r300) or a sticker link (?asset= / ?location=) names the one place it's about
     target_asset = p.asset_id
     target_loc = p.location_id
-    if asset_id:
+    if p.asset_id is not None:
+        pass  # a portal made for one asset always shows that asset (0.6.0 review L7)
+    elif asset_id:
         try:
             a = _asset(p.org_id, asset_id)
-            if p.location_id is None or _within(a.location_id, p.location_id):
+            if (p.location_id is None or _within(a.location_id, p.location_id)) and (
+                p.customer_id is None
+                or p.location_id is not None
+                or _customer_covers(p.org_id, p.customer_id, a.location_id)
+            ):
                 target_asset, target_loc = a.id, a.location_id
         except RuleError:
             pass
     elif location_id:
         try:
             loc = _location(p.org_id, location_id)
-            if p.location_id is None or _within(loc.id, p.location_id):
+            if (p.location_id is None or _within(loc.id, p.location_id)) and (
+                p.customer_id is None or p.location_id is not None or _customer_covers(p.org_id, p.customer_id, loc.id)
+            ):
                 target_loc = loc.id
         except RuleError:
             pass
@@ -1131,6 +1161,8 @@ def public_submit(p: RequestPortal, org: Organization, data: dict[str, Any], ip:
         if c is not None and c.default_location_id:
             form["location_id"] = str(c.default_location_id)
     _apply(org.id, r, form, fields, list(p.custom_field_ids or []), routing=None, m=None)
+    if p.customer_id and not p.location_id:
+        _customer_scope(org.id, p.customer_id, r)
     r.team_id = p.team_id
     r.submitter_name = _text(data.get("name"), 200, "Your name", required=True)
     r.submitter_email = _email(data.get("email"), p.require_email or bool(data.get("notify_email")))
@@ -1156,14 +1188,87 @@ def public_submit(p: RequestPortal, org: Organization, data: dict[str, Any], ip:
     return {"number": r.number, "status_token": token, "status_path": f"/request-status/{token}"}
 
 
+# what anonymous uploads may be, checked by their first bytes, not their name (0.6.0 review L1)
+def _public_kind(head: bytes) -> str | None:
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image"
+    if head.startswith(b"%PDF-"):
+        return "pdf"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand in (b"heic", b"heix", b"hevc", b"heim", b"heis", b"mif1", b"msf1", b"avif", b"avis"):
+            return "image"
+        if brand in (b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"qt  ", b"3gp4",
+                     b"3gp5", b"dash"):  # fmt: skip
+            return "video"
+    return None
+
+
+def _customer_covers(org_id: uuid.UUID, customer_id: uuid.UUID, loc_id: uuid.UUID | None) -> bool:
+    """Is this location one of the customer's places (or inside one)?"""
+    from mpro.assets.models import Location
+
+    if loc_id is None:
+        return False
+    from mpro.vendors.models import Customer
+
+    roots = list(
+        db.session.scalars(
+            select(Location.id).where(
+                Location.org_id == org_id, Location.customer_id == customer_id, Location.deleted_at.is_(None)
+            )
+        ).all()
+    )
+    c = db.session.get(Customer, customer_id)
+    if c is not None and c.org_id == org_id and c.default_location_id:
+        roots.append(c.default_location_id)
+    return any(_within(loc_id, root) for root in roots)
+
+
+def _customer_scope(org_id: uuid.UUID, customer_id: uuid.UUID, r: WorkRequest) -> None:
+    """A customer's portal only files requests about that customer's places (0.6.0 review M3)."""
+    from mpro.assets.models import Asset
+
+    def covered(loc_id: uuid.UUID | None) -> bool:
+        return _customer_covers(org_id, customer_id, loc_id)
+
+    if r.location_id is not None and not covered(r.location_id):
+        raise RuleError("That place isn't covered by this form.", 422)
+    if r.asset_id is not None:
+        a = db.session.get(Asset, r.asset_id)
+        if a is None or not covered(a.location_id):
+            raise RuleError("That asset isn't covered by this form.", 422)
+
+
 def public_upload(p: RequestPortal, org: Organization, up: Any, ip: str) -> dict[str, Any]:
-    from mpro.core.files import IMAGE_TYPES, save_file_stream
+    from mpro.core.files import IMAGE_TYPES, FileError, save_file_stream
 
     check_rate(ip, p, True, "upload")
     name = str(up.filename or "").lower()
     if not name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".avif", ".pdf", ".mp4", ".mov")):
         raise RuleError("Attach pictures, videos or PDFs.", 422)
-    f = save_file_stream(org.id, up.filename, up.stream, None, org)
+    head = up.stream.read(16)
+    up.stream.seek(0)
+    kind = _public_kind(head)
+    expected = "pdf" if name.endswith(".pdf") else "video" if name.endswith((".mp4", ".mov")) else "image"
+    if kind != expected:
+        raise RuleError("That file isn't a picture, video or PDF.", 422)
+    from flask import current_app
+
+    limit_mb = int(current_app.config.get("MPRO_PUBLIC_UPLOAD_MB", 15))
+    try:
+        f = save_file_stream(org.id, up.filename, up.stream, None, org, max_bytes=limit_mb * 1024 * 1024)
+    except FileError as e:
+        db.session.rollback()
+        if e.status == 413:
+            raise RuleError(f"Files can be up to {limit_mb} MB here.", 413) from e
+        raise RuleError(e.message, e.status) from e
     if f.content_type not in IMAGE_TYPES | {"application/pdf", "video/mp4", "video/quicktime"}:
         db.session.rollback()
         raise RuleError("Attach pictures, videos or PDFs.", 422)

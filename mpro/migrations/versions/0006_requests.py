@@ -23,6 +23,7 @@ def upgrade():
     sa.Column('portal_id', sa.Uuid(), nullable=True),
     sa.Column('ok', sa.Boolean(), nullable=False),
     sa.Column('write', sa.Boolean(), nullable=False),
+    sa.Column('kind', sa.String(length=10), nullable=False, server_default=''),
     sa.Column('at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_request_portal_hits'))

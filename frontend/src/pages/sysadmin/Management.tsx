@@ -493,6 +493,8 @@ function OrgManagement() {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmName, setConfirmName] = useState("");
+  const [pendingRole, setPendingRole] = useState<{ user_id: string; name: string; role: string } | null>(null);
+  const { session } = useSession();
   useEffect(() => { if (q.data) setForm({ name: q.data.name, email: q.data.email, plan: q.data.plan }); }, [q.data]);
   const refresh = (o: OrgDetail) => { qc.setQueryData(["sa", "org", id], (old: OrgDetail | undefined) => ({ ...old, ...o })); void qc.invalidateQueries({ queryKey: ["sa", "orgs"] }); };
   const call = useMutation({ mutationFn: ({ path, method, body }: { path: string; method: "PATCH" | "POST" | "DELETE"; body?: unknown }) => api<OrgDetail>(`${SA}/orgs/${id}${path}`, { method, body }),
@@ -529,7 +531,11 @@ function OrgManagement() {
             <tr key={m.user_id}>
               <td><Link to={`${BASE}/user-management/${m.user_id}`}>{m.name}</Link>{!m.active && <> <Pill tone="danger">Locked</Pill></>}<div className="small muted mobile-only">{m.email}</div></td>
               <td className="desktop-only">{m.email}</td>
-              <td><Select aria-label={`Role of ${m.name}`} disabled={o.deleted} value={m.role} onChange={(e) => call.mutate({ path: `/members/${m.user_id}`, method: "PATCH", body: { role: e.target.value } })}>
+              <td><Select aria-label={`Role of ${m.name}`} disabled={o.deleted} value={m.role} onChange={(e) => {
+                // making someone Owner, or changing your own role, opens all of the organization's data: confirm first
+                if (e.target.value === "owner" || m.user_id === session.user?.id) setPendingRole({ user_id: m.user_id, name: m.name, role: e.target.value });
+                else call.mutate({ path: `/members/${m.user_id}`, method: "PATCH", body: { role: e.target.value } });
+              }}>
                 {o.roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</Select></td>
               <td><Button size="sm" variant="ghost" icon disabled={o.deleted} aria-label={`Remove ${m.name}`} onClick={() => call.mutate({ path: `/members/${m.user_id}`, method: "DELETE" })}><Trash2 size={15} /></Button></td>
             </tr>))}</tbody>
@@ -544,7 +550,11 @@ function OrgManagement() {
         </div>
       </section>}
 
-      {adding && <AddMember org={o} onClose={() => setAdding(false)} onDone={refresh} />}
+      {adding && <AddMember org={o} myEmail={session.user?.email ?? ""} onClose={() => setAdding(false)} onDone={refresh} />}
+      {pendingRole && <ConfirmPassword title={`Change ${pendingRole.name}'s role`} confirmLabel="Change role" onClose={() => setPendingRole(null)}
+        onConfirm={async (password) => { refresh(await api<OrgDetail>(`${SA}/orgs/${id}/members/${pendingRole.user_id}`, { method: "PATCH", body: { role: pendingRole.role, password } })); toast("Saved"); }}>
+        <p style={{ margin: 0 }}>{pendingRole.role === "owner" ? "An Owner can see and change everything in this organization, including its files and money." : "This changes what you can see in this organization."}</p>
+      </ConfirmPassword>}
       {deleting && <ConfirmPassword title={`Delete ${o.name}?`} confirmLabel="Delete organization" danger onClose={() => { setDeleting(false); setConfirmName(""); }}
         onConfirm={async (password) => { await api(`${SA}/orgs/${id}/delete`, { method: "POST", body: { password, confirm_name: confirmName } }); await q.refetch(); void qc.invalidateQueries({ queryKey: ["sa", "orgs"] }); toast("Organization deleted"); }}
         extra={<Field label={`Type the name (${o.name}) to confirm`}>{(fid) => <Input id={fid} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} />}</Field>}>
@@ -554,20 +564,25 @@ function OrgManagement() {
   );
 }
 
-function AddMember({ org, onClose, onDone }: { org: OrgDetail; onClose: () => void; onDone: (o: OrgDetail) => void }) {
+function AddMember({ org, myEmail, onClose, onDone }: { org: OrgDetail; myEmail: string; onClose: () => void; onDone: (o: OrgDetail) => void }) {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("technician");
-  const add = useMutation({ mutationFn: () => api<OrgDetail>(`${SA}/orgs/${org.id}/members`, { method: "POST", body: { email, name, role } }),
+  const [password, setPassword] = useState("");
+  // adding yourself, or anyone as Owner, opens all of the organization's data: the server asks for your password
+  const needsPassword = role === "owner" || (!!myEmail && email.trim().toLowerCase() === myEmail.toLowerCase());
+  const add = useMutation({ mutationFn: () => api<OrgDetail>(`${SA}/orgs/${org.id}/members`, { method: "POST", body: { email, name, role, ...(needsPassword ? { password } : {}) } }),
     onSuccess: (o) => { onDone(o); toast("Member added"); onClose(); }, onError: (e) => toast(err(e), { kind: "error" }) });
   return (
     <Modal title={`Add someone to ${org.name}`} onClose={onClose} width={460}
-      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!email.trim() || add.isPending} onClick={() => add.mutate()}>Add</Button></>}>
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!email.trim() || add.isPending || (needsPassword && !password)} onClick={() => add.mutate()}>Add</Button></>}>
       <div className="stack">
         <Field label="Email" hint="Someone new gets an email to set their password.">{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />}</Field>
         <Field label="Name (for someone new)">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}</Field>
         <Field label="Role">{(id) => <Select id={id} value={role} onChange={(e) => setRole(e.target.value)}>{org.roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</Select>}</Field>
+        {needsPassword && <Field label="Your password" hint="Enter your own MPro password to confirm: this gives full access to the organization.">
+          {(id) => <Input id={id} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>}
       </div>
     </Modal>
   );

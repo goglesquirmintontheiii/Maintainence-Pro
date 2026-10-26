@@ -40,7 +40,7 @@ def upgrade():
     sa.ForeignKeyConstraint(['work_order_id'], ['work_orders.id'], name=op.f('fk_scan_events_work_order_id_work_orders')),
     sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], name=op.f('fk_scan_events_org_id_organizations')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_scan_events')),
-    sa.UniqueConstraint('org_id', 'client_id', name='uq_scan_events_org_client'),
+    sa.UniqueConstraint('org_id', 'user_id', 'client_id', name='uq_scan_events_org_user_client'),
     )
     with op.batch_alter_table('scan_events', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_scan_events_org_id'), ['org_id'], unique=False)

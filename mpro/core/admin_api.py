@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -144,15 +145,18 @@ def retry_job(job_id: str) -> dict[str, Any]:
 @bp.get("/outbox")
 @require("mail.view")
 def outbox() -> dict[str, Any]:
-    from mpro.auth.models import User
-    from mpro.orgs.models import Membership
 
-    member_emails = (
-        select(User.email).join(Membership, Membership.user_id == User.id).where(Membership.org_id == g.org.id)
-    )
-    q = select(OutboundEmail).where(or_(OutboundEmail.org_id == g.org.id, OutboundEmail.to.in_(member_emails)))
+    # Only this organization's own email. Personal emails without an organization (password resets) aren't listed,
+    # and links that work without signing in (reset, invite, request status, vendor PO, shared work orders,
+    # quotes) are hidden: reading them would let an admin act as the recipient (0.6.0 review #1).
+    q = select(OutboundEmail).where(OutboundEmail.org_id == g.org.id)
     rows = db.session.scalars(q.order_by(OutboundEmail.created_at.desc()).limit(_limit(50))).all()
-    return {"items": [m.to_dict() for m in rows], "smtp_configured": bool(current_app.config.get("MAIL_SERVER"))}
+    items = []
+    for m in rows:
+        d = m.to_dict()
+        d["body"] = redact_links(d["body"])
+        items.append(d)
+    return {"items": items, "smtp_configured": bool(current_app.config.get("MAIL_SERVER"))}
 
 
 @bp.get("/search")
@@ -186,3 +190,11 @@ def healthz() -> tuple[dict[str, Any], int]:
         return {"status": "ok", "version": __version__, "database": "ok"}, 200
     except Exception as e:  # pragma: no cover
         return {"status": "error", "database": str(e)[:200]}, 503
+
+
+_TOKEN_LINK = re.compile(r"(/(?:reset-password|request-status|v|x|quote)/)[^\s\"'<>)\]]+")
+
+
+def redact_links(text: str) -> str:
+    """Replace the secret part of sign-in-free links with "[Link hidden]"."""
+    return _TOKEN_LINK.sub(r"\1[Link hidden]", text or "")

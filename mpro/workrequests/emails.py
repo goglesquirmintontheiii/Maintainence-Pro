@@ -7,6 +7,7 @@ by the notifications module (F3), which consumes the same `request.*` events.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from flask import current_app
 
@@ -33,8 +34,9 @@ def _send(r: WorkRequest, subject: str, text: str) -> None:
     org = db.session.get(Organization, r.org_id)
     name = org.name if org is not None else "Maintenance"
     body = (
-        f"Hi {r.submitter_name or 'there'},\n\n{text}\n\n"
-        f"Request #{r.number}: {r.title}\n\n"
+        # only the request number: what the submitter typed never goes back out by email (0.6.0 review L2)
+        f"Hello,\n\n{text}\n\n"
+        f"Request #{r.number}\n\n"
         "You can follow it with the status link from your first email.\n\n"
         f"— {name}"
     )
@@ -73,6 +75,23 @@ def confirmation(r: WorkRequest, token: str) -> None:
     """Sent once, right after a portal submission: the only email that carries the status link (r603)."""
     if not r.submitter_email:
         return
+    from sqlalchemy import func, select
+
+    from mpro.core.models import utcnow
+    from mpro.workrequests.services import LIMIT_CONFIRMATIONS_PER_HOUR_EMAIL
+
+    # anyone can type someone else's address: cap what one address gets (0.6.0 review L2)
+    recent = db.session.scalar(
+        select(func.count())
+        .select_from(WorkRequest)
+        .where(
+            func.lower(WorkRequest.submitter_email) == r.submitter_email.lower(),
+            WorkRequest.source == "portal",
+            WorkRequest.created_at >= utcnow() - timedelta(hours=1),
+        )
+    )
+    if int(recent or 0) > LIMIT_CONFIRMATIONS_PER_HOUR_EMAIL:
+        return
     base = str(current_app.config.get("MPRO_BASE_URL", "")).rstrip("/")
     org = db.session.get(Organization, r.org_id)
     name = org.name if org is not None else "Maintenance"
@@ -84,7 +103,8 @@ def confirmation(r: WorkRequest, token: str) -> None:
     send_email(
         r.submitter_email,
         f"{name}: we got your request #{r.number}",
-        f"Hi {r.submitter_name or 'there'},\n\nThanks, we got your request #{r.number}: {r.title}\n\n{later}\n\n"
+        # nothing the submitter typed goes into this email: it could be anyone's address (0.6.0 review L2)
+        f"Hello,\n\nThanks, we got your request #{r.number}.\n\n{later}\n\n"
         f"Follow it here (no account needed):\n{base}/request-status/{token}\n\n— {name}",
         org_id=r.org_id,
     )

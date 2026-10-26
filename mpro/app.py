@@ -97,11 +97,16 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
 
     @login_manager.user_loader
     def load_user(uid: str) -> User | None:
+        import hmac
+
+        raw_id, _, stamp = (uid or "").partition(":")
         try:
-            u = db.session.get(User, uuid.UUID(uid))
+            u = db.session.get(User, uuid.UUID(raw_id))
         except ValueError:
             return None
-        return u if u and u.is_active else None
+        if u is None or not u.is_active or not stamp or not hmac.compare_digest(stamp, u.session_stamp()):
+            return None  # an older password's session: sign in again
+        return u
 
     @login_manager.unauthorized_handler
     def unauthorized() -> Any:

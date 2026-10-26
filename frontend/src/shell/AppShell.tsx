@@ -17,6 +17,7 @@ import { OfflineBanner, OfflineSync, SyncBadge, UpdatePrompt } from "../pwa/Offl
 import { RunningTimers } from "../pwa/Timers";
 import { PhoneTabs } from "../pwa/PhoneNav";
 import { forgetSavedWork, isOnline, useOfflineState } from "../lib/offline";
+import { releasePushOnSignOut } from "../lib/push";
 
 function readCollapsed(): boolean { try { return localStorage.getItem("mpro.sidebar") === "collapsed"; } catch { return false; } }
 
@@ -53,7 +54,11 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [nav]);
 
-  const signOut = useCallback(async () => { set(await api<Session>("/auth/logout", { method: "POST" })); await forgetSavedWork(); nav("/login"); }, [set, nav]);
+  const signOut = useCallback(async () => {
+    const pushEndpoint = await releasePushOnSignOut();
+    set(await api<Session>("/auth/logout", { method: "POST", body: pushEndpoint ? { push_endpoint: pushEndpoint } : {} }));
+    await forgetSavedWork(); nav("/login");
+  }, [set, nav]);
   const offline = useOfflineState();
   const setTheme = async (theme: "system" | "light" | "dark") => {
     applyTheme(theme);

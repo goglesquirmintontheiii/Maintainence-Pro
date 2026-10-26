@@ -357,12 +357,13 @@ def realtime_stream() -> Any:
     each open stream a thread), it answers 429 and the browser polls /realtime/poll instead."""
     app = current_app._get_current_object()  # type: ignore[attr-defined]
     limit = int(app.config.get("MPRO_REALTIME_MAX_STREAMS", 16))
-    if realtime.broker.count() >= limit:
-        return {"mode": "poll", "message": "Live updates are busy; polling instead."}, 429, {"Retry-After": "60"}
+    per_user = int(app.config.get("MPRO_REALTIME_STREAMS_PER_USER", 3))  # one person can't take every stream
     org_id, user_id = g.org.id, g.user.id
+    sub = realtime.broker.try_subscribe(app, org_id, user_id, max_total=limit, max_per_user=per_user)
+    if sub is None:
+        return {"mode": "poll", "message": "Live updates are busy; polling instead."}, 429, {"Retry-After": "60"}
     since = _parse_since(request.args.get("since") or request.headers.get("Last-Event-ID"))
     max_age = float(app.config.get("MPRO_REALTIME_STREAM_SECONDS", 300))
-    sub = realtime.broker.subscribe(app, org_id)
 
     def gen() -> Any:
         try:

@@ -58,3 +58,15 @@ export async function disablePush(): Promise<void> {
   await api("/notifications/push/subscriptions", { method: "DELETE", body: { endpoint: sub.endpoint } }).catch(() => undefined);
   await sub.unsubscribe();
 }
+
+// Sign-out on this device: tell the server to stop pushing to it and drop the browser's subscription, so the next
+// person to use the phone doesn't see the previous person's notifications. Returns the endpoint to send with logout.
+export async function releasePushOnSignOut(): Promise<string | null> {
+  try {
+    const sub = await currentSubscription();
+    if (!sub) return null;
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe().catch(() => undefined);
+    return endpoint;
+  } catch { return null; }
+}

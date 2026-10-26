@@ -95,6 +95,15 @@ def code_dict(c: QrCode, with_target: bool = False) -> dict[str, Any]:
     return d
 
 
+def _may_open(m: Membership, entity_type: str | None, rec: Any) -> bool:
+    """Work orders also respect limited visibility (0.6.0 review L3)."""
+    if entity_type != "work_order":
+        return True
+    from mpro.workorders.services import can_see
+
+    return can_see(m, rec)
+
+
 def codes_for(
     org_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID, include_retired: bool = False
 ) -> list[dict[str, Any]]:
@@ -287,7 +296,7 @@ def resolve(m: Membership, raw: str) -> dict[str, Any]:
         rec = db.session.get(t.model, c.entity_id) if t else None
         if t is None or rec is None or getattr(rec, "deleted_at", None) is not None:
             return {"status": "unassigned", "code": code_dict(c)}
-        if not can(m, t.view):
+        if not can(m, t.view) or not _may_open(m, c.entity_type, rec):
             raise RuleError("You don't have access to this record.", 403)
         return {
             "status": "found",
