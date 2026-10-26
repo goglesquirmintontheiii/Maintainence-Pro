@@ -91,6 +91,7 @@ def test_create_admin_makes_the_first_sysadmin_only(app: Any) -> None:
 
 
 def test_demo_data_makes_the_demo_admin_sysadmin_on_a_new_server(app: Any) -> None:
+    app.config["MPRO_TEST_BUILD"] = True  # only in test builds: the demo password is public (0.6.0 review #7)
     with app.app_context():
         from mpro.auth.models import User
         from mpro.extensions import db
@@ -250,9 +251,12 @@ def test_org_database_and_management_show_no_org_data(app: Any, sa: Api) -> None
     r = sa.patch(f"{API}/orgs/{org['id']}/members/{owner['user_id']}", {"role": "technician"})
     assert r.status_code == 409 and "Owner" in r.json["message"]
     assert sa.delete(f"{API}/orgs/{org['id']}/members/{owner['user_id']}").status_code == 409
-    r = sa.patch(f"{API}/orgs/{org['id']}/members/{newbie['user_id']}", {"role": "owner"})
+    # making an Owner opens all of the organization's data: the sysadmin's password again (0.6.0 review #11)
+    assert sa.patch(f"{API}/orgs/{org['id']}/members/{newbie['user_id']}", {"role": "owner"}).status_code == 403
+    r = sa.patch(f"{API}/orgs/{org['id']}/members/{newbie['user_id']}", {"role": "owner", "password": PW})
     assert r.status_code == 200
-    assert sa.patch(f"{API}/orgs/{org['id']}/members/{owner['user_id']}", {"role": "viewer"}).status_code == 200
+    r = sa.patch(f"{API}/orgs/{org['id']}/members/{owner['user_id']}", {"role": "viewer", "password": PW})
+    assert r.status_code == 200
     assert sa.delete(f"{API}/orgs/{org['id']}/members/{owner['user_id']}").status_code == 200
     assert sa.patch(f"{API}/orgs/{org['id']}/members/{owner['user_id']}", {"role": "bogus"}).status_code == 404
     # these show in the organization's own audit log too
