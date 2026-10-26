@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
@@ -25,9 +26,24 @@ def _port() -> int:
         return int(s.getsockname()[1])
 
 
+DATA_DIR: Path | None = None  # the running e2e server's data folder (its SQLite database is mpro.db)
+
+
+def sent_email_bodies(to: str) -> list[str]:
+    """Emails the e2e server queued for `to`, read straight from its database: the Email outbox page hides
+    sign-in-free links (0.6.0 review), so tests that need one read it here."""
+    import sqlite3
+
+    assert DATA_DIR is not None
+    with sqlite3.connect(DATA_DIR / "mpro.db") as db:
+        return [r[0] for r in db.execute('select body from outbound_emails where "to" = ? order by created_at', (to,))]
+
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory: Any) -> Iterator[str]:
+    global DATA_DIR
     data = tmp_path_factory.mktemp("e2e")
+    DATA_DIR = Path(data)
     port = _port()
     env = {
         **os.environ,

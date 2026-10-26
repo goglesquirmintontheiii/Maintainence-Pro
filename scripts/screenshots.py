@@ -498,10 +498,16 @@ def capture_060(ctx: Any, shot: Any, url: str) -> None:
         return rows[0] if rows else None
 
     def links(pg: Page, pattern: str) -> list[str]:
-        out: list[str] = []
-        for m in items(pg, "/admin/outbox"):
-            out += re.findall(pattern, str(m.get("body", "")) + str(m.get("html", "")))
-        return out
+        # sign-in-free links are hidden on the Email outbox page (0.6.0), so read the demo server's database
+        # directly when MPRO_DATA_DIR points at it (the same folder the demo server was started with)
+        import sqlite3
+
+        db = Path(os.environ.get("MPRO_DATA_DIR", "")) / "mpro.db"
+        if not os.environ.get("MPRO_DATA_DIR") or not db.exists():
+            return []
+        with sqlite3.connect(db) as con:
+            bodies = [str(r[0]) for r in con.execute("select body from outbound_emails order by created_at")]
+        return [m for b in bodies for m in re.findall(pattern, b)]
 
     c, pg = ctx()
     login(pg, url)

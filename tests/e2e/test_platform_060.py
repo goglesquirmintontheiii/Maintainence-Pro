@@ -67,13 +67,7 @@ def test_part_statuses_and_picture(page: Any, server: str) -> None:  # noqa: F81
     wo = api(page, "POST", "/work-orders", {"title": "E2E: parts statuses"})
     page.goto(server + f"/work-orders/{wo['id']}")
     page.get_by_role("heading", name="E2E: parts statuses").wait_for()
-    try:
-        page.get_by_role("button", name="Add parts").first.click(timeout=15000)
-    except Exception:
-        page.screenshot(
-            path="/tmp/claude-0/-home-claude/a6c7f219-40df-576e-87a0-bb15ad28a918/scratchpad/f6dbg.png", full_page=True
-        )
-        raise
+    page.get_by_role("button", name="Add parts").first.click(timeout=15000)
     page.get_by_role("dialog", name="Add parts").wait_for()
     page.get_by_role("dialog", name="Add parts").get_by_role("button", name="Parts", exact=True).click()
     page.get_by_role("option", name=re.compile("Ball bearing 6205")).first.click()
@@ -136,8 +130,9 @@ def test_vendor_po_page(page: Any, server: str) -> None:  # noqa: F811
         api(page, "POST", f"/purchase-orders/{po['id']}/approve", {})
     sent = api(page, "POST", f"/purchase-orders/{po['id']}/send", {"to": ["orders@e2e.example"]})
     assert sent.get("sent"), sent
-    mails = api(page, "GET", "/outbox")["items"]
-    body = next(m["body"] for m in mails if m["to"] == "orders@e2e.example")
+    from tests.e2e import test_ui
+
+    body = test_ui.sent_email_bodies("orders@e2e.example")[-1]
     path = re.search(r"/v/[A-Za-z0-9_-]+", body).group(0)  # type: ignore[union-attr]
     ctx = page.context.browser.new_context()
     vp = ctx.new_page()
