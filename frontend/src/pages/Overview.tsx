@@ -9,6 +9,11 @@ import { WORow } from "./workorders/WorkOrders";
 import { PhoneHome } from "../pwa/PhoneHome"; // phone Overview (0.6.0, r290)
 
 const SHIPPED = [
+  "Work requests with approve and decline, public request portals with QR codes, and a Guest role",
+  "Messages: direct, group and team chats, threads, announcements and a conversation on every work order",
+  "Notifications in the app, by email and as phone push, with digests, quiet hours and escalation rules",
+  "An installable phone app that works offline, plus scan actions, check-ins and scan history",
+  "MPro Management for server sysadmins",
   "Parts and inventory: stock per location, reservations, restocking, cycle counts and a transactions log",
   "Purchase orders with approval rules, budgets, partial receiving and supplier PunchOut carts",
   "Vendors and customers with contacts, quotes, and supplier product links that track price and stock",
