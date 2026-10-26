@@ -123,3 +123,15 @@ def _seed_work(org: Organization) -> None:
 
         am = db.session.scalars(select(Membership).filter_by(org_id=org.id, user_id=admin.id)).one()
         seed_asset_packages(org, am)
+        # 0.6.0 modules (each seed is idempotent)
+        from mpro.messaging.demo import seed as seed_messaging
+        from mpro.notifications.demo import seed as seed_notifications
+        from mpro.sync.demo import seed as seed_sync
+        from mpro.sysadmin.demo import seed as seed_sysadmin
+        from mpro.workrequests.demo import seed as seed_requests
+
+        seed_requests(org, admin)
+        seed_messaging(org, admin)
+        seed_notifications(org, admin)
+        seed_sync(org, admin)
+        seed_sysadmin(org, admin)

@@ -63,8 +63,12 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.core.files_api import bp as files_bp
     from mpro.finance import models as _finance_models  # noqa: F401
     from mpro.finance.api import bp as finance_bp
+    from mpro.messaging import models as _messaging_models  # noqa: F401
+    from mpro.messaging.api import bp as messaging_bp
     from mpro.meters import models as _meter_models  # noqa: F401
     from mpro.meters.api import bp as meters_bp
+    from mpro.notifications import models as _notification_models  # noqa: F401
+    from mpro.notifications.api import bp as notifications_bp
     from mpro.orgs import models as _org_models  # noqa: F401
     from mpro.orgs.api import bp as orgs_bp
     from mpro.parts import models as _parts_models  # noqa: F401
@@ -79,11 +83,17 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
     from mpro.qr.api import bp as qr_bp
     from mpro.suppliers import models as _supplier_models  # noqa: F401
     from mpro.suppliers.api import bp as suppliers_bp
+    from mpro.sync import models as _sync_models  # noqa: F401
+    from mpro.sync.api import bp as sync_bp
+    from mpro.sysadmin import models as _sysadmin_models  # noqa: F401
+    from mpro.sysadmin.api import bp as sysadmin_bp
     from mpro.vendors import models as _vendor_models  # noqa: F401
     from mpro.vendors.api import bp as vendors_bp
     from mpro.workorders import exports as _wo_exports  # noqa: F401
     from mpro.workorders import models as _wo_models  # noqa: F401
     from mpro.workorders.api import bp as wo_bp
+    from mpro.workrequests import models as _request_models  # noqa: F401
+    from mpro.workrequests.api import bp as requests_bp
 
     @login_manager.user_loader
     def load_user(uid: str) -> User | None:
@@ -156,6 +166,11 @@ def create_app(overrides: dict[str, Any] | None = None) -> APIFlask:
         purchasing_bp,
         suppliers_bp,
         finance_bp,
+        requests_bp,
+        messaging_bp,
+        notifications_bp,
+        sync_bp,
+        sysadmin_bp,
         files_bp,
         admin_bp,
         health_bp,

@@ -112,8 +112,8 @@ def test_create_team_and_see_it_in_audit_log(page: Any, server: str) -> None:
 
 def test_unbuilt_module_explains_itself(page: Any, server: str) -> None:
     _login(page, server)
-    page.goto(server + "/requests")
-    page.get_by_text("Arrives in MPro 0.6.0").wait_for()
+    page.goto(server + "/dashboards")
+    page.get_by_text("Arrives in MPro 0.7.0").wait_for()
 
 
 def test_create_comment_and_complete_work_order(page: Any, server: str) -> None:

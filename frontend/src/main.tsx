@@ -39,6 +39,10 @@ import { SupplierSettingsPage } from "./pages/suppliers/SupplierSettings";
 import { ExternalWorkOrder } from "./pages/external/ExternalWorkOrder";
 import { AssetHubPage } from "./pages/assets/AssetHub";
 import { PublicQuotePage } from "./pages/vendors/PublicQuote";
+import { RequestsPage } from "./pages/requests/Requests";
+import { MessagesPage } from "./pages/messages/Messages";
+import { NotificationsPage } from "./pages/notifications/Notifications";
+import { ManagementPage } from "./pages/sysadmin/Management";
 import "./devtools/feedback"; // TEMPORARY Ctrl+Shift+F feedback capture (0.4.2). Remove by 1.9.0, see devtools/feedback/README.md
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: (n, e) => n < 1 && (e as { status?: number }).status !== 404, refetchOnWindowFocus: false } } });
@@ -106,6 +110,12 @@ function Gate() {
         <Route path="finance" element={<FinancePage />} />
         <Route path="finance/:tab" element={<FinancePage />} />
         <Route path="finance/:tab/:id" element={<FinancePage />} />
+        <Route path="requests" element={<RequestsPage />} />
+        <Route path="requests/:id" element={<RequestsPage />} />
+        <Route path="messages" element={<MessagesPage />} />
+        <Route path="messages/:id" element={<MessagesPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="mpro-management/*" element={<ManagementPage />} />
         <Route path="scan" element={<ScanPage />} />
         <Route path="q/:code" element={<QrResolve />} />
         <Route path="categories" element={<Categories />} />

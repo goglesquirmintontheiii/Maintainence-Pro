@@ -68,6 +68,18 @@ ACTIONS: dict[str, set[str]] = {
     "audit.view": {"owner", "admin"},
     "jobs.view": {"owner", "admin"},
     "jobs.manage": {"owner", "admin"},
+    # 0.6.0 foundation (workstreams may add more next to these)
+    "requests.view": ALL,  # requesters and viewers see their own requests; requests.view_all sees everyone's
+    "requests.view_all": _FULL | {"viewer"},
+    "requests.create": ALL - {"viewer"},
+    "requests.approve": _STAFF,
+    "requests.settings": {"owner", "admin"},
+    "requests.portals": {"owner", "admin"},
+    "messages.use": ALL - {"viewer"},
+    "messages.manage": _STAFF,  # team chats, the All Team conversation, announcements
+    "notifications.rules": {"owner", "admin"},  # escalation rules and org-wide notification settings
+    "scan.settings": {"owner", "admin"},
+    "scan.history": _FULL,
     "mail.view": {"owner", "admin"},
     "search.use": ALL,
     # work orders (0.2.0). Operators only ever see work assigned to them (forced limited visibility).
@@ -165,6 +177,8 @@ AREAS: list[tuple[str, str]] = [
     ("purchasing", "Purchase orders"),
     ("vendors", "Vendors and customers"),
     ("finance", "Finance"),
+    ("requests", "Requests"),
+    ("messages", "Messages and notifications"),
     ("data", "Data and system"),
 ]
 ACTION_INFO: dict[str, tuple[str, str]] = {
@@ -181,6 +195,17 @@ ACTION_INFO: dict[str, tuple[str, str]] = {
     "audit.view": ("data", "See the audit log"),
     "jobs.view": ("data", "See background jobs"),
     "jobs.manage": ("data", "Retry and cancel background jobs"),
+    "requests.view": ("requests", "See their own requests"),
+    "requests.view_all": ("requests", "See everyone's requests"),
+    "requests.create": ("requests", "Submit requests"),
+    "requests.approve": ("requests", "Approve and decline requests"),
+    "requests.settings": ("requests", "Change request settings"),
+    "requests.portals": ("requests", "Manage request portals"),
+    "messages.use": ("messages", "Send messages"),
+    "messages.manage": ("messages", "Manage team chats and announcements"),
+    "notifications.rules": ("messages", "Manage escalation rules"),
+    "scan.settings": ("assets", "Change what scanning a code does"),
+    "scan.history": ("assets", "See scan history"),
     "mail.view": ("data", "See the email outbox"),
     "search.use": ("org", "Search"),
     "wo.view": ("wo", "See work orders"),
