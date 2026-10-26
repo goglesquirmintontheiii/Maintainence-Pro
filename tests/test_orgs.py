@@ -36,7 +36,14 @@ def test_invite_member_sends_set_password_email(admin: Any, app: Any) -> None:
     assert r.status_code == 201 and r.json["email"] == "new.tech@example.com" and not r.json["has_password"]
     assert admin.post("/api/v1/users", json={"email": "new.tech@example.com", "role": "technician"}).status_code == 409
     outbox = admin.get("/api/v1/outbox").json["items"]
-    assert "/reset-password/" in outbox[0]["body"] and "invite=1" in outbox[0]["body"]
+    # the outbox hides the sign-in link from admins (0.6.0 review #1); the email itself carries it
+    assert "/reset-password/[Link hidden]" in outbox[0]["body"]
+    with app.app_context():
+        from mpro.core.mail import OutboundEmail
+        from mpro.extensions import db
+
+        sent = db.session.query(OutboundEmail).filter_by(to="new.tech@example.com").one()
+        assert "/reset-password/" in sent.body and "invite=1" in sent.body
 
 
 def test_role_changes_and_last_admin(admin: Any) -> None:

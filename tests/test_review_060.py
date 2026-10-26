@@ -344,3 +344,29 @@ def test_server_setting_false_text_is_false(app: Any, admin: Api) -> None:
     assert validate({"smtp_tls": "false"})["smtp_tls"] is False
     assert validate({"smtp_tls": "0"})["smtp_tls"] is False
     assert validate({"smtp_tls": "on"})["smtp_tls"] is True
+
+
+def test_vendor_picture_must_be_uploaded_by_the_editor(app: Any, admin: Any) -> None:
+    """Like parts and conversations: a vendor picture can't be any image in the organization."""
+    import io
+
+    from tests.test_work_orders import PNG_1PX, login
+
+    tech = login(app, "sam.patel@example.com")
+    up = tech.c.post(
+        "/api/v1/files",
+        data={"file": (io.BytesIO(PNG_1PX), "p.png")},
+        headers={"X-CSRF-Token": tech.csrf},
+        content_type="multipart/form-data",
+    )
+    assert up.status_code == 201, up.json
+    v = admin.post("/api/v1/vendors", {"name": "Acme"}).json
+    r = admin.patch(f"/api/v1/vendors/{v['id']}", {"picture_file_id": up.json["id"]})
+    assert r.status_code == 422
+    mine = admin.c.post(
+        "/api/v1/files",
+        data={"file": (io.BytesIO(PNG_1PX), "m.png")},
+        headers={"X-CSRF-Token": admin.csrf},
+        content_type="multipart/form-data",
+    )
+    assert admin.patch(f"/api/v1/vendors/{v['id']}", {"picture_file_id": mine.json["id"]}).status_code == 200

@@ -63,10 +63,15 @@ def _custom(org_id: uuid.UUID, values: Any, existing: dict[str, Any] | None, ent
     return _clean_custom(org_id, values, existing, entity_type=entity_type)
 
 
-def _picture(org_id: uuid.UUID, raw: Any) -> uuid.UUID | None:
+def _picture(
+    org_id: uuid.UUID, raw: Any, user_id: uuid.UUID | None = None, current: uuid.UUID | None = None
+) -> uuid.UUID | None:
     f = one_in_org(FileObject, org_id, raw, "picture")
     if f is not None and not f.content_type.startswith("image/"):
         raise RuleError("The picture must be an image.", 422)
+    # only a picture the person uploaded (or the one already set): not any image in the organization (0.6.0 review)
+    if f is not None and f.id != current and user_id is not None and f.uploaded_by_id != user_id:
+        raise RuleError("Upload the picture yourself.", 422)
     return f.id if f is not None else None
 
 
@@ -209,7 +214,7 @@ def save_vendor(org: Organization, m: Membership, data: dict[str, Any], v: Vendo
             raise RuleError("Exemption accounts must be an object.", 422)
         v.exemption_accounts = {text(k, 60, "Account"): text(val, 120, "Account id") for k, val in ea.items()}
     if "picture_file_id" in data:
-        v.picture_file_id = _picture(org.id, data.get("picture_file_id"))
+        v.picture_file_id = _picture(org.id, data.get("picture_file_id"), m.user_id, v.picture_file_id)
     if "custom" in data or creating:
         v.custom = _custom(org.id, data.get("custom") or {}, v.custom if not creating else None, "vendor")
     from mpro.workorders.services import custom_fields
